@@ -1,0 +1,198 @@
+# GeoEyes project — every section written out with its effective value (cosmo_skymed preset + defaults).
+# A value written here overrides the preset; deleting a line falls back to the preset / default.
+# Run:  geoeyes check hanoi_csk  |  geoeyes plan hanoi_csk  |  geoeyes run hanoi_csk  |  geoeyes status hanoi_csk
+schema = "geoeyes.project/1"
+
+[project]
+name = "hanoi_csk"
+method = "psi"                     # psi | sbas | psds | comsar | ps_lite (Capella)
+description = "COSMO-SkyMed ascending, Hanoi 2011-2014 (18 scenes)"
+
+[aoi]
+bbox = [105.8092, 21.0012, 105.8754, 21.0639]     # west, south, east, north (EPSG:4326)
+file = ""                                          # GeoJSON/GPKG polygon (not used yet: bbox)
+
+[[tracks]]
+sensor = "cosmo_skymed"
+direction = "ascending"
+# relative_orbit = 78              # Sentinel-1
+# subswaths = ["IW3"]              # Sentinel-1
+
+# ----------------------------------------------------------------------------------------------- data, stack
+[acquire]
+archive = "D:/projects/geoeyes_workspace/archive/cosmo_skymed/_incoming"   # raw scenes (one folder per date)
+# date_range = [2011-01-01, 2015-12-31]
+max_per_month = 0                  # 0 = no limit (not used yet)
+
+[network]
+reference = 2012-02-06             # a date or "auto" (median date, then kept when new scenes arrive)
+max_perp_m = 800.0                 # (not used yet by the native single-master stack)
+max_temporal_days = 0
+extent_min_ratio = 0.95
+
+[network.sbas]                     # method = sbas only (not ported yet)
+redundant_pairs = true
+redundant_max_days = 24
+max_temporal_days = 0
+
+[stack]
+engine = "native"                  # native (snap is not available)
+geometry = "radar"
+dem = "srtm-1"                     # srtm-1 (SNAP cache) | a folder of SRTM tiles | a GeoTIFF
+esd = false
+multilook = [1, 1]
+merge_subswaths = false
+merge_subswaths_max_match_dist_deg = 0.0003
+process_range = []
+reestimate = true
+renew = true
+byteswap = 1
+
+# ----------------------------------------------------------------------------------------------- phase linking
+[phase_linking]                    # CSK: phase linking + Gaussian post-filter (no wavelet / FAMM / Goldstein)
+enabled = true
+estimator = "adaptive"             # evd | emi | pta | mle | adaptive  (psds / comsar not ported)
+half_window = [7, 7]               # lines, samples
+shp_test = "ad"                    # Anderson-Darling (default) | ks
+shp_alpha = 0.05
+min_shp = 25                       # homogeneous neighbours needed to link a pixel
+ps_da_max = 0.25                   # PS (amplitude dispersion) keep their own SLC; 0 = link every pixel
+adaptive_coherence_threshold = 0.6 # adaptive: EMI above, PTA below (mean coherence)
+tile_size = 512
+ministack_size = 5                 # psds / comsar only
+gaussian_sigma = 1.5               # post-filter (pixels); 0 = off
+gaussian_scope = "linked"          # linked pixels only (PS untouched) | all
+
+# ----------------------------------------------------------------------------------------------- candidates
+[selection]
+da_threshold = 0.4                 # PS candidates: amplitude dispersion <= this
+robust_da = true
+ds_coherence_min = 0.7             # DS candidates from phase linking (best per ds_cell x ds_cell block); remove = PS only
+ds_cell = 3
+forced_points = ""                 # (not used yet)
+mask = ""                          # (not used yet)
+water_mask = "none"                # (not used yet)
+
+# ----------------------------------------------------------------------------------------------- PS engine (StaMPS names)
+[ps]
+# step 2 — temporal coherence
+max_topo_err = "auto"              # m, or "auto" = median height of ambiguity / 4
+filter_grid_size = 50
+filter_weighting = "P-square"
+clap_win = 32
+clap_low_pass_wavelength = 800
+clap_alpha = 1.0
+clap_beta = 0.3
+gamma_change_convergence = 0.005
+gamma_max_iterations = 3
+dem_error_ambiguity = "n"          # legacy CSK topofit ambiguity score + K regularisation (worse on Hanoi)
+dem_error_amb_auto_threshold = "y"
+dem_error_amb_q_reject = 0.1
+dem_error_amb_q_ok = 0.25
+dem_error_spatial_lambda = 0.5
+dem_error_spatial_iters = 5
+# step 3 — selection
+select_method = "PERCENT"          # PERCENT | DENSITY
+percent_rand = 92
+density_rand = 20
+gamma_min_threshold = 0.3
+gamma_stdev_reject = 0.0
+select_nr_scaling = "low_coherence"
+reest_smoothing_flag = "y"
+slc_osf = 1
+drop_ifg_index = []                # 1-based epochs left out of the estimation
+# step 4 — weeding
+weed_time_win = 730
+weed_standard_dev = inf
+weed_max_noise = 2.5
+weed_zero_elevation = "n"
+weed_neighbours = "n"
+weed_adjacent_keep_per_group = 2
+weed_noisy_check = "y"
+# step 6 — unwrapping
+unwrap_grid_size = 10              # m
+unwrap_grid_filter = "gaussian"    # gaussian | goldstein | none
+unwrap_prefilter_flag = "y"
+unwrap_gold_n_win = 64
+unwrap_gold_alpha = 0.8
+unwrap_gold_coh_floor = 0.2
+unwrap_time_win = 730
+unwrap_la_error_flag = "y"
+unwrap_irls_iter = 50
+unwrap_irls_target_rms = 0.005
+unwrap_irls_epsilon = 0.0005
+subtr_tropo = "y"                  # second unwrapping pass with SCLA + APS removed
+# step 7 — SCLA, APS, reference, velocity
+scla_deramp = "y"
+# aps_non_defo = [[105.81, 21.00], [105.83, 21.00], [105.83, 21.02], [105.81, 21.02]]
+#                                  # linear APS fitted inside this lon/lat polygon only; unset = all PS
+ref_auto = "n"                     # "y": reference = coherent PS on the scene periphery
+ref_lon = [-inf, inf]              # reference box (StaMPS ps_setref); the whole scene = scene mean
+ref_lat = [-inf, inf]
+ref_centre_lonlat = [0.0, 0.0]
+ref_radius = inf                   # m around ref_centre_lonlat
+# step 8 — spatially correlated noise
+scn_time_win = 365
+scn_wavelength = 100
+legacy_quirks = "n"                # "y" only for the parity tests
+
+# ----------------------------------------------------------------------------------------------- atmosphere
+[atmosphere]
+method = "none"                    # none / linear: the engine's linear APS | era5 | gacos
+select = "auto"                    # era5/gacos per interferogram where it beats the linear APS | all
+
+[atmosphere.era5]                  # used when method = "era5"
+# cache = ""                       # default <workspace>/cache/era5
+auto_download = true               # Copernicus CDS (~/.cdsapirc)
+buffer_deg = 2.0
+component = "total"                # total | hydro | wet
+workers = 4
+# fallback_utc = "22:53:00"        # only for stacks without per-date acquisition times
+
+[atmosphere.gacos]                 # used when method = "gacos"
+# dir = ""                         # folder of <YYYYMMDD>.ztd + .ztd.rsc (or .ztd.tif) products
+
+# ----------------------------------------------------------------------------------------------- ps_lite (method = ps_lite only)
+[ps_lite]
+ref_date = "auto"
+dem_datum = "EGM96"
+sign = "auto"
+da_max = 0.4
+sd_max = 0.45
+ps_cell = [4, 6]
+uw_cell = [16, 24]
+amp_floor_pct = 10.0
+phase_std_max = 0.8
+ifg_std_max = 1.5
+tropo = false
+remove_plane = false
+gs_alpha = 0.8
+gs_win = 32
+gs_passes = 1
+irls_iter = 50
+unwrap_method = "s1"
+tcoh_min = 0.7
+# ref_latlon = [21.03, 105.84]     # reference point; unset = automatic
+ref_radius_m = 200.0
+aps_sigma_m = 1000.0
+geo_step = [8, 12]
+block_lines = 256
+exclude_dates = []
+
+# ----------------------------------------------------------------------------------------------- not used yet
+[postprocess]
+decompose_3d = "auto"
+
+[report]
+copy_to = ""
+
+[export]
+formats = ["gpkg", "pmtiles"]
+
+[compute]
+backend = "auto"
+workers = 0                        # 0 = automatic
+memory_gb = 0
+
+[pipeline]
+disabled = []

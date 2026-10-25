@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geoeyes"
+version = "0.1.0.dev0"
+description = "GeoEyes: end-to-end InSAR time-series processing (PSI / PS-DS), native Sentinel-1, COSMO-SkyMed and Capella"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+# License: GeoEyes license to be written by the project owner (ADR-019) -> add `license-files` then.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "pandas>=2.2",
+    "xarray>=2024.1",
+    "zarr>=3.0",            # StackStore (Zarr v3)
+    "dask>=2024.1",
+    "h5py>=3.10",           # PS state, CSK reader
+    "pyarrow>=14",          # GeoParquet products
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "pyogrio>=0.7",         # GeoPackage export
+    "rasterio>=1.4",        # SLC / DEM / COG
+    "matplotlib>=3.8",
+    "scikit-image>=0.22",   # sub-pixel registration
+    "requests>=2.32",       # ASF, orbits, DEM
+    "psutil>=5.9",
+    "python-dotenv>=1.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "tomli-w>=1.0",
+    "typst>=0.13",          # PDF reports (ADR-010)
+    "pmtiles>=3.4",         # vector tiles of the products (export default)
+    "duckdb>=1.0",          # workspace catalog index
+]
+
+[project.optional-dependencies]
+era5 = [                    # [atmosphere] method = "era5"
+    "cdsapi>=0.7",
+    "netcdf4>=1.6",
+]
+web = [                     # geoeyes serve (front end prebuilt into geoeyes/api/static)
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "tomlkit>=0.12",        # settings edits keep the comments of project.toml
+]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3.5",
+    "ruff>=0.6",
+    "httpx>=0.27",          # FastAPI TestClient
+]
+
+[project.scripts]
+geoeyes = "geoeyes.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["geoeyes*"]
+
+[tool.setuptools.package-data]
+geoeyes = ["config/presets/*.toml", "report/templates/*.typ", "validation/corner_reflector/*.typ",
+           "api/static/*", "api/static/assets/*"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["webapp", ".cache"]       # webapp: TypeScript front end (tsc checks it)
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]            # src/geoeyes/ruff.toml is stricter for the package
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [".cache", "webapp", "node_modules"]
+addopts = "-ra"
+markers = [
+    "golden: end-to-end comparison against golden outputs (needs GEOEYES_TEST_DATA)",
+    "slow: long-running tests",
+]

@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Secrets and per-user settings (never commit)
+.env
+.claude/settings.local.json
+.claude/worktrees/
+.vscode/
+
+# Data never lives in the repo: imagery, stacks, runs and products are in the workspace
+# (GEOEYES_WORKSPACE), golden data in GEOEYES_TEST_DATA
+*.zarr/
+*.h5
+*.tif
+*.tiff
+*.parquet
+*.log
+
+# Web app front end: sources in webapp/, the build (src/geoeyes/api/static/) is committed so that
+# `geoeyes serve` needs no Node on the processing machine
+**/node_modules/
+webapp/**/.env*
+*.tsbuildinfo

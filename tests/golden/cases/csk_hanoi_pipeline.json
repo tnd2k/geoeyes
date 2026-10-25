@@ -1,0 +1,19 @@
+{
+  "name": "csk_hanoi_pipeline",
+  "sensor": "cosmo_skymed",
+  "engine": "pipeline",
+  "description": "COSMO-SkyMed HIMAGE ascending, central Hanoi, 18 epochs 2011-07-01..2014-12-12, the production chain of hanoi_csk: raw HDF5 -> native stripmap stack -> phase linking (adaptive, Anderson-Darling SHP, Gaussian post-filter) -> ps engine -> product. The project configuration is frozen in csk_hanoi_pipeline.toml; the AOI is cut to 2.6 x 2.6 km to keep the run short.",
+  "input": {
+    "config": "csk_hanoi_pipeline.toml",
+    "aoi": [105.830, 21.020, 105.855, 21.044],
+    "to": "build_product"
+  },
+  "tolerance": {
+    "kept_rel": 0.01,
+    "match_min_frac": 0.98,
+    "vel_rmse_mm_yr": 0.2,
+    "vel_bias_mm_yr": 0.1,
+    "dh_rmse_m": 0.5,
+    "tcoh_median_absdiff": 0.01
+  }
+}

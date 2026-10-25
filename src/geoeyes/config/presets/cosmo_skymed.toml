@@ -1,0 +1,39 @@
+# COSMO-SkyMed defaults. Raw data come from an archive (no search/download).
+[network]
+max_perp_m = 800.0
+
+[stack]
+geometry = "radar"
+esd = false
+
+[phase_linking]
+# CSK chain: phase linking + Gaussian post-filter (no wavelet / FAMM / Goldstein filtering); PS keep their SLC
+enabled = true
+estimator = "adaptive"
+half_window = [7, 7]
+min_shp = 25
+gaussian_sigma = 1.5
+
+[selection]
+robust_da = true
+ds_coherence_min = 0.7
+
+[ps]
+# Classic StaMPS engine. The legacy CSK additions (dem_error_ambiguity = "y", select_nr_scaling = "population",
+# unwrap_grid_filter = "goldstein") made the phase-linked Hanoi stack worse (2026-10-23 ablation: fit RMSE
+# 4.12 -> 4.81 mm with the ambiguity score, velocity scatter of PS 60-150 m apart 1.51 -> 1.67 mm/yr with
+# Goldstein, no change with the population scaling); they remain available per project.
+# operating settings of the legacy CSK projects (in.json); max_topo_err as the legacy CSK prep:
+# median height of ambiguity / 4
+max_topo_err = "auto"
+select_method = "PERCENT"
+percent_rand = 92
+density_rand = 20
+weed_standard_dev = inf
+weed_max_noise = 2.5
+weed_adjacent_keep_per_group = 2
+unwrap_grid_size = 10
+unwrap_gold_n_win = 64
+unwrap_irls_target_rms = 0.005
+unwrap_irls_epsilon = 0.0005
+scla_deramp = "y"

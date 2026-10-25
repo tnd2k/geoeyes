@@ -1,0 +1,7 @@
+# ALOS-PALSAR (L-band) defaults — provisional until the reader exists (Phase 4b).
+[network]
+max_perp_m = 2000.0
+
+[stack]
+geometry = "radar"
+esd = false

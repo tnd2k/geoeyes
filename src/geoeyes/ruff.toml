@@ -1,0 +1,24 @@
+# Lint rules for new GeoEyes code (src/geoeyes). Stricter than the legacy root config.
+extend = "../../pyproject.toml"
+
+[lint]
+select = [
+    "E", "W", "F",      # pycodestyle, pyflakes
+    "I",                # isort
+    "B",                # bugbear
+    "UP",               # pyupgrade
+    "SIM",              # simplify
+    "T20",              # no print() in the library (ARCHITECTURE §12)
+    "RUF",
+]
+ignore = [
+    "RUF046",           # int(round(x)) is intentional: round() of a numpy scalar is not guaranteed int
+]
+# scientific notation in docstrings, log and report text: minus sign, en dash, multiplication sign, Greek letters
+allowed-confusables = ["−", "–", "×", "α", "σ"]
+
+[lint.per-file-ignores]
+# verbatim ports of modules/ps_stack (kept line-for-line comparable with the legacy source)
+"processing/ps_lite/{ps,invert,unwrap}.py" = ["E501"]
+"cli/*.py" = ["T201"]                   # the command line prints its results
+"api/app.py" = ["T201", "B008"]         # serve() prints the URL; Body(...) defaults are FastAPI's idiom

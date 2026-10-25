@@ -1,0 +1,8 @@
+# TerraSAR-X / TanDEM-X defaults. Map geometry (terrain correction before the interferogram) is
+# kept until it is validated against radar geometry (ADR-005).
+[network]
+max_perp_m = 800.0
+
+[stack]
+geometry = "map"
+esd = false

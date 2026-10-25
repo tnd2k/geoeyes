@@ -1,0 +1,12 @@
+# Capella defaults: the ps_lite workflow on radar-geometry coreg (ADR-005, ADR-020).
+# Capella orbits are not held in a tight tube like S1's, hence the large baseline limit.
+[network]
+max_perp_m = 800.0
+
+[stack]
+geometry = "radar"
+esd = false
+byteswap = 0
+
+[phase_linking]
+half_window = [5, 5]

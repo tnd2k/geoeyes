@@ -1,0 +1,27 @@
+{
+  "name": "capella_mexico_native",
+  "sensor": "capella",
+  "engine": "stripmap_native_ps_lite",
+  "description": "Capella ASC (left-looking) Mexico City, 18 epochs 2024-06-26..2024-08-15, raw SLC -> native stripmap stack (geometry + residual phase-correlation coregistration) -> ps_lite with the parameters of the former SNAP-based golden. Cross-check vs that golden: velocity r = 0.98, bias -0.6 mm/yr.",
+  "input": {
+    "scenes": "D:/projects/geoeyes_workspace/archive/capella/capella-asc",
+    "reference": "2024-07-11",
+    "aoi": [-99.0177, 19.3435, -98.9903, 19.3683],
+    "dem_box": [19.0, 19.7, -99.3, -98.7],
+    "track": "capella-asc"
+  },
+  "params": {
+    "ref_date": "20240711", "da_max": 0.4, "sd_max": 0.45, "ps_cell": [4, 6], "uw_cell": [16, 24],
+    "amp_floor_pct": 10.0, "phase_std_max": 0.8, "ifg_std_max": 1.5, "tropo": false, "remove_plane": false,
+    "gs_alpha": 0.8, "gs_win": 32, "gs_passes": 1, "irls_iter": 50, "unwrap_method": "s1", "tcoh_min": 0.7,
+    "ref_radius_m": 200.0, "aps_sigma_m": 1000.0
+  },
+  "tolerance": {
+    "kept_rel": 0.02,
+    "match_min_frac": 0.95,
+    "vel_rmse_mm_yr": 1.0,
+    "vel_bias_mm_yr": 0.5,
+    "dh_rmse_m": 1.0,
+    "tcoh_median_absdiff": 0.02
+  }
+}

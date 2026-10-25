@@ -1,0 +1,28 @@
+{
+  "name": "s1_mexico_native",
+  "sensor": "sentinel1",
+  "engine": "s1_native_ps_lite",
+  "description": "Sentinel-1 track 78 ASC IW3, bursts 078_165499/165500, 16 epochs 2024-05-03..2024-10-30 over the Capella Mexico City area; native stack (POEORB) + ps_lite. Cross-checked against SNAP+StaMPS (results/mexico_s1): r = 0.85 detrended, interferogram phase std 0.12 rad.",
+  "input": {
+    "archive": "D:/projects/geoeyes_workspace/archive/sentinel1/sentinel1-asc-078/2024",
+    "orbit_cache": "D:/projects/geoeyes_workspace/cache/orbits",
+    "reference": "2024-07-14",
+    "aoi": [-99.03, 19.30, -98.98, 19.42],
+    "dem_box": [19.0, 19.6, -99.7, -98.6],
+    "track": "sentinel1-asc-078"
+  },
+  "params": {
+    "ps_cell": [2, 8],
+    "uw_cell": [4, 16],
+    "aps_sigma_m": 2000.0,
+    "ref_date": "auto"
+  },
+  "tolerance": {
+    "kept_rel": 0.02,
+    "match_min_frac": 0.95,
+    "vel_rmse_mm_yr": 1.0,
+    "vel_bias_mm_yr": 0.5,
+    "dh_rmse_m": 1.0,
+    "tcoh_median_absdiff": 0.02
+  }
+}

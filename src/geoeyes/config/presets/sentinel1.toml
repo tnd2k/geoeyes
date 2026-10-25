@@ -1,0 +1,11 @@
+# Sentinel-1 IW TOPS defaults (merged under the user's project.toml).
+[network]
+max_perp_m = 150.0
+
+[stack]
+geometry = "radar"
+esd = true
+byteswap = 1
+
+[phase_linking]
+half_window = [7, 7]
