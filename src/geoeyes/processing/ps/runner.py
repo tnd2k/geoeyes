@@ -412,7 +412,8 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
         vel.ts_mm = (vel.ts_mm - np.nanmean(vel.ts_mm[ref], axis=0)).astype(np.float32)
     scn = scn_filt(ph_uw=u.ph_uw, ph_scla=sc.ph_scla, C_uw=sc.C_uw, ph_ramp=sc.ph_ramp, day=L.day,
                    master_ix=L.master_ix, xy=xy_ix, filter_xy=None if scn_filter_xy is None else scn_filter_xy[ix],
-                   time_win=prm.scn_time_win, wavelength=prm.scn_wavelength, method=scn_method)
+                   time_win=prm.scn_time_win, wavelength=prm.scn_wavelength, method=scn_method,
+                   time_fit=prm.scn_time_fit)
     # StaMPS "v-dso": SCN removed too (referenced to the reference PS / the scene mean instead of PS 0); no
     # high-pass correction, the SCN is that noise
     scn_ref = np.nanmean(scn.ph_scn[ref if ref is not None else slice(None)], axis=0)

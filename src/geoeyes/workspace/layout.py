@@ -106,6 +106,10 @@ class ProjectLayout:
     def run(self, run_id: str) -> Path:
         return self.root / "runs" / _safe_id("run", run_id)
 
+    def analysis(self, kind: str, product_id: str) -> Path:
+        """Analyses derived from a product (e.g. ``hazard``), outside the immutable product folder."""
+        return self.root / "analyses" / _safe_id("analysis", kind) / _safe_id("product", product_id)
+
     @property
     def state_dir(self) -> Path:
         return self.root / ".state"

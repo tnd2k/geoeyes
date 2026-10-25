@@ -162,6 +162,74 @@ def cmd_cr_report(args) -> int:
     return 0
 
 
+def cmd_hazard(args) -> int:
+    """Hazard zoning with rainfall of a product (``--product``, else the latest product of each track)."""
+    import logging
+
+    from geoeyes.hazard import run_hazard
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    cfg, project, ws = _open(args)
+    ids = _product_ids(args, cfg, project)
+    if not ids:
+        print("no product yet: run the project first (geoeyes run)", file=sys.stderr)
+        return 1
+    overrides = _overrides(args.set)
+    for pid in ids:
+        s = run_hazard(cfg, project, ws, pid, overrides, progress=lambda msg: print(msg, flush=True))
+        levels = {m: {k: v["cells"] for k, v in d.items() if isinstance(v, dict) and v["cells"]}
+                  for m, d in s["by_level"].items()}
+        print(f"{pid}: {s['n_cells']} cells, rainfall coupling significant in "
+              f"{s['coupling']['cells_significant']}; {levels} -> {project.analysis('hazard', pid)}")
+    return 0
+
+
+def cmd_gnss(args) -> int:
+    """InSAR against the NGL GNSS stations of a product, and the GNSS calibration (``--product``, else the latest
+    product of each track)."""
+    import logging
+
+    from geoeyes.validation.gnss import run_gnss
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    cfg, project, ws = _open(args)
+    ids = _product_ids(args, cfg, project)
+    if not ids:
+        print("no product yet: run the project first (geoeyes run)", file=sys.stderr)
+        return 1
+    for pid in ids:
+        s = run_gnss(cfg, project, ws, pid, _overrides(args.set), progress=lambda msg: print(msg, flush=True))
+        used = [st["site"] for st in s["stations"] if st["used"]]
+        c = s["calibration"] or {}
+        print(f"{pid}: {len(s['stations'])} NGL station(s), compared {used or 'none'}"
+              + (f"; {c['kind']} calibration {c['rate_offset_mm_yr']:+.2f} mm/yr" if c else "")
+              + f" -> {project.analysis('gnss', pid)}")
+        for w in s["warnings"]:
+            print(f"  warning: {w}")
+    return 0
+
+
+def _product_ids(args, cfg, project) -> list[str]:
+    """``--product``, else the latest product of each (selected) track."""
+    from geoeyes.controller.phase import ProjectState
+    if args.product:
+        return [args.product]
+    state = ProjectState(project)
+    ids = [((state.get(t.track_id, "build_product") or {}).get("result") or {}).get("product_id")
+           for t in cfg.tracks if not args.track or t.track_id in args.track]
+    return [i for i in ids if i]
+
+
+def _overrides(pairs) -> dict:
+    """``KEY=VALUE`` pairs, values read as JSON when they parse."""
+    out = {}
+    for kv in pairs or []:
+        key, _, value = kv.partition("=")
+        try:
+            out[key.strip()] = json.loads(value)
+        except json.JSONDecodeError:
+            out[key.strip()] = value
+    return out
+
+
 def cmd_catalog(args) -> int:
     """Workspace catalog: ``build`` (STAC + DuckDB index) or ``search``."""
     from geoeyes.catalog import build_catalog, search
@@ -225,6 +293,16 @@ def build_parser() -> argparse.ArgumentParser:
     cr = add("cr-report", cmd_cr_report, selection=False, help_="corner reflector identification report (S1)")
     cr.add_argument("--track", action="append", help="track id (repeatable)")
     cr.add_argument("--no-pdf", action="store_true", help="JSON, CSV and figures only")
+    hz = add("hazard", cmd_hazard, selection=False, help_="hazard zoning of a product with rainfall (CHIRPS)")
+    hz.add_argument("--product", help="product id (default: the latest product of each track)")
+    hz.add_argument("--track", action="append", help="track id (repeatable)")
+    hz.add_argument("--set", action="append", metavar="KEY=VALUE",
+                    help="override a [postprocess.hazard] parameter, e.g. --set cell_m=50 (repeatable)")
+    gn = add("gnss", cmd_gnss, selection=False, help_="compare a product with the NGL GNSS stations; GNSS calibration")
+    gn.add_argument("--product", help="product id (default: the latest product of each track)")
+    gn.add_argument("--track", action="append", help="track id (repeatable)")
+    gn.add_argument("--set", action="append", metavar="KEY=VALUE",
+                    help="override a [validation.gnss] parameter, e.g. --set radius_m=200 (repeatable)")
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")

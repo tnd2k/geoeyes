@@ -238,6 +238,9 @@ class AtmosphereSection(_Section):
 class PostprocessSection(_Section):
     decompose_3d: Literal["auto", "off"] = "auto"
     alerts: dict[str, Any] = {}
+    # hazard zoning with rainfall (geoeyes hazard): see geoeyes.hazard.HazardParams and
+    # docs/en/research/rainfall-insar-hazard.md
+    hazard: dict[str, Any] = {}
 
 
 class ValidationSection(_Section):

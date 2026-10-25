@@ -32,6 +32,9 @@ DEFAULTS: dict[str, Any] = {
     "unwrap_prefilter_flag": "y", "unwrap_time_win": 730, "unwrap_la_error_flag": "y", "unwrap_irls_iter": 50,
     "unwrap_irls_target_rms": 0.01, "unwrap_irls_epsilon": 0.001,
     "scla_deramp": "n", "scn_time_win": 365, "scn_wavelength": 100, "subtr_tropo": "y",
+    # SCN temporal low-pass: "linear" (local linear fit, keeps the deformation trend out of the noise) or "mean"
+    # (StaMPS ps_scn_filt; leaks the trend into the SCN at the series ends and in series shorter than the window)
+    "scn_time_fit": "linear",
     "weed_noisy_check": "y",
     # GeoEyes switches between classic StaMPS (defaults, as the legacy S1 engine) and the legacy CSK engine's
     # additions: topofit ambiguity score + spatial K regularisation, population-scaled random histogram
@@ -41,7 +44,7 @@ DEFAULTS: dict[str, Any] = {
     "ref_centre_lonlat": [0.0, 0.0], "ref_radius": float("inf"), "ref_auto": "n",
     # linear APS fitted only inside this lon/lat polygon [[lon, lat], ...] (StaMPS non_defo); None = all PS
     "aps_non_defo": None,
-    # "y" reproduces the legacy bugs kept for the parity tests (docs/refactor/TODO.md, Phase 4, port log of the ps engine)
+    # "y" reproduces the legacy bugs kept for the parity tests (docs/en/refactor/TODO.md, Phase 4, port log of the ps engine)
     "legacy_quirks": "n",
 }
 
@@ -86,6 +89,7 @@ class EngineParams:
     two_pass: bool                   # second unwrap pass with SCLA + linear APS removed
     scn_time_win: float
     scn_wavelength: float
+    scn_time_fit: str = "linear"     # mean (StaMPS, legacy) | linear
     reference: ReferenceParams = field(default_factory=ReferenceParams)
     aps_non_defo: tuple | None = None   # lon/lat polygon of the linear-APS fit
     legacy: bool = False             # legacy bugs (parity): unweighted velocity, time-series epoch shift, ...
@@ -139,6 +143,8 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
             legacy=_yes(pm["legacy_quirks"])),
         scla_deramp=_yes(pm["scla_deramp"]), two_pass=_yes(pm["subtr_tropo"]),
         scn_time_win=float(pm["scn_time_win"]), scn_wavelength=float(pm["scn_wavelength"]),
+        # the legacy engine (parity) has the StaMPS weighted mean
+        scn_time_fit="mean" if _yes(pm["legacy_quirks"]) else str(pm["scn_time_fit"]),
         reference=ReferenceParams(lon=_pair(pm["ref_lon"]), lat=_pair(pm["ref_lat"]),
                                   centre_lonlat=_pair(pm["ref_centre_lonlat"]), radius=float(pm["ref_radius"]),
                                   auto=_yes(pm["ref_auto"])),

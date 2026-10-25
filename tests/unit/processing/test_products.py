@@ -144,3 +144,16 @@ def test_build_and_export_product(tmp_path):
         name, qml, default = con.execute("SELECT f_table_name, styleQML, useAsDefault FROM layer_styles").fetchone()
     assert name == "points" and default == 1 and "graduatedSymbol" in qml and "vel_los_mm_yr" in qml
     assert pd.read_csv(next(f for f in files if f.suffix == ".csv")).shape[0] == 60
+
+
+def test_zero_reference():
+    """Each series is moved to 0 at its first date with a value; the shape (and so the velocity) is kept."""
+    from geoeyes.products.builder import zero_reference
+    d = np.array([[5.0, 3.0, 0.0, -4.0],             # relative to the stack's reference date (3rd)
+                  [np.nan, 2.0, 0.0, 1.0],           # first date missing: zero at the second
+                  [np.nan, np.nan, np.nan, np.nan]], np.float32)
+    z = zero_reference(d)
+    np.testing.assert_allclose(z[0], [0.0, -2.0, -5.0, -9.0])
+    np.testing.assert_allclose(z[1], [np.nan, 0.0, -2.0, -1.0])
+    assert np.isnan(z[2]).all()
+    assert zero_reference(None) is None

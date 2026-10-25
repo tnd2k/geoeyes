@@ -1,7 +1,9 @@
 """Point product from a PS run (``ps`` or ``ps_lite``): ``products/<product_id>/``, immutable::
 
     points.parquet       GeoParquet, columns of ``products.schema`` (+ ``extra_*`` engine columns)
-    timeseries.parquet   long format (point_uid, date, disp_mm[, disp_scn_mm: spatially correlated noise removed])
+    timeseries.parquet   long format (point_uid, date, disp_mm[, disp_scn_mm: spatially correlated noise removed]),
+                         zero at each point's first date (the PS run gives them relative to the stack's reference
+                         date; ``zero_reference``)
     rasters/velocity.tif rasters/ps_density.tif    COG, EPSG:4326, mean LOS velocity / points per cell
     item.json            STAC 1.0 Item
     manifest.json
@@ -24,9 +26,24 @@ from geoeyes.io.points import read_points, read_timeseries, write_points, write_
 from geoeyes.products.schema import COLUMNS, EXTRA_PREFIX, SCHEMA
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-product/2"          # /2: timeseries.parquet also carries disp_scn_mm (ps engine)
+ENGINE = "geoeyes-product/3"          # /2: timeseries.parquet also carries disp_scn_mm (ps engine)
+                                      # /3: series zero at the first date (were zero at the stack reference date)
 _EXTRA = {"vel_los_scn_mm_yr": "vel_scn_mm_yr", "vel_linear_mm_yr": "vel_linear_mm_yr",
           "spectral_diversity": "spectral_diversity", "phase_std_rad": "phase_std_rad"}
+
+
+def zero_reference(disp: np.ndarray | None) -> np.ndarray | None:
+    """Series (points, dates) moved so that each point is 0 at its first date with a value (time zero at the start
+    of the series, as delivered displacement products are; the PS engines give them relative to the stack's
+    reference date). Offsets only: velocities and every other fit are unchanged."""
+    if disp is None:
+        return None
+    d = np.asarray(disp, np.float32)
+    ok = np.isfinite(d)
+    first = np.argmax(ok, axis=1)
+    base = d[np.arange(d.shape[0]), first]
+    base[~ok.any(axis=1)] = 0.0
+    return (d - base[:, None]).astype(np.float32)
 
 
 def los_vector(incidence_deg, heading_deg: float, look_side: str):
@@ -203,8 +220,10 @@ def build_product(ps_run: str | Path, products_root: str | Path, *, project: str
                "reference": src.metrics.get("reference", ""), "aps": src.metrics.get("aps", "")}
     write_points(out / "points.parquet", out_gdf, metadata={"schema": SCHEMA, "product_id": pid,
                                                             "sign_convention": "LOS + toward the satellite",
-                                                            "reference_date": src.metrics.get("reference_date")})
-    write_timeseries(out / "timeseries.parquet", p["point_uid"].to_numpy(), dates, disp, disp_scn_mm=disp_scn)
+                                                            "reference_date": src.metrics.get("reference_date"),
+                                                            "time_zero": "first date"})
+    write_timeseries(out / "timeseries.parquet", p["point_uid"].to_numpy(), dates, zero_reference(disp),
+                     disp_scn_mm=zero_reference(disp_scn))
     rasters = _rasters(out / "rasters", p["lon"].to_numpy(), p["lat"].to_numpy(), v)
     bbox = [float(p["lon"].min()), float(p["lat"].min()), float(p["lon"].max()), float(p["lat"].max())]
     item = {"type": "Feature", "stac_version": "1.0.0", "id": pid, "bbox": bbox,

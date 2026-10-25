@@ -4,6 +4,14 @@ Phase differences along the Delaunay arcs (SCLA, C and ramp removed) are high-pa
 (Gaussian window ``time_win`` days); the high-pass arc network is integrated back to the PS by weighted least
 squares (first PS fixed) and low-pass filtered in space with a Gaussian of width ``wavelength`` (pairs within
 4·wavelength). The result is referenced to the first PS.
+
+The temporal low-pass (``time_fit``) is either the Gaussian-weighted mean of StaMPS ``ps_scn_filt`` (``mean``,
+the legacy and parity behaviour) or a Gaussian-weighted local linear fit (``linear``, the GeoEyes default). A
+weighted mean is biased wherever the series has a trend that the window does not cover symmetrically: at both
+ends of every series, and everywhere when the series is shorter than the window (a 6-month Sentinel-1 stack with
+the 365-day window). The trend then passes into the "noise" and the SCN-removed series loses the deformation.
+The local linear fit keeps a linear trend in the low-pass whatever the window (local polynomial regression,
+Cleveland 1979; Fan 1992).
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ class Scn:
 def scn_filt(*, ph_uw: np.ndarray, ph_scla: np.ndarray, C_uw: np.ndarray, ph_ramp: np.ndarray, day: np.ndarray,
              master_ix: int, xy: np.ndarray, filter_xy: np.ndarray | None = None, time_win: float = 365.0,
              wavelength: float = 100.0, weights: np.ndarray | None = None, method: str = "grid",
-             cell: float | None = None) -> Scn:
+             cell: float | None = None, time_fit: str = "mean") -> Scn:
     """``ph_uw`` (n, n_sec) step-6 output, ``ph_scla``/``ph_ramp`` (n, n_sec) step-7 SCLA, ``day`` (n_image,)
     ordinals, ``xy`` (n, 3) [id, x, y] for the arc network; ``filter_xy`` (n, 2) coordinates of the spatial
     filter (default x, y). ``method``: ``grid`` = normalised Gaussian convolution on a grid of ``cell`` m
@@ -43,10 +51,7 @@ def scn_filt(*, ph_uw: np.ndarray, ph_scla: np.ndarray, C_uw: np.ndarray, ph_ram
 
     e = triangulation_edges(np.asarray(xy)[:, 1:3])
     dph = ph[e[:, 1]] - ph[e[:, 0]]
-    wt = np.exp(-((d[:, None] - d[None, :]) ** 2) / (2.0 * float(time_win) ** 2))
-    rs = wt.sum(axis=1, keepdims=True)
-    rs[rs == 0.0] = 1.0
-    dph_hpt = dph - dph @ (wt / rs).T
+    dph_hpt = dph - dph @ time_lowpass(d, float(time_win), time_fit).T
 
     w = np.ones(n) if weights is None else np.asarray(weights, np.float64).ravel()
     sw = np.sqrt(np.sqrt(w[e[:, 0]] * w[e[:, 1]]))
@@ -70,6 +75,29 @@ def scn_filt(*, ph_uw: np.ndarray, ph_scla: np.ndarray, C_uw: np.ndarray, ph_ram
     wmat = sparse.csr_matrix(((w_raw / s[src]).astype(np.float32), (src, dst)), shape=(n, n), dtype=np.float32)
     scn = wmat @ hpt
     return Scn(ph_scn=(scn - scn[0, :]).astype(np.float64), ph_hpt=hpt)
+
+
+def time_lowpass(d: np.ndarray, time_win: float, fit: str = "mean") -> np.ndarray:
+    """Smoother matrix L (T, T): the low-passed series at date i is Σ_j L[i, j]·x_j. ``mean``: Gaussian-weighted
+    mean (StaMPS); ``linear``: the intercept at date i of a Gaussian-weighted linear fit, which reproduces any
+    linear trend exactly. Dates where the local fit is degenerate (fewer than two distinct weighted dates) fall
+    back to the mean."""
+    if fit not in ("mean", "linear"):
+        raise ValueError(f"scn time fit: mean | linear, not {fit!r}")
+    d = np.asarray(d, np.float64)
+    x = d[None, :] - d[:, None]                                       # (i, j): date j relative to date i
+    w = np.exp(-(x ** 2) / (2.0 * time_win ** 2))
+    s0 = w.sum(axis=1, keepdims=True)
+    s0[s0 == 0.0] = 1.0
+    mean = w / s0
+    if fit == "mean":
+        return mean
+    s1 = (w * x).sum(axis=1, keepdims=True)
+    s2 = (w * x * x).sum(axis=1, keepdims=True)
+    det = s0 * s2 - s1 ** 2
+    ok = det > 1e-9 * np.maximum(s0 * s2, 1e-300)
+    lin = w * (s2 - s1 * x) / np.where(ok, det, 1.0)
+    return np.where(ok, lin, mean)
 
 
 def _gaussian_grid(xy: np.ndarray, values: np.ndarray, wavelength: float, cell: float | None) -> np.ndarray:

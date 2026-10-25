@@ -1,7 +1,9 @@
 """Columns of a point product (ARCHITECTURE §10.4), the same for every sensor and engine.
 
 Signs: LOS velocity and displacement positive toward the satellite; ``los_e/n/u`` is the unit vector from the
-ground toward the satellite, so a 3-D motion m (east, north, up) is seen as m · los.
+ground toward the satellite, so a 3-D motion m (east, north, up) is seen as m · los. Time series (``timeseries
+.parquet``) are 0 at each point's first date (since geoeyes-product/3; earlier products: 0 at the stack's reference
+date ``reference_date``), relative to the reference area in space.
 """
 from __future__ import annotations
 

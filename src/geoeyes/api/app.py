@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from geoeyes.api import compare, monitor, points, service, settings
+from geoeyes.api import compare, gnss, hazard, jobs, monitor, points, service, settings
 from geoeyes.config.loader import load
 from geoeyes.core.errors import ConfigError, GeoEyesError, LockedError
 from geoeyes.workspace import WorkspaceLayout
@@ -92,6 +92,14 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     @app.put("/api/folders")
     def put_folders(data: dict = Body(...)):
         return service.save_folders(ws, data)
+
+    @app.post("/api/projects/trash")
+    def trash_projects(body: dict = Body(...)):
+        """Move projects to <workspace>/trash/ (recoverable); refused while one of them runs."""
+        names = [str(n) for n in body.get("names") or []]
+        if not names:
+            raise HTTPException(400, "names: the projects to move to the trash")
+        return {"trashed": service.trash_projects(ws, names), "tree": service.folders(ws)}
 
     @app.post("/api/projects")
     def create_project(spec: dict = Body(...)):
@@ -218,6 +226,74 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return monthly(ws.cache_dir("rainfall"), [round(v, 3) for v in m["bounds"]],
                        date.fromisoformat(m["dates"][0]), date.fromisoformat(m["dates"][-1]))
 
+    @app.get("/api/activity")
+    def activity():
+        """Background analyses of every project (hazard, GNSS) and their state, for the notifications."""
+        return {"jobs": jobs.activity(ws)}
+
+    # ------------------------------------------------------------ hazard zoning with rainfall
+    @app.get("/api/projects/{name}/products/{pid}/hazard")
+    def hazard_status(name: str, pid: str):
+        product(name, pid)
+        return hazard.status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/hazard")
+    def hazard_start(name: str, pid: str, body: dict = Body(default={})):
+        """Run ``geoeyes hazard`` on the product in the background; ``params`` override [postprocess.hazard]."""
+        from geoeyes.hazard import HazardParams
+        product(name, pid)
+        overrides = dict(body.get("params") or {})
+        HazardParams.from_dict({**dict(load(project(name).config).postprocess.hazard), **overrides})   # validate
+        return hazard.start(ws, name, pid, overrides)
+
+    @app.get("/api/projects/{name}/products/{pid}/hazard/cells")
+    def hazard_cells_meta(name: str, pid: str):
+        try:
+            return hazard.cells_bin(project(name), pid)[0]
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/hazard/cells.bin")
+    def hazard_cells(name: str, pid: str):
+        try:
+            return Response(hazard.cells_bin(project(name), pid)[1], media_type="application/octet-stream")
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/hazard/cells/{i}")
+    def hazard_cell(name: str, pid: str, i: int):
+        try:
+            return hazard.cell(project(name), pid, i)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/hazard/files/{rel}")
+    def hazard_file(name: str, pid: str, rel: str):
+        f = _inside(hazard.folder(project(name), pid), rel)
+        return FileResponse(f, filename=f"{pid}_{f.name}")
+
+    # ------------------------------------------------------------ GNSS comparison and calibration
+    @app.get("/api/projects/{name}/products/{pid}/gnss")
+    def gnss_status(name: str, pid: str):
+        product(name, pid)
+        return gnss.status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/gnss")
+    def gnss_start(name: str, pid: str, body: dict = Body(default={})):
+        """Run ``geoeyes gnss`` on the product in the background; ``params`` override [validation.gnss]."""
+        from geoeyes.validation.gnss import GnssParams
+        product(name, pid)
+        overrides = dict(body.get("params") or {})
+        GnssParams.from_dict({**dict(load(project(name).config).validation.gnss), **overrides})       # validate
+        return gnss.start(ws, name, pid, overrides)
+
+    @app.get("/api/projects/{name}/products/{pid}/gnss/stations/{site}")
+    def gnss_station(name: str, pid: str, site: str):
+        try:
+            return gnss.station(project(name), pid, site)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
     @app.get("/api/projects/{name}/products/{pid}/files/{rel:path}")
     def product_file(name: str, pid: str, rel: str):
         return FileResponse(_inside(product(name, pid), rel))
@@ -316,6 +392,8 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
+            if path == "api" or path.startswith("api/"):          # an API route this server does not have
+                raise HTTPException(404, f"/{path}: no such API route (is the server older than the page?)")
             f = (STATIC / path).resolve()
             if path and f.is_relative_to(STATIC.resolve()) and f.is_file():
                 return FileResponse(f)

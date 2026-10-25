@@ -135,3 +135,19 @@ def test_run_log_and_runs(ws):
                             "error": None}
     assert {s["key"] for s in d["settings"]} >= {"aoi.bbox", "ps.unwrap_grid_size"}
     assert next(s for s in d["settings"] if s["key"] == "aoi.bbox")["own"] is True
+
+
+def test_trash_projects(ws):
+    """Projects go to <workspace>/trash/ (recoverable) and leave the tree; unknown names change nothing."""
+    c = TestClient(create_app(ws))
+    c.put("/api/folders", json={"folders": [{"name": "Region", "projects": ["alpha", "beta"], "folders": []}],
+                                "projects": []})
+    assert c.post("/api/projects/trash", json={"names": ["alpha", "nope"]}).status_code == 404
+    assert ws.project("alpha").config.exists()
+    r = c.post("/api/projects/trash", json={"names": ["alpha"]}).json()
+    assert [x["name"] for x in r["trashed"]] == ["alpha"]
+    assert not ws.project("alpha").root.exists()
+    moved = list((ws.root / "trash").glob("alpha__*"))
+    assert len(moved) == 1 and (moved[0] / "project.toml").exists()
+    assert r["tree"] == {"folders": [{"name": "Region", "projects": ["beta"], "folders": []}], "projects": []}
+    assert c.post("/api/projects/trash", json={"names": []}).status_code == 400

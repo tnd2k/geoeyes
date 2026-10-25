@@ -6,7 +6,7 @@ The product files stay the reference; the first request for a product writes a c
     meta.json        n, origin, bounds, dates, velocity classes (QGIS Pretty Breaks, jet_r)
     points.bin       float32 x 3 per point: lon - lon0, lat - lat0, velocity (mm/yr), in product order
     attrs.npz        per-point attributes shown on click (velocity std, coherence, height, ...)
-    ts.npy           float32 (points, dates) displacement, in product order (memory-mapped)
+    ts.npy           float32 (points, dates) displacement, zero at each point's first date, in product order
 """
 from __future__ import annotations
 
@@ -20,8 +20,10 @@ import pyarrow.parquet as pq
 
 from geoeyes.core.errors import StoreError
 from geoeyes.export.styles import CLASSES, jet_r, marker_size_m, pretty_breaks
+from geoeyes.io.points import timeseries_arrays
+from geoeyes.products.builder import zero_reference
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5                 # /5: series zero at the first date (products before geoeyes-product/3 too)
 ATTRS = ("vel_std_mm_yr", "temporal_coherence", "height_m", "acc_los_mm_yr2", "seasonal_amp_mm", "dem_err_m")
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
@@ -59,29 +61,12 @@ def _build(product: Path, out: Path) -> None:
              **{a: pts[a].to_numpy().astype(np.float32) for a in ATTRS})
 
     # timeseries.parquet: long format sorted by (point_uid, date), every point at every date
-    tsf = pq.ParquetFile(product / "timeseries.parquet")
-    dates = np.unique(pq.read_table(product / "timeseries.parquet", columns=["date"])["date"]
-                      .to_numpy().astype("datetime64[D]"))
-    t = len(dates)
-    if tsf.metadata.num_rows != n * t:
-        raise StoreError(f"{product.name}: timeseries has {tsf.metadata.num_rows} rows, expected {n} x {t}")
-    disp = pq.read_table(product / "timeseries.parquet", columns=["disp_mm"])["disp_mm"].to_numpy()
-    disp = disp.astype(np.float32).reshape(n, t)
-    uid = pts["point_uid"].to_numpy(zero_copy_only=False).astype(str)
-    order = np.argsort(uid, kind="stable")                         # row k of disp = point order[k]
-    first = pq.read_table(product / "timeseries.parquet", columns=["point_uid"]).column(0)
-    if not np.array_equal(first.take(np.arange(0, n * t, t)).to_numpy(zero_copy_only=False).astype(str),
-                          uid[order]):
-        raise StoreError(f"{product.name}: timeseries points do not match points.parquet")
-    ts = np.empty_like(disp)
-    ts[order] = disp
-    np.save(out / "ts.npy", ts)
-    has_scn = "disp_scn_mm" in tsf.schema_arrow.names
+    has_scn = "disp_scn_mm" in pq.read_schema(product / "timeseries.parquet").names
+    dates, series = timeseries_arrays(product / "timeseries.parquet", pts["point_uid"].to_numpy(zero_copy_only=False),
+                                      ("disp_mm", "disp_scn_mm") if has_scn else ("disp_mm",))
+    np.save(out / "ts.npy", zero_reference(series["disp_mm"]))
     if has_scn:
-        scn = pq.read_table(product / "timeseries.parquet", columns=["disp_scn_mm"])["disp_scn_mm"].to_numpy()
-        ts_scn = np.empty_like(disp)
-        ts_scn[order] = scn.astype(np.float32).reshape(n, t)
-        np.save(out / "ts_scn.npy", ts_scn)
+        np.save(out / "ts_scn.npy", zero_reference(series["disp_scn_mm"]))
 
     cls = classes(vel)
     # acquisition geometry for map figures: flight direction (heading) and look direction (LOS from the ground to

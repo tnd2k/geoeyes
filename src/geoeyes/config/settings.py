@@ -2,6 +2,7 @@
 that reads the environment (ARCHITECTURE §14.2); everything else receives a ``Settings`` object."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import Field
@@ -29,5 +30,30 @@ class Settings(BaseSettings):
         return WorkspaceLayout.at(self.workspace)
 
 
+def _windows_env(name: str) -> str:
+    """``name`` from the persistent Windows environment (Machine, then User), "" if absent or not on Windows.
+    A process only sees the variables set before it (or the editor / terminal it comes from) started: the
+    EARTHDATA_TOKEN set machine-wide later is read here instead."""
+    if os.name != "nt":
+        return ""
+    import winreg
+    keys = ((winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (winreg.HKEY_CURRENT_USER, "Environment"))
+    for hive, path in keys:
+        try:
+            with winreg.OpenKey(hive, path) as k:
+                value, _ = winreg.QueryValueEx(k, name)
+        except OSError:
+            continue
+        if value:
+            return os.path.expandvars(str(value))
+    return ""
+
+
 def load_settings(**overrides) -> Settings:
-    return Settings(**overrides)
+    s = Settings(**overrides)
+    if not s.earthdata_token and "earthdata_token" not in overrides:
+        token = _windows_env("EARTHDATA_TOKEN")
+        if token:
+            s = s.model_copy(update={"earthdata_token": token})
+    return s

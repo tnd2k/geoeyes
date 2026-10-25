@@ -78,6 +78,32 @@ def read_timeseries(path: str | Path, point_uids=None) -> pd.DataFrame:
         raise StoreError(f"{path}: not found") from None
 
 
+def timeseries_arrays(path: str | Path, point_uid, columns=("disp_mm",)) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """(dates[T], {column: float32 (N, T)}) with row i = ``point_uid[i]``, read column by column without a pivot
+    (the file holds every point at every date, sorted by point then date)."""
+    path = Path(path)
+    if not path.exists():
+        raise StoreError(f"{path}: not found")
+    uid = np.asarray(point_uid).astype(str)
+    n = uid.size
+    meta = pq.ParquetFile(path).metadata
+    dates = np.unique(pq.read_table(path, columns=["date"])["date"].to_numpy().astype("datetime64[D]"))
+    t = dates.size
+    if meta.num_rows != n * t:
+        raise StoreError(f"{path.parent.name}: timeseries has {meta.num_rows} rows, expected {n} x {t}")
+    order = np.argsort(uid, kind="stable")                         # row k of the file block = point order[k]
+    first = pq.read_table(path, columns=[POINT_UID]).column(0)
+    if not np.array_equal(first.take(np.arange(0, n * t, t)).to_numpy(zero_copy_only=False).astype(str),
+                          uid[order]):
+        raise StoreError(f"{path.parent.name}: timeseries points do not match points.parquet")
+    out = {}
+    for c in columns:
+        a = pq.read_table(path, columns=[c])[c].to_numpy().astype(np.float32).reshape(n, t)
+        out[c] = np.empty_like(a)
+        out[c][order] = a
+    return dates, out
+
+
 def timeseries_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Long table -> (point_uid[N], dates[T] datetime64[D], disp_mm[N, T])."""
     wide = df.pivot(index=POINT_UID, columns="date", values="disp_mm")

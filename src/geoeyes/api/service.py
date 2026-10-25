@@ -70,6 +70,29 @@ def save_folders(ws: WorkspaceLayout, data: dict) -> dict:
     return folders(ws)
 
 
+def trash_projects(ws: WorkspaceLayout, names: list[str]) -> list[dict]:
+    """Move projects to ``<workspace>/trash/<name>__<time>/`` (recoverable by moving the folder back): a project
+    whose run is in progress is refused, and nothing is moved if any of them is refused."""
+    import shutil
+    from datetime import datetime
+    projects = []
+    for name in dict.fromkeys(str(n) for n in names):
+        project = ws.project(name)
+        if not project.config.exists():
+            raise ConfigError(f"no project {name!r}")
+        if _running(project):
+            raise LockedError(f"{name}: a run is in progress, stop it first")
+        projects.append(project)
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    out = []
+    for project in projects:
+        dest = ws.root / "trash" / f"{project.name}__{stamp}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(project.root), str(dest))
+        out.append({"name": project.name, "trash": str(dest)})
+    return out
+
+
 # ---------------------------------------------------------------- projects
 def _product_brief(project: ProjectLayout, pid: str | None) -> dict | None:
     if not pid:
