@@ -1,8 +1,10 @@
 # GeoEyes web app — front end
 
+> Tiếng Việt: [README.vi.md](README.vi.md)
+
 React + TypeScript + Vite, MapLibre + deck.gl for the map, TanStack Query, uPlot, Tailwind. It is a thin client
 of the API in `src/geoeyes/api` (FastAPI), which reads the workspace through the core and starts runs as
-`geoeyes run` subprocesses. Plan and design: `docs/refactor/webapp-plan.md`.
+`geoeyes run` subprocesses. Plan and design: `docs/en/refactor/webapp-plan.md`.
 
 ## Use
 

@@ -70,6 +70,185 @@ export interface FolderTree {
   projects: string[];
 }
 
+export interface HazardLevelCount {
+  cells: number;
+  km2: number;
+}
+
+export interface HazardSummary {
+  product_id: string;
+  created: string;
+  params: Record<string, unknown> & { cell_m: number; horizon_yr: number; max_lag_months: number; alpha: number; rain_source: string };
+  dates: string[];
+  span_months: number;
+  n_cells: number;
+  n_points: number;
+  bounds: [number, number, number, number];
+  dem: string;
+  levels: string[];
+  by_level: Record<"subsidence" | "landslide", Record<string, HazardLevelCount | number>>;
+  coupling: {
+    assessed: boolean;
+    cells_tested: number;
+    cells_significant: number;
+    cells_p_below_alpha: number;
+    fdr: boolean;
+    lag_months_median: number | null;
+    share_positive_k: number | null;
+  };
+  accelerating_cells: number;
+  opposite_motion_cells: number;
+  reference: {
+    kind: string;
+    bbox?: number[];
+    cells?: number;
+    lon?: number;
+    lat?: number;
+    stations?: string[];
+    calibration?: string;
+    rate_offset_mm_yr?: number;
+    loo_rms_after_mm_yr?: number | null;
+  };
+  rain: {
+    source: string;
+    res_deg: number;
+    months: string[];
+    climate_years: [number, number];
+    pixels: { lon: number; lat: number; cells: number; mean_month_mm: number; missing: number; annual: { p10: number; p50: number; p90: number } | null; assessed: boolean }[];
+  };
+  warnings: string[];
+}
+
+export interface HazardStatus {
+  summary: HazardSummary | null;
+  running: boolean;
+  failed: boolean;
+  log: string[];
+}
+
+export interface HazardCellsMeta {
+  origin: [number, number];
+  fields: string[];
+  n: number;
+  cell_m: number;
+  lat0: number;
+}
+
+export interface HazardCell {
+  cell: number;
+  lon: number;
+  lat: number;
+  n_points: number;
+  mode: "subsidence" | "landslide";
+  slope_deg: number | null;
+  sensitivity: number | null;
+  rate_mm_yr: number | null;
+  rate_se_mm_yr: number | null;
+  stable_mm_yr: number | null;
+  acc_mm_yr2: number | null;
+  accelerating: boolean;
+  opposite_motion: boolean;
+  rain_lag_months: number;
+  rain_r: number | null;
+  rain_p: number | null;
+  rain_q: number | null;
+  rain_k_mm_per_100mm: number | null;
+  rain_k_se: number | null;
+  rain_coupled: boolean;
+  trend_rain_corrected_mm_yr: number | null;
+  rate_dry_year_mm_yr: number | null;
+  rate_wet_year_mm_yr: number | null;
+  intensity_observed: number;
+  intensity: number;
+  angular_distortion: number | null;
+  susceptibility: number | null;
+  secondary: number;
+  hazard: number;
+  dates: string[];
+  series_mm: (number | null)[];
+  linear_mm?: (number | null)[];
+  rain_model_mm?: (number | null)[];
+  crd_lagged_mm?: (number | null)[];
+  rain: { months: string[]; mm: (number | null)[]; crd_mm: (number | null)[]; source: string; pixel: HazardSummary["rain"]["pixels"][number] | null };
+}
+
+export interface GnssStats {
+  n_epochs: number;
+  rate_insar_mm_yr: number;
+  rate_insar_se: number;
+  rate_gnss_mm_yr: number;
+  rate_gnss_se: number;
+  rate_diff_mm_yr: number;
+  rate_diff_midas_mm_yr?: number;
+  rmse_mm: number;
+  rmse_detrended_mm: number;
+  corr: number | null;
+}
+
+export interface GnssStation {
+  site: string;
+  lon: number;
+  lat: number;
+  first: string;
+  last: string;
+  used: boolean;
+  reason?: string;
+  segments?: number;
+  jumps?: string[];
+  outliers?: number;
+  notes?: string[];
+  n_points?: number;
+  n_epochs?: number;
+  median_distance_m?: number;
+  los?: number[];
+  gnss_rate_enu_mm_yr?: number[];
+  vertical?: GnssStats;
+  full?: GnssStats;
+  midas?: { years: number; enu_mm_yr: number[]; sigma_mm_yr: number[]; los_full_mm_yr: number; los_vertical_mm_yr: number; note?: string } | null;
+}
+
+export interface GnssCalibration {
+  kind: "offset" | "plane" | "epoch";
+  los_mode: "vertical" | "full";
+  gnss_rate: "window" | "midas";
+  stations: string[];
+  rate_coef: number[];
+  rate_offset_mm_yr: number;
+  leave_one_out?: { site: string; rate_diff_before_mm_yr: number; rate_diff_after_mm_yr: number }[];
+  loo_rms_before_mm_yr?: number;
+  loo_rms_after_mm_yr?: number;
+}
+
+export interface GnssSummary {
+  product_id: string;
+  created: string;
+  params: { radius_m: number; los_mode: string; calibration: string; gnss_rate: string; window_days: number; min_points: number };
+  source: string;
+  frame: string;
+  dates: string[];
+  stations: GnssStation[];
+  calibration: GnssCalibration | null;
+  warnings: string[];
+}
+
+export interface GnssStatus {
+  summary: GnssSummary | null;
+  running: boolean;
+  failed: boolean;
+  log: string[];
+}
+
+export interface GnssSeries {
+  site: string;
+  dates: string[];
+  day: string[];
+  spread_mm: (number | null)[];
+  insar_vertical_mm: (number | null)[];
+  insar_full_mm: (number | null)[];
+  vertical: { gnss_mm: (number | null)[]; daily_mm: (number | null)[] };
+  full: { gnss_mm: (number | null)[]; daily_mm: (number | null)[] };
+}
+
 export interface Workspace {
   root: string;
   tree: FolderTree;
@@ -386,6 +565,8 @@ export const api = {
     request<SettingsSpec>(`${P(name)}/settings`, { ...json(changes), method: "PATCH" }),
   putToml: (name: string, toml: string) => request<SettingsSpec>(`${P(name)}/config`, { ...json({ toml }), method: "PUT" }),
   createProject: (spec: NewProject) => request<{ name: string }>("/api/projects", json(spec)),
+  trashProjects: (names: string[]) =>
+    request<{ trashed: { name: string; trash: string }[]; tree: FolderTree }>("/api/projects/trash", json({ names })),
   asfTracks: (bbox: number[]) => request<{ tracks: AsfTrack[] }>("/api/asf/tracks", json({ bbox })),
   asfPreview: (spec: { bbox: number[]; direction: string; relative_orbit: number; date_range: [string, string]; max_per_month: number; subswaths?: string[] }) =>
     request<AsfPreview>("/api/asf/preview", json(spec)),
@@ -404,8 +585,27 @@ export const api = {
         opts.vel_below != null ? `&vel_below=${opts.vel_below}` : ""
       }`,
     ),
+  activity: () =>
+    request<{ jobs: { project: string; kind: "hazard" | "gnss"; product: string; started: string; finished: string | null; state: "running" | "done" | "failed" }[] }>(
+      "/api/activity",
+    ),
   rainfall: (name: string, pid: string) =>
     request<{ source: string; months: { month: string; mm: number | null }[] }>(`${P(name)}/products/${pid}/rainfall`),
+  gnss: (name: string, pid: string) => request<GnssStatus>(`${P(name)}/products/${pid}/gnss`),
+  gnssRun: (name: string, pid: string, params: Record<string, unknown>) =>
+    request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/gnss`, json({ params })),
+  gnssStation: (name: string, pid: string, site: string) => request<GnssSeries>(`${P(name)}/products/${pid}/gnss/stations/${site}`),
+  hazard: (name: string, pid: string) => request<HazardStatus>(`${P(name)}/products/${pid}/hazard`),
+  hazardRun: (name: string, pid: string, params: Record<string, unknown>) =>
+    request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/hazard`, json({ params })),
+  hazardCells: async (name: string, pid: string) => {
+    const meta = await request<HazardCellsMeta>(`${P(name)}/products/${pid}/hazard/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/hazard/cells.bin`);
+    if (!r.ok) throw new Error(`hazard cells: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  hazardCell: (name: string, pid: string, i: number) => request<HazardCell>(`${P(name)}/products/${pid}/hazard/cells/${i}`),
+  hazardFile: (name: string, pid: string, file: string) => `${P(name)}/products/${pid}/hazard/files/${file}`,
   monitor: (name: string) => request<Monitoring>(`${P(name)}/monitor`),
   setSchedule: (name: string, body: { frequency: string; time: string; day: string }) =>
     request<Schedule>(`${P(name)}/schedule`, { ...json(body), method: "PUT" }),

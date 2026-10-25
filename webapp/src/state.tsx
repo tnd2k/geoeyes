@@ -6,6 +6,7 @@ export type Route =
   | { page: "explorer" }
   | { page: "new" }
   | { page: "compose" }
+  | { page: "hazard"; name?: string; product?: string; cell?: number }
   | { page: "project"; name: string; tab?: string };
 
 function parse(hash: string): Route {
@@ -13,6 +14,7 @@ function parse(hash: string): Route {
   if (parts[0] === "explorer") return { page: "explorer" };
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "compose") return { page: "compose" };
+  if (parts[0] === "hazard") return { page: "hazard", name: parts[1] || undefined, product: parts[2] || undefined, cell: parts[3] ? Number(parts[3]) : undefined };
   if (parts[0] === "project" && parts[1]) return { page: "project", name: parts[1], tab: parts[2] };
   return { page: "overview" };
 }
@@ -21,6 +23,10 @@ export function href(r: Route): string {
   if (r.page === "explorer") return "#/explorer";
   if (r.page === "new") return "#/new";
   if (r.page === "compose") return "#/compose";
+  if (r.page === "hazard")
+    return r.name && r.product
+      ? `#/hazard/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.cell != null ? `/${r.cell}` : ""}`
+      : "#/hazard";
   if (r.page === "project") return `#/project/${encodeURIComponent(r.name)}${r.tab ? `/${r.tab}` : ""}`;
   return "#/";
 }

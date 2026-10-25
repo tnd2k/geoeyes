@@ -2,6 +2,7 @@
 // dashed series (the same with the spatially correlated noise removed).
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
+import { t } from "../i18n";
 
 export function TimeSeries({
   dates,
@@ -51,7 +52,7 @@ export function TimeSeries({
       cursor: { points: { size: 8 }, drag: { x: false, y: false } },
       scales: { x: { time: true } },
       axes: [
-        { ...axis, values: (_u, ticks) => ticks.map((t) => new Date(t * 1000).toISOString().slice(0, 7)) },
+        { ...axis, values: (_u, ticks) => ticks.map((tk) => new Date(tk * 1000).toISOString().slice(0, 7)) },
         { ...axis, size: 48, label: "mm (LOS)", labelSize: 14, labelFont: "11px Inter, sans-serif" },
       ],
       series: [
@@ -75,18 +76,18 @@ export function TimeSeries({
         setCursor: [
           (u) => {
             const i = u.cursor.idx;
-            const t = tip.current;
-            if (!t) return;
+            const el = tip.current;
+            if (!el) return;
             if (i == null || values[i] == null) {
-              t.style.opacity = "0";
+              el.style.opacity = "0";
               return;
             }
             const s = spread?.[i];
             const e = extra?.values[i];
-            t.textContent = `${dates[i]}  ${(values[i] as number).toFixed(1)} mm${s != null ? ` ± ${s.toFixed(1)}` : ""}${
+            el.textContent = `${dates[i]}  ${(values[i] as number).toFixed(1)} mm${s != null ? ` ± ${s.toFixed(1)}` : ""}${
               e != null ? ` · ${e.toFixed(1)}` : ""
             }`;
-            t.style.opacity = "1";
+            el.style.opacity = "1";
           },
         ],
       },
@@ -110,7 +111,7 @@ export function TimeSeries({
       {extra && (
         <div className="mt-1 flex gap-3 text-[11px] text-muted">
           <span className="flex items-center gap-1">
-            <span className="h-0.5 w-4" style={{ background: color }} /> displacement
+            <span className="h-0.5 w-4" style={{ background: color }} /> {t("displacement")}
           </span>
           <span className="flex items-center gap-1">
             <span className="h-0 w-4 border-t-2 border-dashed" style={{ borderColor: extra.color ?? "#f5b84b" }} /> {extra.label}

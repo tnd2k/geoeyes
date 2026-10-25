@@ -9,9 +9,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AreaInfo, type CatalogProduct, type CompareMeta, type LayerMeta, type Workspace } from "../api";
 import { RainBars } from "../components/RainBars";
 import { TimeSeries } from "../components/TimeSeries";
-import { colorize, loadLayer, mapStyle, pickedVelocity, productLayer, type Base, type LayerData } from "../map";
+import { t, ts } from "../i18n";
+import { BASES, colorize, loadLayer, mapStyle, pickedVelocity, productLayer, type Base, type LayerData } from "../map";
 import { useApp, type MapLayer } from "../state";
-import { Button, Confidence, fmt } from "../ui";
+import { Button, ColumnToggle, Confidence, fmt, Fold, usePersisted } from "../ui";
 
 type CompareMode = "off" | "swipe" | "diff";
 
@@ -23,12 +24,12 @@ interface Compare {
   align: boolean;
 }
 
-function Rain({ layer, meta }: { layer?: MapLayer; meta: LayerMeta }) {
+function Rain({ layer, meta, height = 96, axis = false }: { layer?: MapLayer; meta: LayerMeta; height?: number; axis?: boolean }) {
   const [on, setOn] = useState(() => {
     try {
-      return localStorage.getItem("geoeyes.rain") === "1";
+      return localStorage.getItem("geoeyes.rain") !== "0";       // shown unless switched off
     } catch {
-      return false;
+      return true;
     }
   });
   const q = useQuery({
@@ -50,16 +51,18 @@ function Rain({ layer, meta }: { layer?: MapLayer; meta: LayerMeta }) {
   return (
     <div className="mt-1">
       <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-muted">
-        <input type="checkbox" className="accent-[#4cc2ff]" checked={on} onChange={toggle} /> monthly rainfall (CHIRPS)
+        <input type="checkbox" className="accent-[#4cc2ff]" checked={on} onChange={toggle} /> {t("monthly rainfall")}
+        {q.data && <span className="text-faint">· {ts(q.data.source).split(" (")[0]}</span>}
       </label>
-      {on && q.isLoading && <div className="py-2 text-[11.5px] text-[#7cd2ff]">Reading CHIRPS…</div>}
-      {on && q.error && <div className="text-[11.5px] text-bad">{(q.error as Error).message}</div>}
-      {on && q.data && <RainBars months={q.data.months} from={meta.dates[0]} to={meta.dates[meta.dates.length - 1]} />}
+      {on && q.isLoading && <div className="py-2 text-[11.5px] text-[#7cd2ff]">{t("Reading the rainfall…")}</div>}
+      {on && q.error && <div className="text-[11.5px] text-bad">{ts((q.error as Error).message)}</div>}
+      {on && q.data && <RainBars months={q.data.months} from={meta.dates[0]} to={meta.dates[meta.dates.length - 1]} height={height} axis={axis} />}
     </div>
   );
 }
 
-export function Legend({ meta, title, label = "LOS velocity" }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max">; title: string; label?: string }) {
+export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max">; title: string; label?: string }) {
+  label ??= t("LOS velocity");
   const total = meta.classes.reduce((a, c) => a + c.count, 0) || 1;
   const step = meta.classes.length > 2 ? meta.classes[1].hi - meta.classes[1].lo : 1;
   const d = step >= 5 ? 0 : 1;
@@ -88,13 +91,13 @@ export function Legend({ meta, title, label = "LOS velocity" }: { meta: Pick<Lay
       </div>
       <div className="mt-2 flex justify-between text-[11px] text-muted">
         <span>
-          min <span className="font-mono text-ink-2">{fmt.vel(meta.vel_min)}</span>
+          {t("min")} <span className="font-mono text-ink-2">{fmt.vel(meta.vel_min)}</span>
         </span>
         <span>
-          max <span className="font-mono text-ink-2">{fmt.vel(meta.vel_max)}</span>
+          {t("max")} <span className="font-mono text-ink-2">{fmt.vel(meta.vel_max)}</span>
         </span>
       </div>
-      <div className="mt-1.5 text-[11px] leading-snug text-faint">+ toward the satellite, − away (e.g. subsidence)</div>
+      <div className="mt-1.5 text-[11px] leading-snug text-faint">{t("+ toward the satellite, − away (e.g. subsidence)")}</div>
     </div>
   );
 }
@@ -119,9 +122,12 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     api
       .catalogSearch([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], { vel_below: -10 })
       .then((r) => setFinder({ busy: false, rows: r.products }))
-      .catch((e: Error) => setFinder({ busy: false, rows: null, error: e.message }));
+      .catch((e: Error) => setFinder({ busy: false, rows: null, error: ts(e.message) }));
   };
   const [split, setSplit] = useState(0.5);
+  const [panelsOpen, setPanelsOpen] = usePersisted("explorer.panels", true);
+  const [dockOpen, setDockOpen] = usePersisted("explorer.dock", true);
+  const dockEl = useRef<HTMLDivElement>(null);
   const [viewTick, setViewTick] = useState(0);
   const comparing = cmp.mode !== "off" && !!cmp.a && !!cmp.b && cmp.a !== cmp.b;
   const diff = useQuery({
@@ -357,19 +363,39 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
   }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick]);
 
   const pointScn = useMemo(
-    () => (point.data?.disp_scn_mm ? { values: point.data.disp_scn_mm, label: "residual atmosphere (SCN) removed" } : null),
+    () => (point.data?.disp_scn_mm ? { values: point.data.disp_scn_mm, label: t("residual atmosphere (SCN) removed") } : null),
     [point.data],
   );
   const areaScn = useMemo(
-    () => (area?.info.mean_scn_mm ? { values: area.info.mean_scn_mm, label: "residual atmosphere (SCN) removed" } : null),
+    () => (area?.info.mean_scn_mm ? { values: area.info.mean_scn_mm, label: t("residual atmosphere (SCN) removed") } : null),
     [area],
   );
   const selMeta = selection ? byKey[selection.layer]?.meta : undefined;
   const areaMeta = area ? byKey[area.layer]?.meta : undefined;
+  // the zoom buttons and the scale bar (bottom left) stay above the dock
+  const docked = !!((selection && selMeta) || area || areaBusy);
+  useEffect(() => {
+    const ctrl = map.current?.getContainer().querySelector<HTMLElement>(".maplibregl-ctrl-bottom-left");
+    const el = dockEl.current;
+    if (!ctrl) return;
+    if (!docked || !el) {
+      ctrl.style.bottom = "";
+      return;
+    }
+    const place = () => (ctrl.style.bottom = `${el.offsetHeight + 12}px`);
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      ctrl.style.bottom = "";
+    };
+  }, [docked, dockOpen]);
 
-  const summary = (l: MapLayer) => ws?.projects[l.project]?.tracks.find((t) => t.product?.id === l.product);
+
+  const summary = (l: MapLayer) => ws?.projects[l.project]?.tracks.find((tr) => tr.product?.id === l.product);
   const loading = data.some((q) => q.isLoading);
-  const errors = data.map((q, i) => (q.error ? `${layers[i]?.product}: ${(q.error as Error).message}` : null)).filter(Boolean);
+  const errors = data.map((q, i) => (q.error ? `${layers[i]?.product}: ${ts((q.error as Error).message)}` : null)).filter(Boolean);
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -387,9 +413,9 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
               type="button"
               onClick={() => setBase(b)}
               aria-pressed={base === b}
-              className={`h-8 rounded-md px-3 text-[12.5px] capitalize ${base === b ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
+              className={`h-8 rounded-md px-3 text-[12.5px] ${base === b ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
             >
-              {b}
+              {t(BASES[b as Exclude<Base, "none">].label)}
             </button>
           ))}
         </div>
@@ -410,13 +436,13 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
             <path d="M2 12 5 3l7 2 2 7-8 2z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
           </svg>
-          {drawing ? `Finish area (${ring.length} pts)` : "Draw area"}
+          {drawing ? t("Finish area ({n} pts)", { n: ring.length }) : t("Draw area")}
         </Button>
         <Button
           className="bg-panel/95 shadow-lg shadow-black/30 backdrop-blur"
           disabled={layers.length < 2}
           aria-pressed={cmp.mode !== "off"}
-          title={layers.length < 2 ? "Show two products on the map to compare them" : "Compare two products"}
+          title={layers.length < 2 ? t("Show two products on the map to compare them") : t("Compare two products")}
           onClick={() =>
             setCmp((c) =>
               c.mode !== "off"
@@ -428,35 +454,35 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
             <path d="M8 1.5v13M2 4h4v8H2zM10 4h4v8h-4z" fill="none" stroke="currentColor" strokeWidth="1.4" />
           </svg>
-          {cmp.mode !== "off" ? "Stop comparing" : "Compare"}
+          {cmp.mode !== "off" ? t("Stop comparing") : t("Compare")}
         </Button>
-        <Button className="bg-panel/95 shadow-lg shadow-black/30 backdrop-blur" onClick={findHere} title="Products of every project over the current view (workspace catalog)">
+        <Button className="bg-panel/95 shadow-lg shadow-black/30 backdrop-blur" onClick={findHere} title={t("Products of every project over the current view (workspace catalog)")}>
           <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3.5 3.5" stroke="currentColor" strokeWidth="1.4" />
           </svg>
-          Products here
+          {t("Products here")}
         </Button>
         {(ring.length > 0 || area) && !drawing && (
           <Button className="bg-panel/95 backdrop-blur" onClick={() => (setRing([]), setArea(null))}>
-            Clear area
+            {t("Clear area")}
           </Button>
         )}
-        {drawing && <span className="rounded-md bg-[#0b1220]/85 px-2.5 py-1.5 text-[12px] text-ink-2">Click to add vertices · double-click to finish</span>}
-        {loading && <span className="rounded-md bg-[#0b1220]/85 px-2.5 py-1.5 text-[12px] text-[#7cd2ff]">Loading points…</span>}
+        {drawing && <span className="rounded-md bg-[#0b1220]/85 px-2.5 py-1.5 text-[12px] text-ink-2">{t("Click to add vertices · double-click to finish")}</span>}
+        {loading && <span className="rounded-md bg-[#0b1220]/85 px-2.5 py-1.5 text-[12px] text-[#7cd2ff]">{t("Loading points…")}</span>}
       </div>
 
       {finder && (
         <div className="absolute top-16 left-3 z-10 max-h-[calc(100%-120px)] w-[min(380px,calc(100%-24px))] overflow-y-auto rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">PRODUCTS IN THIS VIEW</span>
-            <button type="button" className="ml-auto text-faint hover:text-ink" onClick={() => setFinder(null)} aria-label="Close">
+            <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("PRODUCTS IN THIS VIEW")}</span>
+            <button type="button" className="ml-auto text-faint hover:text-ink" onClick={() => setFinder(null)} aria-label={t("Close")}>
               ×
             </button>
           </div>
-          {finder.busy && <div className="py-3 text-[12.5px] text-[#7cd2ff]">Searching the catalog…</div>}
+          {finder.busy && <div className="py-3 text-[12.5px] text-[#7cd2ff]">{t("Searching the catalog…")}</div>}
           {finder.error && <div className="py-2 text-[12.5px] text-bad">{finder.error}</div>}
-          {finder.rows && finder.rows.length === 0 && <div className="py-3 text-[12.5px] text-muted">No product covers this view.</div>}
+          {finder.rows && finder.rows.length === 0 && <div className="py-3 text-[12.5px] text-muted">{t("No product covers this view.")}</div>}
           {finder.rows?.map((r) => {
             const shown = layers.some((l) => l.key === `${r.project}/${r.id}`);
             return (
@@ -470,20 +496,20 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                     onClick={() => showProduct(r.project, r.id)}
                     className="ml-auto text-[12px] text-accent hover:underline disabled:text-faint disabled:no-underline"
                   >
-                    {shown ? "on the map" : "show"}
+                    {shown ? t("on the map") : t("show")}
                   </button>
                 </div>
                 <div className="mt-0.5 text-[11.5px] text-muted">
                   {fmt.sensor(r.sensor)} · {r.first_date} → {r.last_date}
-                  {r.confidence ? ` · ${r.confidence} confidence` : ""}
+                  {r.confidence ? ` · ${t("{level} confidence", { level: t(r.confidence) })}` : ""}
                 </div>
                 {r.in_area && (
                   <div className="mt-1 text-[12px] text-ink-2">
-                    {fmt.int(r.in_area.n)} points here · median <span className="font-mono">{fmt.vel(r.in_area.vel_median)}</span>, range{" "}
+                    {t("{n} points here", { n: fmt.int(r.in_area.n) })} · {t("median")} <span className="font-mono">{fmt.vel(r.in_area.vel_median)}</span>, {t("range")}{" "}
                     <span className="font-mono">
                       {fmt.vel(r.in_area.vel_min)} … {fmt.vel(r.in_area.vel_max)}
                     </span>{" "}
-                    mm/yr{r.in_area.n_below ? ` · ${fmt.int(r.in_area.n_below)} faster than −10 away` : ""}
+                    mm/yr{r.in_area.n_below ? ` · ${t("{n} faster than −10 away", { n: fmt.int(r.in_area.n_below) })}` : ""}
                   </div>
                 )}
               </div>
@@ -497,7 +523,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           className="absolute top-0 bottom-0 z-[5] w-6 -translate-x-1/2 cursor-ew-resize"
           style={{ left: `${split * 100}%` }}
           role="slider"
-          aria-label="Swipe position"
+          aria-label={t("Swipe position")}
           aria-valuenow={Math.round(split * 100)}
           tabIndex={0}
           onKeyDown={(e) => {
@@ -522,23 +548,31 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
 
       {layers.length === 0 && (
         <div className="absolute top-1/2 left-1/2 z-10 w-[min(420px,90%)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line-2 bg-panel/95 p-6 text-center shadow-2xl backdrop-blur">
-          <div className="text-[15px] font-semibold">No product on the map</div>
+          <div className="text-[15px] font-semibold">{t("No product on the map")}</div>
           <p className="mt-2 text-[13px] leading-relaxed text-muted">
-            Click the eye next to a product in the project tree (or the product name) to show its points here, like a layer in QGIS.
+            {t("Click the eye next to a product in the project tree (or the product name) to show its points here, like a layer in QGIS.")}
           </p>
           <Button className="mt-4" onClick={() => go({ page: "overview" })}>
-            Go to the overview
+            {t("Go to the overview")}
           </Button>
         </div>
       )}
 
       {/* right panel */}
-      {layers.length > 0 && (
+      {layers.length > 0 && !panelsOpen && (
+        <div className="absolute top-3 right-3 z-10">
+          <ColumnToggle open={false} side="right" label={t("Layers · {n}", { n: layers.length })} onClick={() => setPanelsOpen(true)} />
+        </div>
+      )}
+      {layers.length > 0 && panelsOpen && (
         <div className="pointer-events-none absolute top-3 right-3 bottom-3 z-10 flex w-[min(360px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto">
+          <div className="flex justify-end !pointer-events-none [&>*]:pointer-events-auto">
+            <ColumnToggle open side="right" label={t("layer")} onClick={() => setPanelsOpen(false)} />
+          </div>
           {cmp.mode !== "off" && (
             <div className="rounded-xl border border-[#2f6fb0] bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
               <div className="mb-2 flex items-center gap-2">
-                <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">COMPARE</span>
+                <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("COMPARE")}</span>
                 <div className="ml-auto flex rounded-md border border-line-2 p-0.5">
                   {(["swipe", "diff"] as const).map((m) => (
                     <button
@@ -548,7 +582,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                       onClick={() => setCmp((c) => ({ ...c, mode: m }))}
                       className={`h-6 rounded px-2.5 text-[12px] ${cmp.mode === m ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
                     >
-                      {m === "swipe" ? "Swipe" : "Difference"}
+                      {m === "swipe" ? t("Swipe") : t("Difference")}
                     </button>
                   ))}
                 </div>
@@ -569,23 +603,25 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                   </select>
                 </label>
               ))}
-              {cmp.a === cmp.b && <div className="mt-2 text-[12px] text-warn">Choose two different products.</div>}
+              {cmp.a === cmp.b && <div className="mt-2 text-[12px] text-warn">{t("Choose two different products.")}</div>}
               {comparing && (() => {
                 const ta = summary(layers.find((l) => l.key === cmp.a)!);
                 const tb = summary(layers.find((l) => l.key === cmp.b)!);
                 return ta && tb && ta.track_id !== tb.track_id ? (
                   <div className="mt-2 rounded-md bg-[#2a2110] px-2 py-1.5 text-[11.5px] leading-snug text-[#f5d08b]">
-                    Different tracks ({ta.track_id} / {tb.track_id}): each measures along its own line of sight, so a difference also contains geometry, not
-                    only motion.
+                    {t("Different tracks ({a} / {b}): each measures along its own line of sight, so a difference also contains geometry, not only motion.", {
+                      a: ta.track_id,
+                      b: tb.track_id,
+                    })}
                   </div>
                 ) : null;
               })()}
-              {cmp.mode === "swipe" && comparing && <div className="mt-2 text-[11.5px] text-faint">A left of the handle, B right. Drag the handle or use ← →.</div>}
+              {cmp.mode === "swipe" && comparing && <div className="mt-2 text-[11.5px] text-faint">{t("A left of the handle, B right. Drag the handle or use ← →.")}</div>}
               {cmp.mode === "diff" && comparing && (
                 <>
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-[12px]">
                     <label className="flex items-center gap-1.5">
-                      Cell
+                      {t("Cell")}
                       <select
                         value={cmp.cell}
                         onChange={(e) => setCmp((c) => ({ ...c, cell: Number(e.target.value) }))}
@@ -598,14 +634,14 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         ))}
                       </select>
                     </label>
-                    <label className="flex items-center gap-1.5" title="Each product has its own reference area: remove the median difference">
+                    <label className="flex items-center gap-1.5" title={t("Each product has its own reference area: remove the median difference")}>
                       <input type="checkbox" className="accent-[#4cc2ff]" checked={cmp.align} onChange={(e) => setCmp((c) => ({ ...c, align: e.target.checked }))} />
-                      remove median offset
+                      {t("remove median offset")}
                     </label>
                   </div>
-                  {diff.isFetching && <div className="mt-2 text-[12px] text-[#7cd2ff]">Computing…</div>}
-                  {diff.error && <div className="mt-2 text-[12px] text-bad">{(diff.error as Error).message}</div>}
-                  {diff.data && diff.data.meta.n === 0 && <div className="mt-2 text-[12px] text-muted">The two products have no cell in common.</div>}
+                  {diff.isFetching && <div className="mt-2 text-[12px] text-[#7cd2ff]">{t("Computing…")}</div>}
+                  {diff.error && <div className="mt-2 text-[12px] text-bad">{ts((diff.error as Error).message)}</div>}
+                  {diff.data && diff.data.meta.n === 0 && <div className="mt-2 text-[12px] text-muted">{t("The two products have no cell in common.")}</div>}
                   {diff.data?.meta.stats && (
                     <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
                       {[
@@ -617,7 +653,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         ["RMSE", `${fmt.num(diff.data.meta.stats.rmse)} mm/yr`],
                       ].map(([k, v]) => (
                         <div key={k} className="contents">
-                          <span className="text-muted">{k}</span>
+                          <span className="text-muted">{t(k)}</span>
                           <span className="text-right font-mono text-[11.5px] text-ink-2">{v}</span>
                         </div>
                       ))}
@@ -632,17 +668,16 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
             <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
               <Legend
                 meta={{ classes: diff.data.meta.classes, vel_min: diff.data.meta.vel_min!, vel_max: diff.data.meta.vel_max! }}
-                title={`median per ${diff.data.meta.cell_m} m cell`}
-                label="B − A velocity"
+                title={t("median per {cell} m cell", { cell: diff.data.meta.cell_m })}
+                label={t("B − A velocity")}
               />
             </div>
           )}
 
-          <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
-            <div className="mb-2 text-[11px] font-semibold tracking-[1.2px] text-muted">LAYERS</div>
+          <Fold id="explorer.layers" title={t("LAYERS · {n}", { n: layers.length })}>
             <div className="space-y-2">
               {layers.map((l) => {
-                const t = summary(l);
+                const tr = summary(l);
                 const d = byKey[l.key];
                 return (
                   <div key={l.key} className="rounded-lg border border-line bg-panel-2 px-2.5 py-2">
@@ -651,31 +686,31 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         type="checkbox"
                         checked={l.visible}
                         onChange={() => toggleLayer(l.key)}
-                        aria-label={`Show ${l.product}`}
+                        aria-label={t("Show {product}", { product: l.product })}
                         className="h-4 w-4 accent-[#4cc2ff]"
                       />
-                      <button type="button" onClick={() => setFocus(l.key)} className="min-w-0 flex-1 truncate text-left text-[12.5px] hover:text-accent" title="Zoom to layer">
+                      <button type="button" onClick={() => setFocus(l.key)} className="min-w-0 flex-1 truncate text-left text-[12.5px] hover:text-accent" title={t("Zoom to layer")}>
                         <span className="font-mono">{l.project}</span>{" "}
                         <span className="text-muted">v{l.product.split("_v").pop()}</span>
                       </button>
-                      <button type="button" onClick={() => removeLayer(l.key)} title="Remove from the map" className="text-faint hover:text-bad">
+                      <button type="button" onClick={() => removeLayer(l.key)} title={t("Remove from the map")} className="text-faint hover:text-bad">
                         ×
                       </button>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2 pl-6 text-[11px] text-muted">
                       <span className="truncate">
-                        {t ? `${fmt.sensor(t.sensor)} ${t.direction}` : ""} · {d ? `${fmt.int(d.meta.n)} pts` : "…"}
+                        {tr ? `${fmt.sensor(tr.sensor)} ${t(tr.direction)}` : ""} · {d ? t("{n} pts", { n: fmt.int(d.meta.n) }) : "…"}
                       </span>
                       <select
                         value={l.mode ?? "auto"}
                         onChange={(e) => setMode(l.key, e.target.value as MapLayer["mode"])}
-                        aria-label="Rendering"
-                        title="Points: the whole product at once. Tiles: PMTiles vector tiles, read as you pan (auto: above 2.5 M points)"
+                        aria-label={t("Rendering")}
+                        title={t("Points: the whole product at once. Tiles: PMTiles vector tiles, read as you pan (auto: above 2.5 M points)")}
                         className="h-6 rounded border border-line-2 bg-[#0a1322] px-1 text-[11px] text-ink-2"
                       >
-                        <option value="auto">auto{d ? ` (${d.kind})` : ""}</option>
-                        <option value="points">points</option>
-                        <option value="tiles">tiles</option>
+                        <option value="auto">{t("auto")}{d ? ` (${t(d.kind)})` : ""}</option>
+                        <option value="points">{t("points")}</option>
+                        <option value="tiles">{t("tiles")}</option>
                       </select>
                       <input
                         type="range"
@@ -684,7 +719,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         step={0.05}
                         value={l.opacity}
                         onChange={(e) => setOpacity(l.key, Number(e.target.value))}
-                        aria-label="Opacity"
+                        aria-label={t("Opacity")}
                         className="ml-auto w-20 accent-[#4cc2ff]"
                       />
                     </div>
@@ -693,73 +728,129 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
               })}
             </div>
             {errors.length > 0 && <div className="mt-2 text-[12px] text-bad">{errors.join(" · ")}</div>}
-          </div>
+          </Fold>
 
           {top && byKey[top.key] && !(cmp.mode === "diff" && comparing) && (
-            <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
+            <Fold id="explorer.legend" title={t("LEGEND")}>
               <Legend meta={byKey[top.key]!.meta} title={top.product} />
               <div className="mt-2">
                 <Confidence level={summary(top)?.product?.confidence} />
               </div>
-            </div>
+            </Fold>
           )}
+        </div>
+      )}
 
-          {selection && selMeta && (
-            <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold">Point #{selection.index}</span>
-                <button type="button" className="text-faint hover:text-ink" onClick={() => select(null)} aria-label="Close">
-                  ×
-                </button>
+      {/* bottom dock: the selected point or the drawn area, with its series and rainfall */}
+      {docked && (
+        <div
+          ref={dockEl}
+          className={`absolute bottom-3 left-3 z-10 ${panelsOpen && layers.length > 0 ? "right-[calc(min(360px,100%-24px)+24px)] max-md:right-3" : "right-3"}`}
+        >
+          <div className="rounded-xl border border-line-2 bg-panel/95 shadow-xl shadow-black/30 backdrop-blur">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <button type="button" onClick={() => setDockOpen((o) => !o)} aria-expanded={dockOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-accent">
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className={`flex-none text-muted transition-transform ${dockOpen ? "" : "rotate-180"}`}>
+                  <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {selection && selMeta ? (
+                  <span className="truncate text-[13px]">
+                    <span className="font-semibold">{t("Point #{n}", { n: selection.index })}</span>
+                    {point.data && (
+                      <span className="text-muted">
+                        {" "}· <span className="font-mono text-ink-2">{fmt.vel(point.data.vel)}</span> mm/yr · {selLayer?.project}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="truncate text-[13px]">
+                    <span className="font-semibold">{t("Area mean")}</span>
+                    {area && area.info.n > 0 && (
+                      <span className="text-muted">
+                        {" "}· {t("{n} points", { n: fmt.int(area.info.n) })} · {t("mean")} <span className="font-mono text-ink-2">{fmt.vel(area.info.vel_mean)}</span> mm/yr
+                      </span>
+                    )}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="text-faint hover:text-ink"
+                onClick={() => (selection ? select(null) : (setRing([]), setArea(null)))}
+                aria-label={t("Close")}
+              >
+                ×
+              </button>
+            </div>
+            {dockOpen && selection && selMeta && (
+              <div className="flex gap-4 px-3 pb-3 max-md:flex-col">
+                <div className="w-[220px] flex-none">
+                  {point.data ? (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
+                      {[
+                        ["Velocity", `${fmt.vel(point.data.vel)} ± ${fmt.num(point.data.vel_std_mm_yr)}`],
+                        ["Coherence", fmt.num(point.data.temporal_coherence, 2)],
+                        ["Height", `${fmt.num(point.data.height_m)} m`],
+                        ["Seasonal amp.", `${fmt.num(point.data.seasonal_amp_mm)} mm`],
+                        ["Lon", point.data.lon.toFixed(5)],
+                        ["Lat", point.data.lat.toFixed(5)],
+                      ].map(([k, v]) => (
+                        <div key={k} className="contents">
+                          <span className="text-muted">{t(k)}</span>
+                          <span className="text-right font-mono text-[11.5px] text-ink-2">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-[12px] text-muted">{point.error ? ts((point.error as Error).message) : t("Loading…")}</div>
+                  )}
+                  <div className="mt-2 text-[11px] leading-snug text-faint">{t("Velocity in mm/yr; displacement along the line of sight, relative to the reference area, 0 at the first date")}</div>
+                </div>
+                <div className="grid min-w-0 flex-1 grid-cols-2 gap-4 max-lg:grid-cols-1">
+                  <div className="min-w-0">{point.data && <TimeSeries dates={selMeta.dates} values={point.data.disp_mm} extra={pointScn} height={150} />}</div>
+                  <div className="min-w-0">
+                    <Rain layer={selLayer} meta={selMeta} height={150} axis />
+                  </div>
+                </div>
               </div>
-              {point.data ? (
-                <>
-                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
-                    {[
-                      ["Velocity", `${fmt.vel(point.data.vel)} ± ${fmt.num(point.data.vel_std_mm_yr)} mm/yr`],
-                      ["Coherence", fmt.num(point.data.temporal_coherence, 2)],
-                      ["Height", `${fmt.num(point.data.height_m)} m`],
-                      ["Seasonal amp.", `${fmt.num(point.data.seasonal_amp_mm)} mm`],
-                      ["Lon / lat", `${point.data.lon.toFixed(5)}, ${point.data.lat.toFixed(5)}`],
-                    ].map(([k, v]) => (
-                      <div key={k} className="contents">
-                        <span className="text-muted">{k}</span>
-                        <span className="text-right font-mono text-[11.5px] text-ink-2">{v}</span>
+            )}
+            {dockOpen && !selection && (area || areaBusy) && (
+              <div className="flex gap-4 px-3 pb-3 max-md:flex-col">
+                <div className="w-[220px] flex-none text-[12px]">
+                  {areaBusy && <div className="py-4 text-muted">{t("Computing…")}</div>}
+                  {area && area.info.n === 0 && <div className="py-3 text-muted">{t("No point inside the area.")}</div>}
+                  {area && area.info.n > 0 && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      {[
+                        ["Points", fmt.int(area.info.n)],
+                        ["Mean", fmt.vel(area.info.vel_mean)],
+                        ["Min", fmt.vel(area.info.vel_min)],
+                        ["Max", fmt.vel(area.info.vel_max)],
+                      ].map(([k, v]) => (
+                        <div key={k} className="contents">
+                          <span className="text-muted">{t(k)}</span>
+                          <span className="text-right font-mono text-[11.5px] text-ink-2">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-2 text-[11px] leading-snug text-faint">{t("Velocities in mm/yr; mean series of the points inside the area (each 0 at the first date), band = ±1 standard deviation")}</div>
+                </div>
+                <div className="grid min-w-0 flex-1 grid-cols-2 gap-4 max-lg:grid-cols-1">
+                  {area && area.info.n > 0 && areaMeta && (
+                    <>
+                      <div className="min-w-0">
+                        <TimeSeries dates={areaMeta.dates} values={area.info.mean_mm!} spread={area.info.std_mm!} extra={areaScn} height={150} />
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-2">
-                    <TimeSeries dates={selMeta.dates} values={point.data.disp_mm} extra={pointScn} />
-                    <Rain layer={selLayer} meta={selMeta} />
-                  </div>
-                  <div className="text-[11px] text-faint">Displacement along the line of sight, relative to the reference area and date</div>
-                </>
-              ) : (
-                <div className="py-6 text-center text-[12px] text-muted">{point.error ? (point.error as Error).message : "Loading…"}</div>
-              )}
-            </div>
-          )}
-
-          {(area || areaBusy) && (
-            <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
-              <div className="text-[13px] font-semibold">Area mean</div>
-              {areaBusy && <div className="py-4 text-[12px] text-muted">Computing…</div>}
-              {area && area.info.n === 0 && <div className="py-3 text-[12px] text-muted">No point inside the area.</div>}
-              {area && area.info.n > 0 && areaMeta && (
-                <>
-                  <div className="mt-1 text-[12px] text-ink-2">
-                    {fmt.int(area.info.n)} points · mean <span className="font-mono">{fmt.vel(area.info.vel_mean)}</span> mm/yr (min{" "}
-                    <span className="font-mono">{fmt.vel(area.info.vel_min)}</span>, max <span className="font-mono">{fmt.vel(area.info.vel_max)}</span>)
-                  </div>
-                  <div className="mt-2">
-                    <TimeSeries dates={areaMeta.dates} values={area.info.mean_mm!} spread={area.info.std_mm!} extra={areaScn} />
-                    <Rain layer={layers.find((l) => l.key === area.layer)} meta={areaMeta} />
-                  </div>
-                  <div className="text-[11px] text-faint">Mean of the points inside the area, band = ±1 standard deviation</div>
-                </>
-              )}
-            </div>
-          )}
+                      <div className="min-w-0">
+                        <Rain layer={layers.find((l) => l.key === area.layer)} meta={areaMeta} height={150} axis />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

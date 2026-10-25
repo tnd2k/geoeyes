@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, type FieldSpec, type SettingsSpec } from "../api";
+import { t, ts } from "../i18n";
 import { Button, Panel } from "../ui";
 
 type Draft = Record<string, unknown>; // "section.key" -> new value (null = back to default)
@@ -112,7 +113,7 @@ function Widget({ f, value, onChange, id }: { f: FieldSpec; value: unknown; onCh
               type="number"
               step="any"
               placeholder={labels[i]}
-              aria-label={labels[i] || `value ${i + 1}`}
+              aria-label={labels[i] || t("value {n}", { n: i + 1 })}
               className={input}
               value={x == null ? "" : String(x)}
               onChange={(e) => {
@@ -182,7 +183,7 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
   }, [q.data, filter]);
 
   if (q.error) return <div className="text-bad">{(q.error as Error).message}</div>;
-  if (!q.data) return <div className="text-muted">Loading…</div>;
+  if (!q.data) return <div className="text-muted">{t("Loading…")}</div>;
   const error = (save.error || saveToml.error) as Error | null;
 
   return (
@@ -197,29 +198,29 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
               onClick={() => setMode(m)}
               className={`h-7 rounded-md px-3 text-[12.5px] ${mode === m ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
             >
-              {m === "form" ? "Form" : "project.toml"}
+              {m === "form" ? t("Form") : "project.toml"}
             </button>
           ))}
         </div>
         {mode === "form" && (
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter parameters…" aria-label="Filter parameters" className={`${input} max-w-60`} />
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Filter parameters…")} aria-label={t("Filter parameters")} className={`${input} max-w-60`} />
         )}
         <div className="ml-auto flex items-center gap-2">
-          {running && <span className="text-[12px] text-warn">A run is in progress: changes apply to the next run.</span>}
+          {running && <span className="text-[12px] text-warn">{t("A run is in progress: changes apply to the next run.")}</span>}
           {mode === "form" ? (
             <>
               {changed > 0 && (
                 <Button onClick={() => setDraft({})} disabled={save.isPending}>
-                  Discard
+                  {t("Discard")}
                 </Button>
               )}
               <Button variant="primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
-                {save.isPending ? "Saving…" : changed ? `Save ${changed} change${changed > 1 ? "s" : ""}` : "No change"}
+                {save.isPending ? t("Saving…") : changed ? (changed > 1 ? t("Save {n} changes", { n: changed }) : t("Save 1 change")) : t("No change")}
               </Button>
             </>
           ) : (
             <Button variant="primary" disabled={toml === q.data.toml || saveToml.isPending} onClick={() => saveToml.mutate()}>
-              {saveToml.isPending ? "Saving…" : "Save project.toml"}
+              {saveToml.isPending ? t("Saving…") : t("Save project.toml")}
             </Button>
           )}
         </div>
@@ -227,7 +228,7 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
       {error && <div className="rounded-lg bg-[#2a1414] px-3 py-2 text-[13px] whitespace-pre-wrap text-bad">{error.message}</div>}
       {(save.isSuccess || saveToml.isSuccess) && !changed && !error && (
         <div className="rounded-lg bg-[#0f2a1f] px-3 py-2 text-[13px] text-good">
-          Saved (previous file kept in .state/). Check the plan to see which phases the change re-runs.
+          {t("Saved (previous file kept in .state/). Check the plan to see which phases the change re-runs.")}
         </div>
       )}
 
@@ -253,9 +254,9 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                 className="flex w-full items-center gap-3 px-4 py-3 text-left"
                 aria-expanded={isOpen}
               >
-                <span className="text-[14px] font-semibold">{sec.title}</span>
+                <span className="text-[14px] font-semibold">{ts(sec.title)}</span>
                 <span className="font-mono text-[11.5px] text-faint">[{sec.name}]</span>
-                {own > 0 && <span className="text-[11.5px] text-[#7cd2ff]">{own} set in project.toml</span>}
+                {own > 0 && <span className="text-[11.5px] text-[#7cd2ff]">{t("{n} set in project.toml", { n: own })}</span>}
                 <span className="ml-auto text-muted">{isOpen ? "–" : "+"}</span>
               </button>
               {isOpen && (
@@ -272,15 +273,15 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                           <label htmlFor={id} className="font-mono text-[12.5px] text-ink-2">
                             {f.key}
                           </label>
-                          <span className={`text-[11px] ${own ? "text-[#7cd2ff]" : "text-faint"}`}>{own ? "project.toml" : "preset / default"}</span>
+                          <span className={`text-[11px] ${own ? "text-[#7cd2ff]" : "text-faint"}`}>{own ? "project.toml" : t("preset / default")}</span>
                           {own && !same(value, f.default) && (
                             <button
                               type="button"
                               className="ml-auto text-[11px] text-muted hover:text-ink"
-                              title={`Back to the preset / default: ${show(f.default)}`}
+                              title={t("Back to the preset / default: {v}", { v: show(f.default) })}
                               onClick={() => setDraft((d) => (f.own ? { ...d, [k]: null } : Object.fromEntries(Object.entries(d).filter(([x]) => x !== k))))}
                             >
-                              reset
+                              {t("reset")}
                             </button>
                           )}
                         </div>
@@ -297,8 +298,8 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                             })
                           }
                         />
-                        {f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{f.help}</div>}
-                        {!own && f.default != null && <div className="sr-only">default {show(f.default)}</div>}
+                        {f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>}
+                        {!own && f.default != null && <div className="sr-only">{t("default {v}", { v: show(f.default) })}</div>}
                       </div>
                     );
                   })}

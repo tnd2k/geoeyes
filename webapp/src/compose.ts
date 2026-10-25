@@ -1,6 +1,7 @@
 // Map composition: one layout (in sheet units, 1000 wide) drawn on a canvas, at screen size for the preview and at
 // print size for the export (PNG, or a one-page PDF holding the image).
 import type { LayerMeta } from "./api";
+import { t as tr } from "./i18n";
 
 export interface Paper {
   id: string;
@@ -219,7 +220,7 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
     ctx.textAlign = "center";
     ctx.font = font(7);
     ctx.fillStyle = t.muted;
-    ctx.fillText(g.look != null ? "flight · look" : "flight", cx, cy + (R + 8) * s);
+    ctx.fillText(g.look != null ? tr("flight · look") : tr("flight"), cx, cy + (R + 8) * s);
     ctx.fillStyle = t.ink;
     ctx.font = font(8, 700);
     ctx.fillText(g.pass, cx, cy + (R + 17) * s);
@@ -256,7 +257,7 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
     ctx.fill();
     ctx.font = font(9, 700);
     ctx.textAlign = "center";
-    ctx.fillText("N", cx, cy - 16 * s - 1);
+    ctx.fillText(tr("N"), cx, cy - 16 * s - 1);
     ctx.textAlign = "left";
   }
   if (o.scale && d.metresPerUnit) {
@@ -304,7 +305,7 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
     ctx.fillText(d.legendTitle, x * s, (y + 16) * s, w * s);
     ctx.fillStyle = t.muted;
     ctx.font = font(9.5);
-    ctx.fillText("mm/yr, Pretty Breaks over min–max", x * s, (y + 31) * s, w * s);
+    ctx.fillText(tr("mm/yr, Pretty Breaks over min–max"), x * s, (y + 31) * s, w * s);
     const dec = decimals(d.legend.classes);
     cls.forEach((c, i) => {
       const yy = y + 44 + i * row;
@@ -319,15 +320,15 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
     const yb = y + 44 + cls.length * row + 8;
     ctx.fillStyle = t.muted;
     ctx.font = font(9);
-    ctx.fillText(`min ${d.legend.vel_min.toFixed(1)} · max ${d.legend.vel_max.toFixed(1)}`, x * s, (yb + 4) * s, w * s);
-    ctx.fillText("+ toward the satellite, − away", x * s, (yb + 16) * s, w * s);
+    ctx.fillText(tr("min {min} · max {max}", { min: d.legend.vel_min.toFixed(1), max: d.legend.vel_max.toFixed(1) }), x * s, (yb + 4) * s, w * s);
+    ctx.fillText(tr("+ toward the satellite, − away"), x * s, (yb + 16) * s, w * s);
     return (boxed ? y + h - 6 : yb + 22) + 10;
   };
   const drawMeta = (x: number, y: number, w: number, bottom: number) => {
     if (!o.meta || !d.meta.length || y + 58 > bottom) return;
     ctx.fillStyle = t.ink;
     ctx.font = font(12, 700);
-    ctx.fillText("Product", x * s, (y + 12) * s);
+    ctx.fillText(tr("Product"), x * s, (y + 12) * s);
     let yy = y + 30;
     for (const [k, v] of d.meta) {
       if (yy + 16 > bottom) break;                         // what does not fit is left out, never drawn outside

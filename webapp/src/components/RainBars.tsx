@@ -1,9 +1,10 @@
-// Monthly rainfall bars (CHIRPS) on the same time span as the displacement chart above it: a separate chart, one
-// axis each, so motion and rain are read side by side, not on a shared scale.
+// Monthly rainfall bars on the time span of the displacement chart: a separate chart with its own scale, under the
+// displacement chart (no time axis) or beside it (``axis``: its own month labels).
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
+import { t } from "../i18n";
 
-export function RainBars({ months, from, to, height = 74 }: { months: { month: string; mm: number | null }[]; from: string; to: string; height?: number }) {
+export function RainBars({ months, from, to, height = 74, axis: showAxis = false }: { months: { month: string; mm: number | null }[]; from: string; to: string; height?: number; axis?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
@@ -16,13 +17,13 @@ export function RainBars({ months, from, to, height = 74 }: { months: { month: s
       {
         width: el.clientWidth,
         height,
-        padding: [4, 8, 0, 0],
+        padding: [10, 8, 6, 0],            // room above the tallest bar and below the 0 label
         legend: { show: false },
         cursor: { drag: { x: false, y: false }, points: { show: false } },
-        scales: { x: { time: true, range: [Date.parse(from) / 1000, Date.parse(to) / 1000] }, y: { range: (_u, _min, max) => [0, Math.max(50, max)] } },
+        scales: { x: { time: true, range: [Date.parse(from) / 1000, Date.parse(to) / 1000] }, y: { range: (_u, _min, max) => [0, Math.max(50, max * 1.12)] } },
         axes: [
-          { ...axis, show: false },
-          { ...axis, size: 48, label: "mm/month", labelSize: 12, labelFont: "10px Inter, sans-serif", values: (_u, t) => t.map((v) => `${v}`) },
+          showAxis ? { ...axis, size: 30, values: (_u, v) => v.map((s) => new Date(s * 1000).toISOString().slice(0, 7)) } : { ...axis, show: false },
+          { ...axis, size: 48, label: t("mm/month"), labelSize: 12, labelFont: "10px Inter, sans-serif", values: (_u, t) => t.map((v) => `${v}`) },
         ],
         series: [{}, { stroke: "#5b9bd5", fill: "rgba(91,155,213,0.55)", width: 0, paths: bars, points: { show: false } }],
       },
@@ -35,6 +36,6 @@ export function RainBars({ months, from, to, height = 74 }: { months: { month: s
       ro.disconnect();
       plot.destroy();
     };
-  }, [months, from, to, height]);
+  }, [months, from, to, height, showAxis]);
   return <div ref={box} className="w-full" />;
 }

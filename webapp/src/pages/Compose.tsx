@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Workspace } from "../api";
 import { degLabel, drawSheet, graticuleStep, layout, metresPerPixel, PAPERS, pdfFromJpeg, type Options, type SheetData } from "../compose";
 import { BASES, loadLayer, mapStyle, productLayer, type Base, type LayerData } from "../map";
+import { t, ts } from "../i18n";
 import { useApp } from "../state";
 import { Button, fmt, Panel } from "../ui";
 
@@ -27,6 +28,8 @@ const SENSOR_CREDIT: Record<string, string> = {
   capella: "Capella Space data",
   terrasar_x: "TerraSAR-X data © DLR",
 };
+
+const CONFIDENCE: Record<string, () => string> = { high: () => t("high"), medium: () => t("medium"), low: () => t("low") };
 
 /** The preview map's view rendered off screen at `wPx` × `hPx` device pixels: a second map of that size (CSS size
  *  = pixels / devicePixelRatio, so MapLibre and deck.gl agree on the pixel ratio) with the zoom raised so the
@@ -64,7 +67,7 @@ async function renderMap(
   };
   try {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("The map took too long to render")), 240_000);
+      const timer = setTimeout(() => reject(new Error(t("The map took too long to render"))), 240_000);
       m.once("idle", () => {
         clearTimeout(timer);
         resolve();
@@ -101,7 +104,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   const [dpi, setDpi] = useState(300);
   const [base, setBase] = useState<Base>("light");
   const [o, setO] = useState<Options>({
-    title: first ? `Ground motion — ${first.project}` : "Ground motion",
+    title: first ? t("Ground motion — {project}", { project: first.project }) : t("Ground motion"),
     subtitle: "",
     legend: "right",
     scale: true,
@@ -134,7 +137,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   useEffect(() => {
     if (summary?.product && !o.subtitle) {
       const p = summary.product;
-      set("subtitle", `${fmt.sensor(summary.sensor)} ${summary.direction} · LOS velocity ${p.first} → ${p.last} (${p.epochs} acquisitions)`);
+      set("subtitle", t("{sensor} {direction} · LOS velocity {first} → {last} ({n} acquisitions)", { sensor: fmt.sensor(summary.sensor), direction: summary.direction === "ascending" ? t("ascending") : summary.direction === "descending" ? t("descending") : summary.direction, first: p.first, last: p.last, n: p.epochs }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summary?.product?.id]);
@@ -219,22 +222,22 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     const prod = summary?.product;
     const meta: [string, string][] = first
       ? [
-          ["Project", first.project],
-          ...(summary ? ([["Sensor · track", `${fmt.sensor(summary.sensor)} · ${summary.track_id}`]] as [string, string][]) : []),
+          [t("Project"), first.project],
+          ...(summary ? ([[t("Sensor · track"), `${fmt.sensor(summary.sensor)} · ${summary.track_id}`]] as [string, string][]) : []),
           ...(prod
             ? ([
-                ["Period", `${prod.first} → ${prod.last} (${prod.epochs} dates)`],
-                ["Points", fmt.int(prod.n_points)],
-                ["Confidence", prod.confidence ?? "–"],
-                ["Product", `v${prod.version} (${prod.engine ?? ""})`],
+                [t("Period"), t("{first} → {last} ({n} dates)", { first: prod.first, last: prod.last, n: prod.epochs })],
+                [t("Points"), fmt.int(prod.n_points)],
+                [t("Confidence"), prod.confidence ? (CONFIDENCE[prod.confidence]?.() ?? prod.confidence) : "–"],
+                [t("Product"), `v${prod.version} (${prod.engine ?? ""})`],
               ] as [string, string][])
             : []),
-          ...(visible.length > 1 ? ([["Also shown", visible.slice(1).map((l) => l.project).join(", ")]] as [string, string][]) : []),
+          ...(visible.length > 1 ? ([[t("Also shown"), visible.slice(1).map((l) => l.project).join(", ")]] as [string, string][]) : []),
         ]
       : [];
     const year = summary?.product?.last?.slice(0, 4) ?? "";
-    const basemap = base === "none" ? "" : ` · Base map: ${BASES[base].attribution}`;
-    const credit = summary ? `${SENSOR_CREDIT[summary.sensor] ?? ""} ${summary.sensor === "sentinel1" ? year : ""}`.trim() : "";
+    const basemap = base === "none" ? "" : ` · ${t("Base map: {attribution}", { attribution: BASES[base].attribution })}`;
+    const credit = summary ? `${SENSOR_CREDIT[summary.sensor] ? t(SENSOR_CREDIT[summary.sensor]) : ""} ${summary.sensor === "sentinel1" ? year : ""}`.trim() : "";
     // graticule: lines at nice degrees, placed with the map projection (exact in Web Mercator), in sheet units
     let ticks: SheetData["ticks"] = null;
     if (m && o.frame) {
@@ -256,11 +259,11 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     const fm = firstData?.meta;
     const geometry =
       fm?.heading_deg != null && summary
-        ? { heading: fm.heading_deg, look: fm.look_azimuth_deg ?? null, pass: summary.direction.toUpperCase() }
+        ? { heading: fm.heading_deg, look: fm.look_azimuth_deg ?? null, pass: (summary.direction === "ascending" ? t("ascending") : summary.direction === "descending" ? t("descending") : summary.direction).toUpperCase() }
         : null;
     return {
       legend: firstData ? firstData.meta : null,
-      legendTitle: "LOS velocity",
+      legendTitle: t("LOS velocity"),
       ticks,
       geometry,
       meta,
@@ -298,7 +301,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     const s = outW / L.W;
     let shot: { canvas: HTMLCanvasElement; done: () => void } | null = null;
     try {
-      if (L.map.w * s > 8192 || L.map.h * s > 8192) throw new Error("Too large for the graphics card: choose a lower resolution");
+      if (L.map.w * s > 8192 || L.map.h * s > 8192) throw new Error(t("Too large for the graphics card: choose a lower resolution"));
       shot = await renderMap(m, L.map.w * s, L.map.h * s, L.map.w * sp, mapStyle(base, o.theme === "light" ? "#f3f4f6" : "#0b1220"), deckLayers);
       const out = document.createElement("canvas");
       out.width = outW;
@@ -308,18 +311,18 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
       const name = `${(first?.project ?? "map").replace(/[^\w-]+/g, "_")}_${paper.id}${paper.screen ? "" : `_${dpi}dpi`}`;
       if (kind === "png") {
         const blob = await new Promise<Blob | null>((r) => out.toBlob(r, "image/png"));
-        if (!blob) throw new Error("PNG encoding failed");
+        if (!blob) throw new Error(t("PNG encoding failed"));
         download(blob, `${name}.png`);
       } else {
         const blob = await new Promise<Blob | null>((r) => out.toBlob(r, "image/jpeg", 0.93));
-        if (!blob) throw new Error("JPEG encoding failed");
+        if (!blob) throw new Error(t("JPEG encoding failed"));
         const jpeg = new Uint8Array(await blob.arrayBuffer());
         const pt = (mm: number) => (mm / 25.4) * 72;
         const [wPt, hPt] = paper.screen ? [outW * 0.75, outH * 0.75] : [pt(paper.w), pt(paper.h)];
         download(pdfFromJpeg(jpeg, outW, outH, wPt, hPt), `${name}.pdf`);
       }
     } catch (e) {
-      setError((e as Error).message);
+      setError(ts((e as Error).message));
     } finally {
       shot?.done();
       setBusy("");
@@ -330,10 +333,10 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <Panel className="max-w-md p-6 text-center">
-          <div className="text-[15px] font-semibold">Nothing to put on the map</div>
-          <p className="mt-2 text-[13px] text-muted">Show one or more products in the Explorer (eye in the project tree), then come back here.</p>
+          <div className="text-[15px] font-semibold">{t("Nothing to put on the map")}</div>
+          <p className="mt-2 text-[13px] text-muted">{t("Show one or more products in the Explorer (eye in the project tree), then come back here.")}</p>
           <Button className="mt-4" onClick={() => go({ page: "explorer" })}>
-            Go to the Explorer
+            {t("Go to the Explorer")}
           </Button>
         </Panel>
       </div>
@@ -344,20 +347,20 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     <div className="flex h-full min-h-0">
       <div className="w-[300px] flex-none space-y-4 overflow-y-auto border-r border-line bg-panel-2 p-4">
         <div>
-          <h1 className="text-[17px] font-semibold">Map image</h1>
-          <p className="mt-1 text-[12px] text-muted">Pan and zoom the map inside the sheet, then export.</p>
+          <h1 className="text-[17px] font-semibold">{t("Map image")}</h1>
+          <p className="mt-1 text-[12px] text-muted">{t("Pan and zoom the map inside the sheet, then export.")}</p>
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">SHEET</div>
-          <select className={field} value={paperId} onChange={(e) => setPaperId(e.target.value)} aria-label="Format">
+          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("SHEET")}</div>
+          <select className={field} value={paperId} onChange={(e) => setPaperId(e.target.value)} aria-label={t("Format")}>
             {PAPERS.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.label}
+                {t(p.label)}
               </option>
             ))}
           </select>
           {!paper.screen && (
-            <select className={field} value={dpi} onChange={(e) => setDpi(Number(e.target.value))} aria-label="Resolution">
+            <select className={field} value={dpi} onChange={(e) => setDpi(Number(e.target.value))} aria-label={t("Resolution")}>
               {[150, 200, 300].map((v) => (
                 <option key={v} value={v}>
                   {v} dpi
@@ -366,7 +369,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
             </select>
           )}
           <div className="text-[11.5px] text-faint">
-            Export {outW} × {outH} px
+            {t("Export {w} × {h} px", { w: outW, h: outH })}
           </div>
           <div className="flex gap-1.5">
             {(["light", "dark"] as const).map((th) => (
@@ -375,49 +378,49 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
                 type="button"
                 aria-pressed={o.theme === th}
                 onClick={() => set("theme", th)}
-                className={`h-7 flex-1 rounded-md border text-[12px] capitalize ${o.theme === th ? "border-accent bg-raised text-ink" : "border-line-2 text-muted"}`}
+                className={`h-7 flex-1 rounded-md border text-[12px] first-letter:uppercase ${o.theme === th ? "border-accent bg-raised text-ink" : "border-line-2 text-muted"}`}
               >
-                {th} sheet
+                {th === "light" ? t("light sheet") : t("dark sheet")}
               </button>
             ))}
           </div>
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">TEXT</div>
-          <input className={field} value={o.title} onChange={(e) => set("title", e.target.value)} placeholder="Title (empty: none)" aria-label="Title" />
-          <input className={field} value={o.subtitle} onChange={(e) => set("subtitle", e.target.value)} placeholder="Subtitle" aria-label="Subtitle" />
+          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("TEXT")}</div>
+          <input className={field} value={o.title} onChange={(e) => set("title", e.target.value)} placeholder={t("Title (empty: none)")} aria-label={t("Title")} />
+          <input className={field} value={o.subtitle} onChange={(e) => set("subtitle", e.target.value)} placeholder={t("Subtitle")} aria-label={t("Subtitle")} />
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">MAP</div>
-          <select className={field} value={base} onChange={(e) => setBase(e.target.value as Base)} aria-label="Base map">
+          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("MAP")}</div>
+          <select className={field} value={base} onChange={(e) => setBase(e.target.value as Base)} aria-label={t("Base map")}>
             {(["light", "dark", "satellite", "none"] as Base[]).map((b) => (
               <option key={b} value={b}>
-                {b === "none" ? "No base map" : `${BASES[b].label} base map`}
+                {b === "none" ? t("No base map") : t("{label} base map", { label: t(BASES[b].label) })}
               </option>
             ))}
           </select>
-          <select className={field} value={o.legend} onChange={(e) => set("legend", e.target.value as Options["legend"])} aria-label="Legend">
-            <option value="right">Legend beside the map</option>
-            <option value="inside">Legend inside the map</option>
-            <option value="none">No legend</option>
+          <select className={field} value={o.legend} onChange={(e) => set("legend", e.target.value as Options["legend"])} aria-label={t("Legend")}>
+            <option value="right">{t("Legend beside the map")}</option>
+            <option value="inside">{t("Legend inside the map")}</option>
+            <option value="none">{t("No legend")}</option>
           </select>
-          <Toggle label="Scale bar" on={o.scale} set={(v) => set("scale", v)} />
-          <Toggle label="North arrow" on={o.north} set={(v) => set("north", v)} />
-          <Toggle label="Coordinate frame (lon / lat)" on={o.frame} set={(v) => set("frame", v)} />
-          <Toggle label="Satellite flight / look direction" on={o.geometry} set={(v) => set("geometry", v)} />
-          <Toggle label="Product details" on={o.meta} set={(v) => set("meta", v)} />
-          <Toggle label="Credits line" on={o.credits} set={(v) => set("credits", v)} />
+          <Toggle label={t("Scale bar")} on={o.scale} set={(v) => set("scale", v)} />
+          <Toggle label={t("North arrow")} on={o.north} set={(v) => set("north", v)} />
+          <Toggle label={t("Coordinate frame (lon / lat)")} on={o.frame} set={(v) => set("frame", v)} />
+          <Toggle label={t("Satellite flight / look direction")} on={o.geometry} set={(v) => set("geometry", v)} />
+          <Toggle label={t("Product details")} on={o.meta} set={(v) => set("meta", v)} />
+          <Toggle label={t("Credits line")} on={o.credits} set={(v) => set("credits", v)} />
         </div>
         <div className="space-y-2 border-t border-line pt-4">
           <Button variant="primary" className="w-full justify-center" disabled={!!busy} onClick={() => exportAs("png")}>
-            {busy === "PNG" ? "Rendering…" : "Download PNG"}
+            {busy === "PNG" ? t("Rendering…") : t("Download PNG")}
           </Button>
           <Button className="w-full justify-center" disabled={!!busy} onClick={() => exportAs("pdf")}>
-            {busy === "PDF" ? "Rendering…" : "Download PDF"}
+            {busy === "PDF" ? t("Rendering…") : t("Download PDF")}
           </Button>
           {error && <div className="text-[12px] text-bad">{error}</div>}
           <div className="text-[11.5px] leading-snug text-faint">
-            Colours and classes as in QGIS and the reports. {visible.length > 1 ? "The legend is that of the first layer." : ""}
+            {t("Colours and classes as in QGIS and the reports.")} {visible.length > 1 ? t("The legend is that of the first layer.") : ""}
           </div>
         </div>
       </div>

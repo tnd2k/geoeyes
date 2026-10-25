@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AsfPreview, type AsfTrack, type Folder, type Workspace } from "../api";
+import { t, ts } from "../i18n";
 import { useApp } from "../state";
 import { Button, Panel } from "../ui";
 
@@ -176,20 +177,20 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
   return (
     <div className="flex h-full min-h-0 flex-wrap">
       <div className="h-full min-w-0 flex-[1_1_440px] overflow-y-auto p-5">
-        <h1 className="text-[22px] font-semibold">New project</h1>
+        <h1 className="text-[22px] font-semibold">{t("New project")}</h1>
         <p className="mt-1 text-[13px] text-muted">
-          Writes a minimal <span className="font-mono">project.toml</span>: everything else comes from the sensor preset and can be changed later in Settings.
+          {t("Writes a minimal")} <span className="font-mono">project.toml</span>{t(": everything else comes from the sensor preset and can be changed later in Settings.")}
         </p>
         <div className="mt-5 space-y-4">
-          <Step n={1} title="Project">
+          <Step n={1} title={t("Project")}>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label hint="a-z, 0-9, _ and -">Name</Label>
+                <Label hint={t("a-z, 0-9, _ and -")}>{t("Name")}</Label>
                 <input className={field} value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder="hanoi_s1_asc" aria-invalid={!!name && !nameOk} />
-                {name && !nameOk && <div className="mt-1 text-[11.5px] text-bad">{exists ? "A project with this name exists." : "Use a-z, 0-9, _ or -, starting with a letter or digit."}</div>}
+                {name && !nameOk && <div className="mt-1 text-[11.5px] text-bad">{exists ? t("A project with this name exists.") : t("Use a-z, 0-9, _ or -, starting with a letter or digit.")}</div>}
               </div>
               <div>
-                <Label hint="in the project tree">Folder</Label>
+                <Label hint={t("in the project tree")}>{t("Folder")}</Label>
                 <input className={field} list="folders" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="Vietnam/Hanoi" />
                 <datalist id="folders">
                   {folders.map((f) => (
@@ -198,21 +199,21 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                 </datalist>
               </div>
               <div className="sm:col-span-2">
-                <Label>Description</Label>
-                <input className={field} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Hanoi city centre, Sentinel-1 ascending" />
+                <Label>{t("Description")}</Label>
+                <input className={field} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("Hanoi city centre, Sentinel-1 ascending")} />
               </div>
               <div>
-                <Label>Method</Label>
+                <Label>{t("Method")}</Label>
                 <select className={field} value={method} onChange={(e) => setMethod(e.target.value)}>
-                  <option value="psi">psi — persistent scatterers</option>
-                  <option value="psds">psds — PS + distributed scatterers</option>
-                  <option value="ps_lite">ps_lite — fast PS (Capella)</option>
+                  <option value="psi">{t("psi — persistent scatterers")}</option>
+                  <option value="psds">{t("psds — PS + distributed scatterers")}</option>
+                  <option value="ps_lite">{t("ps_lite — fast PS (Capella)")}</option>
                 </select>
               </div>
               <div>
-                <Label>Sensor</Label>
+                <Label>{t("Sensor")}</Label>
                 <select className={field} value={sensor} onChange={(e) => (setSensor(e.target.value), setTracks(null), setPreview(null))}>
-                  <option value="sentinel1">Sentinel-1 (downloaded from ASF)</option>
+                  <option value="sentinel1">{t("Sentinel-1 (downloaded from ASF)")}</option>
                   <option value="cosmo_skymed">COSMO-SkyMed</option>
                   <option value="capella">Capella</option>
                   <option value="terrasar_x">TerraSAR-X</option>
@@ -221,10 +222,10 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
             </div>
           </Step>
 
-          <Step n={2} title="Area of interest">
+          <Step n={2} title={t("Area of interest")}>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant={drawing ? "primary" : "ghost"} onClick={() => setDrawing((d) => !d)}>
-                {drawing ? "Click two opposite corners on the map…" : bbox ? "Redraw on the map" : "Draw on the map"}
+                {drawing ? t("Click two opposite corners on the map…") : bbox ? t("Redraw on the map") : t("Draw on the map")}
               </Button>
               {bbox && <span className="font-mono text-[12px] text-ink-2">{bbox.map((v) => v.toFixed(4)).join(", ")}</span>}
             </div>
@@ -234,8 +235,8 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                   key={l}
                   type="number"
                   step="any"
-                  aria-label={l}
-                  placeholder={l}
+                  aria-label={t(l)}
+                  placeholder={t(l)}
                   className={field}
                   value={bbox?.[i] ?? ""}
                   onChange={(e) => {
@@ -250,31 +251,31 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
             </div>
           </Step>
 
-          <Step n={3} title={s1 ? "Track and dates" : "Track and data"}>
+          <Step n={3} title={s1 ? t("Track and dates") : t("Track and data")}>
             {s1 ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button disabled={!bbox || findTracks.isPending} onClick={() => findTracks.mutate()}>
-                    {findTracks.isPending ? "Searching ASF…" : "Find Sentinel-1 tracks over the area"}
+                    {findTracks.isPending ? t("Searching ASF…") : t("Find Sentinel-1 tracks over the area")}
                   </Button>
-                  {findTracks.error && <span className="text-[12px] text-bad">{(findTracks.error as Error).message}</span>}
+                  {findTracks.error && <span className="text-[12px] text-bad">{ts((findTracks.error as Error).message)}</span>}
                 </div>
                 {tracks && (
                   <div className="mt-3 space-y-1.5">
-                    {tracks.length === 0 && <div className="text-[13px] text-muted">No Sentinel-1 burst over this area in the last 24 days.</div>}
-                    {tracks.map((t) => {
-                      const on = String(t.relative_orbit) === orbit && t.direction === direction;
+                    {tracks.length === 0 && <div className="text-[13px] text-muted">{t("No Sentinel-1 burst over this area in the last 24 days.")}</div>}
+                    {tracks.map((x) => {
+                      const on = String(x.relative_orbit) === orbit && x.direction === direction;
                       return (
                         <button
-                          key={t.track_id}
+                          key={x.track_id}
                           type="button"
-                          onClick={() => (setOrbit(String(t.relative_orbit)), setDirection(t.direction), setPreview(null))}
+                          onClick={() => (setOrbit(String(x.relative_orbit)), setDirection(x.direction), setPreview(null))}
                           className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-[13px] ${on ? "border-accent bg-[#102033]" : "border-line hover:bg-[#131f35]"}`}
                         >
-                          <span className="font-mono">{t.track_id}</span>
-                          <span className="text-muted">{t.subswaths.join(", ")}</span>
-                          <span className="ml-auto text-[12px] text-ink-2">{t.coverage != null ? `${Math.round(t.coverage * 100)}% of the area` : ""}</span>
-                          <span className="text-[11.5px] text-faint">last {t.last}</span>
+                          <span className="font-mono">{x.track_id}</span>
+                          <span className="text-muted">{x.subswaths.join(", ")}</span>
+                          <span className="ml-auto text-[12px] text-ink-2">{x.coverage != null ? t("{pct}% of the area", { pct: Math.round(x.coverage * 100) }) : ""}</span>
+                          <span className="text-[11.5px] text-faint">{t("last {date}", { date: x.last })}</span>
                         </button>
                       );
                     })}
@@ -282,50 +283,50 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                 )}
                 <div className="mt-3 grid gap-3 sm:grid-cols-4">
                   <div>
-                    <Label>Direction</Label>
+                    <Label>{t("Direction")}</Label>
                     <select className={field} value={direction} onChange={(e) => (setDirection(e.target.value), setPreview(null))}>
-                      <option value="ascending">ascending</option>
-                      <option value="descending">descending</option>
+                      <option value="ascending">{t("ascending")}</option>
+                      <option value="descending">{t("descending")}</option>
                     </select>
                   </div>
                   <div>
-                    <Label>Relative orbit</Label>
+                    <Label>{t("Relative orbit")}</Label>
                     <input className={field} type="number" min={1} max={175} value={orbit} onChange={(e) => (setOrbit(e.target.value), setPreview(null))} />
                   </div>
                   <div>
-                    <Label>From</Label>
+                    <Label>{t("From")}</Label>
                     <input className={field} type="date" value={start} onChange={(e) => (setStart(e.target.value), setPreview(null))} />
                   </div>
                   <div>
-                    <Label>To</Label>
+                    <Label>{t("To")}</Label>
                     <input className={field} type="date" value={end} onChange={(e) => (setEnd(e.target.value), setPreview(null))} />
                   </div>
                   <div>
-                    <Label hint="0 = all">Per month</Label>
+                    <Label hint={t("0 = all")}>{t("Per month")}</Label>
                     <input className={field} type="number" min={0} value={perMonth} onChange={(e) => (setPerMonth(Number(e.target.value)), setPreview(null))} />
                   </div>
                   <div>
-                    <Label>Atmosphere</Label>
+                    <Label>{t("Atmosphere")}</Label>
                     <select className={field} value={atmosphere} onChange={(e) => setAtmosphere(e.target.value)}>
                       <option value="era5">ERA5</option>
                       <option value="gacos">GACOS</option>
-                      <option value="none">none</option>
+                      <option value="none">{t("none")}</option>
                     </select>
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Button disabled={!bbox || !orbit || doPreview.isPending} onClick={() => doPreview.mutate()}>
-                    {doPreview.isPending ? "Asking ASF…" : "Preview acquisitions"}
+                    {doPreview.isPending ? t("Asking ASF…") : t("Preview acquisitions")}
                   </Button>
-                  {doPreview.error && <span className="text-[12px] text-bad">{(doPreview.error as Error).message}</span>}
+                  {doPreview.error && <span className="text-[12px] text-bad">{ts((doPreview.error as Error).message)}</span>}
                 </div>
                 {preview && (
                   <div className="mt-3 rounded-lg border border-line bg-panel-2 p-3 text-[13px]">
                     <div>
-                      <span className="font-semibold">{preview.acquisitions}</span> acquisitions · {preview.bursts} bursts ({preview.burst_ids.join(", ")}) · about{" "}
-                      <span className="font-semibold">{preview.gb} GB</span> to download · {preview.platforms.join(", ")}
+                      <span className="font-semibold">{preview.acquisitions}</span> {t("acquisitions")} · {t("{n} bursts ({ids})", { n: preview.bursts, ids: preview.burst_ids.join(", ") })} · {t("about")}{" "}
+                      <span className="font-semibold">{preview.gb} GB</span> {t("to download")} · {preview.platforms.join(", ")}
                     </div>
-                    <div className="mt-3 flex h-20 items-end gap-1" role="img" aria-label="Acquisitions per month">
+                    <div className="mt-3 flex h-20 items-end gap-1" role="img" aria-label={t("Acquisitions per month")}>
                       {Object.entries(preview.months).map(([m, n]) => (
                         <div key={m} className="flex flex-1 flex-col items-center gap-1" title={`${m}: ${n}`}>
                           <div className="w-full rounded-t bg-[#4c8dff]" style={{ height: `${(56 * n) / maxMonth}px` }} />
@@ -339,20 +340,20 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <Label hint="folder of the raw scenes (commercial data are not downloaded)">Archive</Label>
+                  <Label hint={t("folder of the raw scenes (commercial data are not downloaded)")}>{t("Archive")}</Label>
                   <input className={field} value={archive} onChange={(e) => setArchive(e.target.value)} placeholder="D:\projects\geoeyes_workspace\archive\capella\capella-asc" />
                 </div>
                 <div>
-                  <Label>Direction</Label>
+                  <Label>{t("Direction")}</Label>
                   <select className={field} value={direction} onChange={(e) => setDirection(e.target.value)}>
-                    <option value="ascending">ascending</option>
-                    <option value="descending">descending</option>
+                    <option value="ascending">{t("ascending")}</option>
+                    <option value="descending">{t("descending")}</option>
                   </select>
                 </div>
                 <div>
-                  <Label>Atmosphere</Label>
+                  <Label>{t("Atmosphere")}</Label>
                   <select className={field} value={atmosphere} onChange={(e) => setAtmosphere(e.target.value)}>
-                    <option value="none">none</option>
+                    <option value="none">{t("none")}</option>
                     <option value="era5">ERA5</option>
                     <option value="gacos">GACOS</option>
                   </select>
@@ -363,10 +364,10 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
 
           <div className="flex flex-wrap items-center gap-3 pb-6">
             <Button variant="primary" disabled={!ready || create.isPending} onClick={() => create.mutate()}>
-              {create.isPending ? "Creating…" : "Create project"}
+              {create.isPending ? t("Creating…") : t("Create project")}
             </Button>
-            {!ready && <span className="text-[12px] text-faint">Name, area and {s1 ? "track (relative orbit)" : "archive folder"} are needed.</span>}
-            {create.error && <span className="text-[12px] text-bad">{(create.error as Error).message}</span>}
+            {!ready && <span className="text-[12px] text-faint">{s1 ? t("Name, area and track (relative orbit) are needed.") : t("Name, area and archive folder are needed.")}</span>}
+            {create.error && <span className="text-[12px] text-bad">{ts((create.error as Error).message)}</span>}
           </div>
         </div>
       </div>
@@ -375,7 +376,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
           <div ref={mapEl} className="h-full w-full" />
         </div>
         {drawing && (
-          <div className="absolute top-3 left-3 z-10 rounded-md bg-[#0b1220]/85 px-3 py-1.5 text-[12.5px] text-ink-2">Click a first corner, then the opposite corner</div>
+          <div className="absolute top-3 left-3 z-10 rounded-md bg-[#0b1220]/85 px-3 py-1.5 text-[12.5px] text-ink-2">{t("Click a first corner, then the opposite corner")}</div>
         )}
       </div>
     </div>

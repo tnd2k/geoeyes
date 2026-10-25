@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
+import { t, ts } from "../i18n";
 import { Button, Chip, fmt, Panel } from "../ui";
 
 export function Validation({ name }: { name: string }) {
@@ -22,7 +23,7 @@ export function Validation({ name }: { name: string }) {
   });
   const [sel, setSel] = useState<string | null>(null);
   if (q.error) return <div className="text-bad">{(q.error as Error).message}</div>;
-  if (!q.data) return <div className="text-muted">Loading…</div>;
+  if (!q.data) return <div className="text-muted">{t("Loading…")}</div>;
   const v = q.data;
   const rep = v.reports.find((r) => r.id === sel) ?? v.reports[0];
 
@@ -30,27 +31,28 @@ export function Validation({ name }: { name: string }) {
     <div className="space-y-4">
       <Panel className="flex flex-wrap items-center gap-3 px-4 py-3 text-[13px]">
         <div className="min-w-0 flex-1">
-          <div className="font-semibold">Corner reflectors</div>
+          <div className="font-semibold">{t("Corner reflectors")}</div>
           <div className="mt-0.5 text-muted">
             {v.configured ? (
               <>
-                Reflectors <span className="font-mono text-ink-2">{String(v.config.points)}</span>
+                {t("Reflectors")} <span className="font-mono text-ink-2">{String(v.config.points)}</span>
                 {v.config.setup ? (
                   <>
-                    {" "}· set-up log <span className="font-mono text-ink-2">{String(v.config.setup)}</span>
+                    {" "}· {t("set-up log")} <span className="font-mono text-ink-2">{String(v.config.setup)}</span>
                   </>
                 ) : null}
-                {" "}· identification from the Sentinel-1 bursts in the archive
+                {" "}· {t("identification from the Sentinel-1 bursts in the archive")}
               </>
             ) : (
               <>
-                Not configured: add <span className="font-mono">[validation.corner_reflector] points = "geom/points.csv"</span> to project.toml (Settings → project.toml).
+                {t("Not configured: add")} <span className="font-mono">[validation.corner_reflector] points = "geom/points.csv"</span>{" "}
+                {t("to project.toml (Settings → project.toml).")}
               </>
             )}
           </div>
         </div>
         <Button variant="primary" disabled={!v.configured || run.isPending || polling} onClick={() => run.mutate()}>
-          {polling ? "Report running…" : "Build CR report"}
+          {polling ? t("Report running…") : t("Build CR report")}
         </Button>
       </Panel>
       {run.error && <div className="rounded-lg bg-[#2a1414] px-3 py-2 text-[13px] text-bad">{(run.error as Error).message}</div>}
@@ -59,7 +61,7 @@ export function Validation({ name }: { name: string }) {
       )}
 
       {v.reports.length === 0 ? (
-        <div className="text-[13px] text-muted">No corner reflector report yet.</div>
+        <div className="text-[13px] text-muted">{t("No corner reflector report yet.")}</div>
       ) : (
         <div className="flex flex-wrap gap-4">
           <Panel className="w-full max-w-[260px] flex-none p-2">
@@ -79,30 +81,34 @@ export function Validation({ name }: { name: string }) {
             <div className="min-w-0 flex-[999_1_560px] space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="text-muted">
-                  {rep.report.reflectors.length} reflector(s) · {rep.report.acquisitions.length} acquisition(s) · tolerance ±{rep.report.tolerance_db} dB ·
-                  generated {rep.report.generated_at}
+                  {t("{r} reflector(s) · {a} acquisition(s) · tolerance ±{tol} dB · generated {at}", {
+                    r: rep.report.reflectors.length,
+                    a: rep.report.acquisitions.length,
+                    tol: rep.report.tolerance_db,
+                    at: rep.report.generated_at,
+                  })}
                 </span>
                 {rep.pdf && (
                   <a className="ml-auto text-accent hover:underline" href={api.validationFile(name, rep.id, "cr_report.pdf")} target="_blank" rel="noopener">
-                    Open PDF ↗
+                    {t("Open PDF")} ↗
                   </a>
                 )}
               </div>
               {rep.report.warnings.map((w) => (
-                <div key={w} className="rounded-lg bg-[#2a2110] px-3 py-2 text-[12.5px] text-[#f5d08b]">{w}</div>
+                <div key={w} className="rounded-lg bg-[#2a2110] px-3 py-2 text-[12.5px] text-[#f5d08b]">{ts(w)}</div>
               ))}
               <Panel className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-[12.5px]">
                   <thead>
                     <tr className="text-left text-muted">
                       {["Reflector", "Date", "Expected dBsm", "Measured dBsm", "Difference", "SCR dB", "Offset", ""].map((h) => (
-                        <th key={h} className="px-3 py-2 font-medium">{h}</th>
+                        <th key={h} className="px-3 py-2 font-medium">{t(h)}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {rep.report.observations.map((o, i) => (
-                      <tr key={i} className="border-t border-line" title={o.setup_note ?? ""}>
+                      <tr key={i} className="border-t border-line" title={ts(o.setup_note ?? "")}>
                         <td className="px-3 py-2 font-mono">{o.reflector}</td>
                         <td className="px-3 py-2 font-mono">{o.date}</td>
                         <td className="px-3 py-2 font-mono">{fmt.num(o.expected_dbsm)}</td>
@@ -111,7 +117,7 @@ export function Validation({ name }: { name: string }) {
                         <td className="px-3 py-2 font-mono">{fmt.num(o.scr_db)}</td>
                         <td className="px-3 py-2 font-mono">{fmt.num(o.offset_m)} m</td>
                         <td className="px-3 py-2">
-                          <Chip status={o.within_tolerance ? "ok" : "failed"} label={o.within_tolerance ? "within tolerance" : "outside"} />
+                          <Chip status={o.within_tolerance ? "ok" : "failed"} label={o.within_tolerance ? t("within tolerance") : t("outside")} />
                         </td>
                       </tr>
                     ))}
@@ -124,7 +130,7 @@ export function Validation({ name }: { name: string }) {
                     <thead>
                       <tr className="text-left text-muted">
                         {["Reflector", "Pair", "Coherence at the reflector", "Area median"].map((h) => (
-                          <th key={h} className="px-3 py-2 font-medium">{h}</th>
+                          <th key={h} className="px-3 py-2 font-medium">{t(h)}</th>
                         ))}
                       </tr>
                     </thead>

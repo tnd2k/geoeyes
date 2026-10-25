@@ -4,9 +4,12 @@ import { api } from "./api";
 import { ProjectTree } from "./components/ProjectTree";
 import { Explorer } from "./pages/Explorer";
 import { Compose } from "./pages/Compose";
+import { Hazard } from "./pages/Hazard";
 import { NewProject } from "./pages/NewProject";
 import { Overview } from "./pages/Overview";
 import { Project } from "./pages/Project";
+import { LangSwitch, t, ts } from "./i18n";
+import { ActivityWatcher, Bell } from "./notify";
 import { href, useApp } from "./state";
 
 function Logo() {
@@ -28,7 +31,7 @@ function Login({ onDone }: { onDone: () => void }) {
       await api.login(token.trim());
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      setError(ts((err as Error).message));
     }
   };
   return (
@@ -38,18 +41,18 @@ function Login({ onDone }: { onDone: () => void }) {
           <Logo />
           <span className="text-[17px] font-bold">GeoEyes</span>
         </div>
-        <p className="mt-3 text-[13px] text-muted">This server is open to the network. Enter the login token printed by <span className="font-mono">geoeyes serve</span>.</p>
+        <p className="mt-3 text-[13px] text-muted">{t("This server is open to the network. Enter the login token printed by")} <span className="font-mono">geoeyes serve</span>.</p>
         <input
           type="password"
           autoFocus
           value={token}
           onChange={(e) => setToken(e.target.value)}
-          aria-label="Login token"
+          aria-label={t("Login token")}
           className="mt-4 h-10 w-full rounded-md border border-line-2 bg-[#0a1322] px-3 font-mono text-[13px] focus:border-accent focus:outline-none"
         />
         {error && <div className="mt-2 text-[12.5px] text-bad">{error}</div>}
         <button type="submit" className="mt-4 h-10 w-full rounded-lg bg-accent-2 text-[14px] font-semibold text-white hover:bg-[#4b9dff]">
-          Sign in
+          {t("Sign in")}
         </button>
       </form>
     </div>
@@ -81,10 +84,11 @@ function Shell() {
   const lastProject =
     route.page === "project" ? route.name : Object.values(ws.data?.projects ?? {}).find((p) => p.status === "running")?.name;
   const nav = [
-    { label: "Overview", to: href({ page: "overview" }), on: route.page === "overview" },
-    { label: "Explorer", to: href({ page: "explorer" }), on: route.page === "explorer" },
-    { label: "Map image", to: href({ page: "compose" }), on: route.page === "compose" },
-    ...(lastProject ? [{ label: "Project", to: href({ page: "project", name: lastProject }), on: route.page === "project" }] : []),
+    { label: t("Overview"), to: href({ page: "overview" }), on: route.page === "overview" },
+    { label: t("Explorer"), to: href({ page: "explorer" }), on: route.page === "explorer" },
+    { label: t("Hazard"), to: href({ page: "hazard" }), on: route.page === "hazard" },
+    { label: t("Map image"), to: href({ page: "compose" }), on: route.page === "compose" },
+    ...(lastProject ? [{ label: t("Project"), to: href({ page: "project", name: lastProject }), on: route.page === "project" }] : []),
   ];
 
   return (
@@ -93,7 +97,7 @@ function Shell() {
         <button
           type="button"
           onClick={() => setTreeOpen((v) => !v)}
-          title={treeOpen ? "Hide the project tree" : "Show the project tree"}
+          title={treeOpen ? t("Hide the project tree") : t("Show the project tree")}
           aria-pressed={treeOpen}
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-ink"
         >
@@ -106,7 +110,7 @@ function Shell() {
           <Logo />
           <span className="text-[16px] font-bold tracking-tight">GeoEyes</span>
         </a>
-        <nav className="flex gap-1" aria-label="Main">
+        <nav className="flex gap-1" aria-label={t("Main")}>
           {nav.map((n) => (
             <a
               key={n.label}
@@ -118,10 +122,13 @@ function Shell() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-[12px] text-faint">
-          {ws.error ? <span className="text-bad">API unreachable: {(ws.error as Error).message}</span> : <span className="hidden md:inline">{ws.data?.root}</span>}
+          {ws.error ? <span className="text-bad">{t("API unreachable: {msg}", { msg: (ws.error as Error).message })}</span> : <span className="hidden xl:inline">{ws.data?.root}</span>}
           <a href="/api/docs" target="_blank" rel="noopener" className="text-muted hover:text-ink">
             API
           </a>
+          <LangSwitch />
+          <Bell />
+          <ActivityWatcher ws={ws.data} />
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -136,6 +143,7 @@ function Shell() {
           {route.page === "project" && <Project name={route.name} tab={route.tab} />}
           {route.page === "new" && <NewProject ws={ws.data} />}
           {route.page === "compose" && <Compose ws={ws.data} />}
+          {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} />}
         </main>
       </div>
     </div>
