@@ -1,5 +1,7 @@
 # GeoEyes
 
+> Tiếng Việt: [README.vi.md](README.vi.md) · tài liệu tiếng Việt trong [docs/vi](docs/vi/README.md)
+
 InSAR time-series processing, from raw SAR scenes to versioned displacement products and reports.
 
 - **Sensors**: Sentinel-1 IW (bursts from ASF), COSMO-SkyMed and Capella stripmap; native coregistration (no SNAP).
@@ -9,7 +11,10 @@ InSAR time-series processing, from raw SAR scenes to versioned displacement prod
   (GeoPackage styled for QGIS, PMTiles), scientific PDF reports, corner reflector identification reports, a
   workspace catalog (STAC + DuckDB).
 - **Web app**: project tree, map of millions of points, time series, comparison of products, map images,
-  monitoring (next Sentinel-1 acquisitions, scheduled runs, deformation alerts).
+  monitoring (next Sentinel-1 acquisitions, scheduled runs, deformation alerts), hazard zoning.
+- **Hazard zoning with rainfall**: subsidence and slow-landslide hazard levels from InSAR intensity, angular
+  distortion or slope, and a tested rainfall coupling (CHIRPS v3): method, sources and research plan in
+  [docs/en/research/rainfall-insar-hazard.md](docs/en/research/rainfall-insar-hazard.md).
 
 ## Install
 
@@ -23,7 +28,7 @@ copy .env.example .env      # then set GEOEYES_WORKSPACE (and EARTHDATA_TOKEN fo
 ## Use
 
 A project is a folder `<workspace>/projects/<name>/` with a `project.toml` (sensor preset + overrides).
-How to declare a project and where the raw data go: [docs/guide/projects-and-data.md](docs/guide/projects-and-data.md).
+How to declare a project and where the raw data go: [docs/en/guide/projects-and-data.md](docs/en/guide/projects-and-data.md).
 
 ```
 geoeyes check  <project>        # environment and configuration
@@ -32,6 +37,8 @@ geoeyes run    <project>        # acquire -> build_stack -> [phase_linking] -> p
 geoeyes status <project>
 geoeyes report <project>        # rebuild the PDF report of the latest product
 geoeyes cr-report <project>     # corner reflector identification (Sentinel-1)
+geoeyes hazard <project>        # hazard zoning with rainfall of the latest product (--set cell_m=50 ...)
+geoeyes gnss   <project>        # compare with the NGL GNSS stations; GNSS calibration (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # products of every project over an area
 geoeyes serve --open            # web app on http://localhost:8765
 ```
@@ -48,8 +55,9 @@ Phases re-run only when their inputs or parameters change; new acquisitions exte
 | `tests/parity` | per-step comparison of the PS engine with the legacy StaMPS runs (needs the legacy outputs) |
 | `tests/golden` | end-to-end runs against stored references (needs `GEOEYES_TEST_DATA`) |
 | `docs/guide` | user guide: declaring projects and data |
+| `docs/research` | research notes: method, sources and plan (rainfall and InSAR hazard zoning; GNSS validation and calibration) |
 | `docs/architecture` | architecture, decisions (ADR), migration map |
-| `docs/refactor/TODO.md` | refactor plan and progress; `webapp-plan.md`: the web app |
+| `docs/en/refactor/TODO.md` | refactor plan and progress; `webapp-plan.md`: the web app |
 | `webapp/` | web app front end (React + TypeScript), built into `src/geoeyes/api/static`; run with `geoeyes serve` |
 
 Product language is English (ADR-015). The license is to be defined by the project owner (ADR-019).

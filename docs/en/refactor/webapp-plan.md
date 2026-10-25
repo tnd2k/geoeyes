@@ -16,7 +16,11 @@ acquisitions from the archive, scheduled `geoeyes run` through the Windows Task 
 `[postprocess.alerts]` checked on the latest product, triggered alerts in the overview). Fourth pass: ESA's
 published acquisition plan checks the 12-day forecast (planned / not planned / forecast), monthly CHIRPS v3
 rainfall under the time series, SCN-removed series beside the displacement, workspace catalog ("Products here"),
-coordinate frame and satellite flight / look arrows on map images.
+coordinate frame and satellite flight / look arrows on map images. Fifth pass (2026-10-25): **Hazard** page,
+subsidence / landslide hazard zoning with rainfall (`geoeyes hazard`, ADR-024): cells coloured by level or by
+an ingredient (intensity, distortion / slope, rate, rainfall coupling, lag, mode), legend with the matrix, a
+cell panel (series in the motion direction, linear and rainfall models, the pixel's rainfall), run parameters and
+a stable reference area. Rainfall bars under the time series are now shown by default.
 
 The former webapp (FastAPI + React, 11 API groups, 5 pages) is frozen and will be replaced. It edited the
 legacy files directly (`in.json`, `control.json`, `.mat`), needed Node and two processes at run time, and spread

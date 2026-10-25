@@ -191,7 +191,10 @@ geoeyes/                                  (repo root)
 │  │  ├─ reference.py                     reference point, zero-reference
 │  │  └─ alerts.py                        deformation alerts (from ops/alerts + _apply_alert_levels)
 │  │
-│  ├─ validation/                         ── Layer 4: external validation
+│  ├─ hazard/                             ── Layer 4: hazard zoning with rainfall (ADR-024)
+│  │  ├─ coupling.py terrain.py zoning.py assess.py   → <project>/analyses/hazard/<product_id>/
+│  │
+│  ├─ validation/                         ── Layer 4: external validation (gnss/: NGL comparison and calibration, ADR-025)
 │  │  ├─ gnss/        compare.py sources.py     (crlink, gnss_los_compare)
 │  │  └─ corner_reflector/ detection.py pta.py rcs.py measure.py report.py
 │  │
@@ -1037,7 +1040,7 @@ The current webapp is frozen and will not be migrated; it will be designed and r
 - Data: `geoeyes.catalog.query` (search, points, timeseries, diff) — no reading of internal files.
 - Configuration: JSON Schema generated from `geoeyes.config.schema` → auto-generated forms.
 - Report: `geoeyes.report`.
-What is worth re-learning from the old webapp (S1 pass prediction, CHIRPS rainfall, background CR report, SSE live log) is recorded in `docs/refactor/webapp-notes.md` when the rebuild starts.
+What is worth re-learning from the old webapp (S1 pass prediction, CHIRPS rainfall, background CR report, SSE live log) is recorded in `docs/en/refactor/webapp-notes.md` when the rebuild starts.
 
 ### 15.3 Desktop GUI — dropped (ADR-022)
 

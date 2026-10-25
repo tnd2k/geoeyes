@@ -266,7 +266,7 @@ The webapp is **not** migrated in this refactor. The project owner will design a
 | `webapp/` (backend + frontend + scripts) | frozen throughout Phases 1–8 (no changes, tests not run in CI); before `git init` (Phase 9) moved out of the repo, kept in the backup as reference material | freeze → remove |
 | `webapp/backend/tests/*` | excluded from the test suite | remove |
 | `tests/test_boundaries.py` (core ↔ webapp) | — (replaced by `import-linter`) | delete |
-| Logic worth keeping in services (for reuse by the new webapp): `orbit_service` (S1 pass prediction), `chirps_service` (CHIRPS rainfall), `cr_report_service`/`cr_job_runner` (standalone CR report runs) | recorded in `docs/refactor/webapp-notes.md` when the rebuild starts; the algorithmic parts already live in `geometry/orbit.py`, `validation/corner_reflector` | note |
+| Logic worth keeping in services (for reuse by the new webapp): `orbit_service` (S1 pass prediction), `chirps_service` (CHIRPS rainfall), `cr_report_service`/`cr_job_runner` (standalone CR report runs) | recorded in `docs/en/refactor/webapp-notes.md` when the rebuild starts; the algorithmic parts already live in `geometry/orbit.py`, `validation/corner_reflector` | note |
 | `webapp/_inspect_shp.py`, `frontend/dist/` | — | delete (Phase 1) |
 
 ## 10. `tests/`, `scripts/`, `docs/`

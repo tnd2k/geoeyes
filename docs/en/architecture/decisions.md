@@ -28,8 +28,86 @@
 | 021 | No git until the repo is clean | Accepted |
 | 022 | Drop the desktop GUI; webapp frozen, rebuilt later | Accepted |
 | 023 | Sentinel-1 downloaded per burst (ASF burst API), processed natively directly on bursts | Accepted |
+| 024 | Hazard zoning with rainfall: analysis outside the product, matrix method, CHIRPS with ERA5 fallback | Proposed |
+| 025 | GNSS comparison and calibration from NGL; vertical tie by default; usable by the hazard zoning | Proposed |
+| 026 | SCN temporal low-pass: local linear fit by default (departs from StaMPS `ps_scn_filt`) | Accepted |
+| 027 | Vietnamese: bilingual web app (EN / VI), Vietnamese translations of the docs; notification centre | Accepted |
 
 ---
+
+### ADR-027 — Vietnamese interface and documentation; notification centre *(Accepted 2026-10-26, completes ADR-015)*
+**Context.** The project owner and the expected users work in Vietnamese; ADR-015 made English the product
+language (code, logs, reports, docs).
+**Decision.**
+- English stays the source language (code, identifiers, logs, PDF reports, the documents under `docs/`).
+- The web app is **bilingual**: `webapp/src/i18n.tsx`, `t("English text")` with the English text as the key, one
+  Vietnamese dictionary module per part of the interface (`webapp/src/i18n/vi/*.ts`); messages written by the
+  server are translated in the browser by exact texts and patterns (`i18n/vi/server.ts`). Language switch EN / VI in
+  the header, remembered per browser; default from the browser language.
+- Documentation in `docs/en/` (source) and its Vietnamese **translation** in `docs/vi/` (same tree) and `README.vi.md`,
+  `webapp/README.vi.md`, each headed by its source and translation date; terminology in `docs/vi/GLOSSARY.md`. A
+  change to an English document is followed by its translation (the English text wins in case of doubt).
+- Notification centre in the web app: analysis warnings and finished runs / analyses go to a bell list (kept per
+  browser) with toasts and desktop notifications (browser Notification API, after permission); `/api/activity`
+  gives the state of the background analyses.
+**Consequences.** Every new user-visible text goes through `t()` with its Vietnamese entry; every new server message
+shown in the web app gets an entry or a pattern in `server.ts`.
+
+### ADR-026 — SCN temporal low-pass: local linear fit *(Accepted 2026-10-25)*
+**Context.** In the web app the "SCN removed" series of a Mexico City point (Sentinel-1, 6 months) stayed near
+0 mm while the point subsided 70 mm (r ≈ −0.05 between the two series over the scene). Step 8 high-passes the arc
+phases in time with a Gaussian-weighted **mean** (window `scn_time_win` = 365 days), exactly as StaMPS
+`ps_scn_filt.m` (Hooper 2006, checked against the current StaMPS source) and the legacy engine (parity test
+`test_step8_scn`). A weighted mean is biased wherever a trend is not covered symmetrically by the window: at both
+ends of every series, and everywhere in a series shorter than the window. The deformation then passes into the
+"noise", and the SCN-removed velocity / series lose it.
+**Decision (project owner).** New engine parameter `[ps] scn_time_fit = "linear" | "mean"`, default `linear`: the
+low-pass is the intercept of a Gaussian-weighted local linear fit (local polynomial regression: Cleveland 1979,
+doi:10.1080/01621459.1979.10481038; Fan 1992, doi:10.1080/01621459.1992.10476255), which reproduces any linear trend
+exactly. `legacy_quirks = "y"` keeps `mean`, so the parity tests are unchanged; `scn_filt(time_fit=...)` defaults to
+`mean` for the same reason.
+**Consequences.** Only the SCN products change (`phase/scn`, `v_scn_mm_yr`, `disp_scn_mm`); the main velocity and
+series do not. The new parameter changes the PS parameter hash: `geoeyes plan` asks every project to re-run its
+`ps` phase (and the phases after it) once. Results differ from StaMPS step 8 for the SCN quantities.
+
+### ADR-025 — GNSS comparison and calibration from NGL *(Proposed 2026-10-25)*
+**Context.** Products are relative (to a point or to the scene mean); the hazard intensities need stable ground.
+The project owner asked whether open GNSS (Nevada Geodetic Laboratory) can validate and calibrate the InSAR series
+([`docs/en/research/gnss-insar-calibration.md`](../research/gnss-insar-calibration.md)).
+**Decision.**
+- `geoeyes.validation.gnss` (layer 4): NGL station list, steps, IGS20 tenv3 and MIDAS read over https and cached in
+  `<workspace>/cache/gnss/ngl`; jumps / equipment changes split the series into segments re-joined with one trend.
+- Comparison per station with the median of the InSAR points within `radius_m`; GNSS projected on the LOS either
+  completely or **vertically (default)**, so that the plate motion, uniform over a scene and absent from a relative
+  product, cancels.
+- Calibration `offset` (default) | `plane` (≥ 3 stations) | `epoch`, always reported with a leave-one-out check
+  when there are two stations or more. Written as an analysis (`analyses/gnss/<product_id>/`), never into the product.
+- The hazard zoning applies it on request (`[postprocess.hazard] gnss_tie = true`).
+**Consequences.** `geoeyes gnss`, API `/api/projects/{p}/products/{id}/gnss…`, GNSS panel in the project's Validation
+tab, GNSS stations and "GNSS tie" on the Hazard page. Mexico City: the tie removes a 130 mm/yr reference bias; Hanoi
+(one year, two stations): no improvement, not tied.
+
+### ADR-024 — Hazard zoning with rainfall *(Proposed 2026-10-25)*
+**Context.** Rainfall was only shown as monthly bars under a time series. The project owner wants InSAR combined
+with rainfall into subsidence / landslide hazard zoning, with a traceable method
+([`docs/en/research/rainfall-insar-hazard.md`](../research/rainfall-insar-hazard.md)).
+**Decision.**
+- New package `geoeyes.hazard` (layer 4, beside postprocess / validation). It reads a product and writes an
+  **analysis** under `<project>/analyses/hazard/<product_id>/` with its own manifest. Products stay immutable, and
+  an analysis can be re-run with other parameters. The command is `geoeyes hazard`; it is not a pipeline phase yet.
+- Method: a matrix of InSAR intensity (rate in the hazard direction, raised by a rainfall scenario and by
+  acceleration) and a secondary class (angular distortion for subsidence; susceptibility or slope for landslides),
+  after the PSI-based matrix approach. Rainfall coupling d = a + b·t + k·CRD(t − τ) is tested with
+  phase-randomised surrogates and a map-wide FDR. Every default has a cited source or is marked as a local choice
+  to calibrate.
+- Rainfall: CHIRPS v3 per pixel (monthly + annual climate normal). It is read one file at a time, because the
+  server throttles parallel readers, and cached for good. If CHIRPS cannot be read, ERA5 is used through the
+  Open-Meteo archive API and the run says so.
+- Parameters in `[postprocess.hazard]` (a free dict, validated by `HazardParams`), like `[postprocess.alerts]`.
+**Consequences.** New web page **Hazard**, and API `/api/projects/{p}/products/{id}/hazard…`. Intensities are
+only meaningful against stable ground, so products referenced to the scene mean get a warning and
+`reference_bbox` re-references them. The research sequence R2–R6 (attribution, calibration, susceptibility,
+triggering, risk) is open.
 
 ### ADR-001 — Product name GeoEyes
 **Context.** 611 occurrences / 124 files carry the labels `vinsar`/`VINSAR` or the former organisation's name, including env vars, API fields, localStorage keys and ISO metadata defaults.

@@ -1,9 +1,9 @@
 # GeoEyes — Refactor TODO (master list)
 
 > This file is the single source of truth for refactor progress. Update it whenever an item is finished.
-> Target architecture: [`docs/architecture/ARCHITECTURE.md`](../architecture/ARCHITECTURE.md) ·
-> Old → new file mapping: [`docs/architecture/migration-map.md`](../architecture/migration-map.md) ·
-> Design decisions: [`docs/architecture/decisions.md`](../architecture/decisions.md)
+> Target architecture: [`docs/en/architecture/ARCHITECTURE.md`](../architecture/ARCHITECTURE.md) ·
+> Old → new file mapping: [`docs/en/architecture/migration-map.md`](../architecture/migration-map.md) ·
+> Design decisions: [`docs/en/architecture/decisions.md`](../architecture/decisions.md)
 >
 > Legend: `[ ]` not started · `[~]` in progress · `[x]` done · `[?]` awaiting decision
 
@@ -19,6 +19,22 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
 3. **Operations**: storage tiers and retention, optional object storage; `geoeyes migrate` command; a new
    `environment.yml` (the current `insar` env has broken GDAL Python bindings and stale packages).
 4. **Project owner**: `LICENSE`; the two open questions under Phase 0.
+5. **Hazard zoning with rainfall** (ADR-024, [research note](../research/rainfall-insar-hazard.md)): v1 done
+   2026-10-25 (`geoeyes hazard`, web page Hazard). Next, following the research sequence:
+   - [ ] R1 on a longer Sentinel-1 series over the subsiding outskirts of Hanoi, with a stable `reference_bbox`;
+   - [ ] R2: ERA5 temperature as a second regressor, comparison with piezometers, ascending + descending;
+   - [ ] R3: damage / landslide inventory, calibration of the class limits (ROC);
+   - [ ] R4: landslide susceptibility model (northern Vietnam);
+   - [ ] R5: daily rainfall thresholds and inverse velocity, wired to the alerts;
+   - [ ] R6: exposure → risk.
+6. **GNSS comparison and calibration** (ADR-025, [research note](../research/gnss-insar-calibration.md)): v1 done
+   2026-10-25 (`geoeyes gnss`, Validation → GNSS, Hazard "GNSS tie"). Next:
+   - [ ] G3: a Mexico City S1 product covering ICMX, MXTX and MMX1 (leave-one-out with 3 stations); Hanoi ≥ 2 years;
+   - [ ] G4: corner reflectors next to HUMG / JNAV;
+   - [ ] G5: flicker-noise rate sigmas and annual terms;
+   - [ ] G6: per-epoch ramps, 3-D with ascending + descending.
+7. **SCN low-pass** (ADR-026, 2026-10-25): `scn_time_fit = "linear"` by default; every project re-runs its `ps` phase
+   once (mexico_s1 re-run 2026-10-25). Re-run hanoi_csk, hanoi_s1, mexico_capella when convenient.
 
 The sections below are the historical log, phase by phase.
 
@@ -34,9 +50,9 @@ The sections below are the historical log, phase by phase.
 - [x] Survey the structure, measure duplication (`flow.py` capella↔csk differ in only 71/17k lines)
 - [x] Inventory of `vinsar` / former-organisation labels (611 occurrences / 124 files)
 - [x] Settle the product name: **GeoEyes** (package `geoeyes`, env prefix `GEOEYES_`)
-- [x] Write `docs/architecture/ARCHITECTURE.md` (v0.1)
-- [x] Write `docs/architecture/migration-map.md` (every old file → new location or deletion)
-- [x] Write `docs/architecture/decisions.md` (ADR-001…021)
+- [x] Write `docs/en/architecture/ARCHITECTURE.md` (v0.1)
+- [x] Write `docs/en/architecture/migration-map.md` (every old file → new location or deletion)
+- [x] Write `docs/en/architecture/decisions.md` (ADR-001…021)
 - [x] Settled 2026-10-21: keep TSX (013) · English (015) · drop SOP & organisation (016) · re-run instead of converting (017) · own licence, Delaunay instead of Triangle, rewrite l1regls (019) · `ps_stack` + Capella GUI → Capella workflow (020) · Capella drops TC before IFG, TSX not yet (005)
 - [x] Project owner reviewed ARCHITECTURE v0.1 → approved; ADR 009, 010, 011, 012, 014, 018 Accepted
 - [x] Amend ADR-020: Capella workflow = the `modules/ps_stack` method (`ps_stack_gui.py`), not `capella_ifg_gui.py`; Capella does not go through StaMPS; drop `unwrap_2d_pipeline`; uniform storage
@@ -277,7 +293,7 @@ The sections below are the historical log, phase by phase.
 
 ## After the refactor — New webapp (with the project owner)
 
-- [x] New webapp — MVP (2026-10-25), plan in `docs/refactor/webapp-plan.md`. Old webapp (130 files, without `node_modules`) → `D:\projects\geoeyes_backups\legacy_webapp_20261025.zip` then deleted; `webapp/` is now the new front end (React + TS + Vite, MapLibre + deck.gl), built into `src/geoeyes/api/static`. Back end `geoeyes.api` (FastAPI): project tree + folders (`projects/.folders.json`), status, plan, run/stop (subprocess `geoeyes run`), run logs, binary point layer + point/area time series (cache `<workspace>/cache/web/`), product files. `geoeyes serve` on port 8765 (dev 8766, never 5173). Extra `web`. Tests `tests/unit/api` (4)
+- [x] New webapp — MVP (2026-10-25), plan in `docs/en/refactor/webapp-plan.md`. Old webapp (130 files, without `node_modules`) → `D:\projects\geoeyes_backups\legacy_webapp_20261025.zip` then deleted; `webapp/` is now the new front end (React + TS + Vite, MapLibre + deck.gl), built into `src/geoeyes/api/static`. Back end `geoeyes.api` (FastAPI): project tree + folders (`projects/.folders.json`), status, plan, run/stop (subprocess `geoeyes run`), run logs, binary point layer + point/area time series (cache `<workspace>/cache/web/`), product files. `geoeyes serve` on port 8765 (dev 8766, never 5173). Extra `web`. Tests `tests/unit/api` (4)
 - [x] Webapp — batch 2 (2026-10-25): settings form generated from the schema (`api/settings.py`, written with tomlkit preserving comments, backup `.state/project.toml.<ts>.bak`, validated before writing) + raw `project.toml` editing; project creation wizard (draw AOI, find S1 tracks on ASF, preview images using `acquire.catalogue` itself, write into a folder); comparison of 2 products (swipe with ClipExtension; per-cell median B − A difference, median offset removed, warning on different LOS — `api/compare.py`); CR report (runs `geoeyes cr-report` in the background, table, figures, PDF); token login when `--host` is not this machine (`GEOEYES_WEB_TOKEN`). 9 API tests. PMTiles postponed: 1.7 million points still smooth with binary arrays
 - [x] Webapp — batch 3 (2026-10-25): map image tool (Compose: A4/A3/slide formats, title, QGIS layer legend, scale bar, north arrow, product info, credits; PNG/PDF 150-300 dpi, hidden map rendered at exact print size); PMTiles (`export/pmtiles.py`, self-encoded MVT, default export `("gpkg", "pmtiles")`, the web switches to tiles automatically above 2.5 million points, selectable per layer); Monitoring tab (next S1 acquisition date from the 12-day cycle, `geoeyes run` scheduling via Windows Task Scheduler, alert rules `[postprocess.alerts]` evaluated on the latest product, shown in Overview). PDF report: the velocity map uses exactly the same Pretty Breaks jet_r classes as QGIS/web (previously a symmetric diverging scale → colours differed from the web)
 - [x] Webapp — batch 4 (2026-10-25): ESA acquisition plan (`sensors/sentinel1/plan.py`, KML cache `<workspace>/cache/s1plan`, a new file replaces the old one within its time span; 12-day forecast marked planned / not planned / forecast); monthly CHIRPS v3 rainfall layer (`ancillary/rainfall.py`, reads the AOI window from COG over HTTP, cached) drawn as a separate bar strip below the time series; map image: coordinate frame + flight / look direction arrows
