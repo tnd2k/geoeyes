@@ -2,7 +2,7 @@
 // GNSS (Gnss).
 export const PROJECT: Record<string, string> = {
   // tabs
-  Pipeline: "Quy trình",
+  Pipeline: "Quy trình xử lý",
   Data: "Dữ liệu",
   Runs: "Lần chạy",
   Monitoring: "Giám sát",
@@ -32,7 +32,7 @@ export const PROJECT: Record<string, string> = {
   "Loading…": "Đang tải…",
   Running: "Đang chạy",
   running: "đang chạy",
-  "Open map": "Mở bản đồ",
+  "View results": "Xem kết quả",
   "Report PDF": "Báo cáo PDF",
   "Checking…": "Đang kiểm tra…",
   "Check plan": "Kiểm tra kế hoạch",
@@ -193,8 +193,8 @@ export const PROJECT: Record<string, string> = {
   Epochs: "Lần chụp",
   "{msg}: the running server predates this page, restart geoeyes serve": "{msg}: máy chủ đang chạy cũ hơn trang này, hãy khởi động lại geoeyes serve",
   "GNSS (Nevada Geodetic Laboratory)": "GNSS (Nevada Geodetic Laboratory)",
-  'Daily NGL stations inside the product (IGS20), compared with the InSAR points around each antenna; the GNSS can tie the InSAR reference (used by the Hazard page as "GNSS tie").':
-    'Các trạm NGL hằng ngày trong vùng sản phẩm (IGS20), so sánh với các điểm InSAR quanh mỗi ăng-ten; GNSS có thể dùng để gắn tham chiếu InSAR (trang Nguy cơ dùng dưới tên "GNSS tie").',
+  'Daily NGL stations inside the product (IGS20), compared with the InSAR points around each antenna; the GNSS can tie the InSAR reference (used by the Thematic analysis page as "GNSS tie").':
+    'Các trạm NGL hằng ngày trong vùng sản phẩm (IGS20), so sánh với các điểm InSAR quanh mỗi ăng-ten; GNSS có thể dùng để gắn tham chiếu InSAR (trang Phân tích chuyên đề dùng dưới tên "Gắn vào GNSS").',
   "Comparing…": "Đang so sánh…",
   "Compare again": "So sánh lại",
   "Compare with GNSS": "So sánh với GNSS",

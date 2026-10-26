@@ -1,6 +1,6 @@
 # Rainfall and InSAR for subsidence and landslide hazard zoning
 
-> Research note and method of `geoeyes hazard` (package `geoeyes.hazard`, web app page **Hazard**).
+> Research note and method of `geoeyes hazard` (package `geoeyes.hazard`, web app page **Thematic analysis**; method also in the Principles page, chapter 2).
 > Status: **v1 implemented 2026-10-25**, first results on the GeoEyes test projects (§7).
 > Decision record: ADR-024 in [`docs/en/architecture/decisions.md`](../architecture/decisions.md).
 
@@ -199,6 +199,12 @@ H3 is tested, not assumed: it is accepted only where the surrogate test passes a
   - Cells with |**s**·**l**| < `min_sensitivity` (0.3) are not assessed. There the line of sight sees less than 30%
     of a downslope motion, and the projection would amplify noise more than three times.
 
+**Sign of the outputs.** y (sinking or downslope positive) is only used inside the analysis, to rate the cells.
+Everything written or shown keeps the GeoEyes sign, as the products do: `rate_mm_yr`, the series, the
+acceleration, the rainfall and groundwater coefficients (k, g, r) are **negative for sinking or downslope motion**
+and positive for uplift or upslope motion (`hazard.json` "sign"; schema `geoeyes.hazard/2`). Analyses written
+before this change (schema 1) are read with the sign corrected.
+
 **Rate and stability.** A linear fit gives the rate (mm/yr) and its standard error σ. A quadratic fit gives the
 acceleration. A cell is stable (I0) when its rate is below max(2 mm/yr, 2σ), as in:
 
@@ -270,7 +276,7 @@ observed, dry-year and wet-year rates is used.
 A significant acceleration in the hazard direction raises I by one class (Intrieri et al. 2018). Significant means
 |acceleration / its error| ≥ 3 over at least 18 months.
 
-**Secondary class S.**
+**Damage potential S** (secondary class).
 
 - **Subsidence: angular distortion.** β = max over the 8 neighbouring cells of |v_i − v_j| · T / L, with
   T = `horizon_yr` (10 years) and L the distance between cell centres. The classes follow the damage limits:
@@ -288,7 +294,7 @@ A significant acceleration in the hazard direction raises I by one class (Intrie
 ### 4.5 Hazard matrix
 
 The default hazard matrix (an expert choice, configurable as `matrix`) gives the level for each pair of intensity
-and secondary class:
+and damage potential:
 
 | | S0 | S1 | S2 | S3 |
 |---|---|---|---|---|
@@ -381,6 +387,8 @@ steps are needed before the map can support decisions.
   - add ERA5 2 m temperature as a second regressor, d = a + b·t + k·CRD(t − τ) + c·T(t), to separate thermal
     dilation (Fornaro et al. 2013);
   - compare with piezometric records where they exist (Hanoi: Bui et al. 2021; Spain: Béjar-Pizarro et al. 2017);
+  - groundwater storage from NASA GLDAS (GRACE assimilated) is coupled with every cell since v1.1, as a
+    diagnostic: see [groundwater-insar.md](groundwater-insar.md);
   - compare ascending and descending products to separate vertical and horizontal motion.
 - **Output:** for each coupled area, the part explained by rainfall, by temperature and by heads.
 - **Criterion:** the rainfall coefficient stays significant with temperature in the model.
@@ -492,7 +500,7 @@ ERA5 was used and the summary says so.
 | Orchestration, parameters, outputs | `src/geoeyes/hazard/assess.py` |
 | CLI `geoeyes hazard <project> [--product ID] [--set key=value]` | `src/geoeyes/cli/main.py` |
 | API `/api/projects/{p}/products/{id}/hazard[...]` | `src/geoeyes/api/hazard.py` |
-| Web page **Hazard** (map, views, legend and matrix, cell panel, method) | `webapp/src/pages/Hazard.tsx` |
+| Web page **Thematic analysis** (map, layers, legend and matrix, cell panel) and Principles chapter 2 (method) | `webapp/src/pages/Hazard.tsx`, `webapp/src/pages/LearnHazard.tsx` |
 | Tests (planted-response recovery, surrogates, FDR, classes, end to end, re-referencing) | `tests/unit/hazard/test_hazard.py` |
 
 **CHIRPS access.** The Climate Hazards Center server throttles clients that read many files at once: its

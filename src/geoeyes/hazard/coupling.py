@@ -56,6 +56,18 @@ def crd(monthly_mm: np.ndarray, bounds: np.ndarray) -> Crd:
     return Crd(bounds, np.concatenate([[0.0], np.cumsum(dep)]), mean, float(1 - ok.mean()) if p.size else 1.0)
 
 
+def storage(monthly_mm: np.ndarray, months: list[str], t0: np.datetime64) -> tuple[Crd, np.ndarray]:
+    """A storage series (groundwater, mm of water: already a cumulative quantity, the counterpart of the CRD) as
+    a ``Crd`` at mid-month, with its month-to-month changes for the surrogates. Missing months are left out
+    (``missing`` = their share); the anomaly is relative to the first month (the [1, t] basis removes the rest)."""
+    s = np.asarray(monthly_mm, np.float64)
+    ok = np.isfinite(s)
+    mid = np.array([np.datetime64(f"{m}-15") for m in months], dtype="datetime64[D]")
+    t = (mid - t0).astype(np.float64)[ok]
+    v = s[ok] - s[ok][0] if ok.any() else np.zeros(0)
+    return Crd(t, v, float(s[ok].mean()) if ok.any() else 0.0, float(1 - ok.mean()) if s.size else 1.0), np.diff(v)
+
+
 def surrogates(anomaly: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
     """``n`` phase-randomised copies of a series (Ebisuzaki 1997): same amplitude spectrum and mean, random
     phases. Returns (n, M)."""

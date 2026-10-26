@@ -9,51 +9,52 @@ import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import { api, type HazardCell, type HazardCellsMeta, type HazardSummary, type Workspace } from "../api";
+import { BasemapPicker } from "../components/BasemapPicker";
 import { RainBars } from "../components/RainBars";
-import { lang, t, ts } from "../i18n";
-import { BASES, mapStyle, type Base } from "../map";
+import { t, ts } from "../i18n";
+import { mapStyle, type Base } from "../map";
 import { useWarnings } from "../notify";
-import { useApp } from "../state";
+import { href, useApp } from "../state";
 import { Button, ColumnToggle, fmt, Fold, usePersisted } from "../ui";
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 
-const LEVELS = ["Very low", "Low", "Moderate", "High", "Very high"];
-const LEVEL_RGB: RGB[] = [
+export const LEVELS = ["Very low", "Low", "Moderate", "High", "Very high"];
+export const LEVEL_RGB: RGB[] = [
   [26, 152, 80],
   [145, 207, 96],
   [254, 224, 139],
   [252, 141, 89],
   [215, 48, 39],
 ];
-const NA_RGB: RGB = [75, 90, 115];
+export const NA_RGB: RGB = [75, 90, 115];
 const CLASS_RGB: RGB[] = [[75, 90, 115], [254, 224, 139], [252, 141, 89], [215, 48, 39]];
 const SEC_RGB: RGB[] = [[75, 90, 115], [194, 165, 207], [153, 112, 171], [118, 42, 131]];
 const RATE_BREAKS = [-30, -10, -2, 2, 10, 30];
 const RATE_RGB: RGB[] = [[33, 102, 172], [67, 147, 195], [146, 197, 222], [127, 139, 160], [244, 165, 130], [214, 96, 77], [178, 24, 43]];
 const LAG_RGB: RGB[] = [[68, 1, 84], [65, 68, 135], [42, 120, 142], [34, 168, 132], [122, 209, 81], [189, 223, 38], [253, 231, 37]];
-const DEFAULT_MATRIX = [
+export const DEFAULT_MATRIX = [
   [0, 0, 1, 1],
   [1, 1, 2, 3],
   [2, 2, 3, 4],
   [3, 3, 4, 4],
 ];
 
-type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "mode";
+export type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "groundwater" | "mode";
 interface ViewInfo {
   id: View;
   label: string;
   what: string;          // what the map shows
   read: string[];        // how to read it
 }
-const VIEWS: ViewInfo[] = [
+export const VIEWS: ViewInfo[] = [
   {
     id: "hazard",
     label: "Hazard level",
     what: "The final level of each 100 m cell: how fast the ground moves (InSAR intensity) combined with what the motion can do (distortion for subsidence, slope for landslides).",
     read: [
       "Red cells need attention first: fast motion where it bends buildings or on steep ground.",
-      "Read the level in the matrix: intensity (rows) × secondary class (columns).",
+      "Read the level in the matrix: intensity (rows) × damage potential (columns).",
       "Grey cells were not assessed (too few points, or a slope the satellite cannot see).",
     ],
   },
@@ -69,7 +70,7 @@ const VIEWS: ViewInfo[] = [
   },
   {
     id: "secondary",
-    label: "Distortion / slope",
+    label: "Damage potential",
     what: "What the motion can do. Subsidence: how much the ground bends between neighbouring cells over the horizon (angular distortion, compared with building-damage limits). Landslides: how steep the ground is.",
     read: [
       "S1 and above: differential settlement beyond the safe limit for buildings (1/500); S3: structural damage (1/150).",
@@ -79,7 +80,7 @@ const VIEWS: ViewInfo[] = [
   {
     id: "rate",
     label: "Rate",
-    what: "The velocity of each cell in mm per year, along the expected motion: vertical on flat ground, down the slope on hillsides.",
+    what: "The velocity of each cell in mm per year, along the expected motion: vertical on flat ground, along the slope on hillsides. As everywhere in GeoEyes, negative means sinking or moving down the slope.",
     read: [
       "Red: sinking (or moving down the slope). Blue: rising (or apparent upslope motion). Grey: about stable.",
       "Values are relative to the product's reference area: a reference that moves shifts the whole map.",
@@ -105,6 +106,16 @@ const VIEWS: ViewInfo[] = [
     ],
   },
   {
+    id: "groundwater",
+    label: "Groundwater coupling",
+    what: "Where the ground motion follows the groundwater storage of the region (NASA GLDAS, with GRACE satellite gravity), after removing its steady trend.",
+    read: [
+      "Blue: the ground sinks more when storage falls and recovers when it rises, the elastic response of an aquifer system. Red: the opposite sign.",
+      "The storage grid is 0.25° (about 27 km): it shows when the region gains or loses water, not where wells pump. Read it as a regional driver, not as a local cause.",
+      "Only statistically significant cells are coloured; this layer does not change the hazard level.",
+    ],
+  },
+  {
     id: "mode",
     label: "Mode",
     what: "Which process each cell is assessed for, from the terrain slope.",
@@ -112,7 +123,16 @@ const VIEWS: ViewInfo[] = [
   },
 ];
 
-function rgb(c: RGB, a = 1) {
+// the views in the select box: the result, what it is made of, the water drivers
+const VIEW_GROUPS: [string, View[]][] = [
+  ["Zoning", ["hazard"]],
+  ["Components", ["intensity", "secondary", "rate", "mode"]],
+  ["Water drivers", ["coupling", "lag", "groundwater"]],
+];
+
+const signed = (v: number) => (v < 0 ? `−${-v}` : `${v}`);
+
+export function rgb(c: RGB, a = 1) {
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
 
@@ -122,13 +142,13 @@ function bin(v: number, breaks: number[]) {
   return k;
 }
 
-interface Cells {
+export interface Cells {
   meta: HazardCellsMeta;
   buf: Float32Array;
   f: Record<string, number>;
 }
 
-function cellColor(c: Cells, i: number, view: View): [number, number, number, number] {
+export function cellColor(c: Cells, i: number, view: View): [number, number, number, number] {
   const F = c.meta.fields.length;
   const g = (name: string) => c.buf[i * F + c.f[name]];
   const level = g("hazard");
@@ -147,7 +167,7 @@ function cellColor(c: Cells, i: number, view: View): [number, number, number, nu
       break;
     case "rate": {
       const r = g("rate_mm_yr");
-      col = Number.isFinite(r) ? RATE_RGB[bin(r, RATE_BREAKS)] : NA_RGB;
+      col = Number.isFinite(r) ? RATE_RGB[bin(-r, RATE_BREAKS)] : NA_RGB;     // red: sinking / downslope (< 0)
       break;
     }
     case "coupling": {
@@ -155,7 +175,7 @@ function cellColor(c: Cells, i: number, view: View): [number, number, number, nu
       if (!coupled || !Number.isFinite(r)) {
         col = NA_RGB;
         a = 70;
-      } else col = r > 0 ? RATE_RGB[4 + Math.min(2, bin(Math.abs(r), [0.6, 0.8]))] : RATE_RGB[2 - Math.min(2, bin(Math.abs(r), [0.6, 0.8]))];
+      } else col = r < 0 ? RATE_RGB[4 + Math.min(2, bin(Math.abs(r), [0.6, 0.8]))] : RATE_RGB[2 - Math.min(2, bin(Math.abs(r), [0.6, 0.8]))];
       break;
     }
     case "lag": {
@@ -166,6 +186,14 @@ function cellColor(c: Cells, i: number, view: View): [number, number, number, nu
       } else col = LAG_RGB[Math.min(6, l)];
       break;
     }
+    case "groundwater": {
+      const r = g("gw_r");
+      if (!(g("gw_coupled") > 0) || !Number.isFinite(r)) {
+        col = NA_RGB;
+        a = 70;
+      } else col = r < 0 ? RATE_RGB[4 + Math.min(2, bin(Math.abs(r), [0.6, 0.8]))] : RATE_RGB[2 - Math.min(2, bin(Math.abs(r), [0.6, 0.8]))];
+      break;
+    }
     case "mode":
       col = g("mode") > 0 ? [192, 138, 62] : [91, 155, 213];
       break;
@@ -173,7 +201,7 @@ function cellColor(c: Cells, i: number, view: View): [number, number, number, nu
   return [col[0], col[1], col[2], a];
 }
 
-function MatrixFigure({ matrix }: { matrix: number[][] }) {
+export function MatrixFigure({ matrix }: { matrix: number[][] }) {
   return (
     <figure className="m-0" aria-label={t("Hazard matrix")}>
       <div className="grid grid-cols-[16px_auto_repeat(4,30px)] items-center gap-[3px]">
@@ -201,7 +229,7 @@ function MatrixFigure({ matrix }: { matrix: number[][] }) {
           </span>
         ))}
       </div>
-      <figcaption className="mt-1 pl-[40px] text-[11px] leading-tight text-muted">{t("secondary class")}</figcaption>
+      <figcaption className="mt-1 pl-[40px] text-[11px] leading-tight text-muted">{t("damage potential")}</figcaption>
     </figure>
   );
 }
@@ -234,7 +262,7 @@ function Swatches({ items }: { items: { color: RGB; label: string; alpha?: numbe
   );
 }
 
-function Legend({ view, s }: { view: View; s: HazardSummary }) {
+export function Legend({ view, s }: { view: View; s: HazardSummary }) {
   const p = s.params as Record<string, number[] | number>;
   const sb = p.subsidence_breaks as number[];
   const lb = p.landslide_breaks as number[];
@@ -283,8 +311,9 @@ function Legend({ view, s }: { view: View; s: HazardSummary }) {
       <Swatches
         items={RATE_RGB.map((c, i) => ({
           color: c,
+          // colour i holds the rates r with −r in [B(i−1), B(i)): sinking (r < 0) is red
           label:
-            (i === 0 ? `< ${RATE_BREAKS[0]}` : i === RATE_RGB.length - 1 ? `≥ ${RATE_BREAKS[i - 1]}` : `${RATE_BREAKS[i - 1]} … ${RATE_BREAKS[i]}`) +
+            (i === 0 ? `> ${-RATE_BREAKS[0]}` : i === RATE_RGB.length - 1 ? `≤ ${signed(-RATE_BREAKS[i - 1])}` : `${signed(-RATE_BREAKS[i])} … ${signed(-RATE_BREAKS[i - 1])}`) +
             " mm/yr" +
             (i === RATE_RGB.length - 1 ? ` · ${t("sinking / downslope, fast")}` : i === 3 ? ` · ${t("about stable")}` : i === 0 ? ` · ${t("rising / upslope")}` : ""),
         })).reverse()}
@@ -295,16 +324,46 @@ function Legend({ view, s }: { view: View; s: HazardSummary }) {
       <>
         <Swatches
           items={[
-            { color: RATE_RGB[6], label: `r > 0.8 · ${t("more rain, more motion")}` },
-            { color: RATE_RGB[4], label: "0 < r ≤ 0.6" },
-            { color: RATE_RGB[2], label: "−0.6 ≤ r < 0" },
-            { color: RATE_RGB[0], label: `r < −0.8 · ${t("more rain, less sinking / uplift")}` },
+            { color: RATE_RGB[6], label: `r < −0.8 · ${t("more rain, more motion")}` },
+            { color: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
+            { color: RATE_RGB[2], label: "0 < r ≤ 0.6" },
+            { color: RATE_RGB[0], label: `r > 0.8 · ${t("more rain, less sinking / uplift")}` },
             { color: NA_RGB, label: t("not significant / not assessed"), alpha: 0.35 },
           ]}
         />
         <p className="mt-2 text-[11px] leading-snug text-faint">d = a + b·t + k·CRD(t − τ) · FDR {String(p.alpha)}</p>
       </>
     );
+  if (view === "groundwater") {
+    const gw = s.groundwater;
+    if (!gw?.used)
+      return (
+        <p className="mt-1 text-[12px] leading-snug text-muted">
+          {gw?.reason === "no EARTHDATA_TOKEN"
+            ? t("Groundwater needs an Earthdata login: set EARTHDATA_TOKEN and run the zoning again.")
+            : gw?.reason === "off"
+              ? t("Groundwater coupling is off in the parameters.")
+              : t("No groundwater in this zoning: run it again.")}
+        </p>
+      );
+    return (
+      <>
+        <Swatches
+          items={[
+            { color: RATE_RGB[6], label: `r < −0.8 · ${t("more storage, more motion")}` },
+            { color: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
+            { color: RATE_RGB[2], label: "0 < r ≤ 0.6" },
+            { color: RATE_RGB[0], label: `r > 0.8 · ${t("less storage, more sinking (aquifer)")}` },
+            { color: NA_RGB, label: t("not significant / not assessed"), alpha: 0.35 },
+          ]}
+        />
+        <p className="mt-2 text-[11px] leading-snug text-faint">
+          d = a + b·t + g·GWS(t − τ) · {t("{n} of {m} cells significant", { n: gw.cells_significant ?? 0, m: gw.cells_tested ?? 0 })}
+          {gw.trend_mm_yr != null && <> · {t("storage trend {v} mm/yr", { v: fmt.vel(gw.trend_mm_yr) })}</>}
+        </p>
+      </>
+    );
+  }
   if (view === "lag")
     return <Swatches items={[...LAG_RGB.map((c, i) => ({ color: c, label: t(i === 1 ? "{n} month" : "{n} months", { n: i }) })), { color: NA_RGB, label: t("not significant"), alpha: 0.35 }]} />;
   return (
@@ -317,7 +376,7 @@ function Legend({ view, s }: { view: View; s: HazardSummary }) {
   );
 }
 
-function CellChart({ c }: { c: HazardCell }) {
+export function CellChart({ c }: { c: HazardCell }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
@@ -334,6 +393,10 @@ function CellChart({ c }: { c: HazardCell }) {
       series.push({ stroke: "#f5b84b", width: 1.8, points: { show: false } });
       data.push(c.rain_model_mm);
     }
+    if (c.gw_model_mm && c.gw_coupled) {
+      series.push({ stroke: "#7ee0c3", width: 1.8, dash: [6, 3], points: { show: false } });
+      data.push(c.gw_model_mm);
+    }
     const plot = new uPlot(
       {
         width: el.clientWidth,
@@ -344,7 +407,7 @@ function CellChart({ c }: { c: HazardCell }) {
         scales: { x: { time: true } },
         axes: [
           { ...axis, values: (_u, t) => t.map((v) => new Date(v * 1000).toISOString().slice(0, 7)) },
-          { ...axis, size: 48, label: c.mode === "subsidence" ? t("mm (sinking +)") : t("mm (downslope +)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
+          { ...axis, size: 48, label: c.mode === "subsidence" ? t("mm (up +)") : t("mm (upslope +)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
         ],
         series,
       },
@@ -372,6 +435,11 @@ function CellChart({ c }: { c: HazardCell }) {
         {c.rain_model_mm && (
           <span className="flex items-center gap-1">
             <span className="h-0.5 w-4 bg-[#f5b84b]" /> {t("trend + k·CRD(t − {n} mo)", { n: c.rain_lag_months })}
+          </span>
+        )}
+        {c.gw_model_mm && c.gw_coupled && (
+          <span className="flex items-center gap-1">
+            <span className="w-4 border-t-2 border-dashed border-[#7ee0c3]" /> {t("trend + g·GWS(t − {n} mo)", { n: c.gw_lag_months ?? 0 })}
           </span>
         )}
       </div>
@@ -408,7 +476,7 @@ function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
         <Row k={t("Points in cell")} v={fmt.int(c.n_points)} />
         <Row
-          k={c.mode === "subsidence" ? t("Rate (sinking +)") : t("Rate (downslope +)")}
+          k={c.mode === "subsidence" ? t("Rate (up +)") : t("Rate (upslope +)")}
           v={`${fmt.vel(c.rate_mm_yr)} ± ${fmt.num(c.rate_se_mm_yr)} mm/yr`}
         />
         <Row k={t("Stability threshold")} v={`${fmt.num(c.stable_mm_yr)} mm/yr`} />
@@ -418,7 +486,7 @@ function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
         ) : (
           <Row k={t("Slope / sensitivity")} v={`${fmt.num(c.slope_deg)}° / ${fmt.num(c.sensitivity, 2)}`} />
         )}
-        <Row k={t("Secondary")} v={`S${Math.max(0, c.secondary)}`} />
+        <Row k={t("Damage potential")} v={`S${Math.max(0, c.secondary)}`} />
         <Row k={t("Acceleration")} v={`${fmt.vel(c.acc_mm_yr2)} mm/yr²${c.accelerating ? ` (${t("significant")})` : ""}`} />
       </div>
       {c.opposite_motion && (
@@ -443,6 +511,22 @@ function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
           </div>
         )}
       </div>
+      {c.groundwater && (
+        <div className="mt-2 rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+          <div className="text-[11px] font-semibold tracking-[1px] text-muted">{t("GROUNDWATER COUPLING")}</div>
+          {(c.gw_lag_months ?? -1) < 0 ? (
+            <div className="mt-1 text-[12px] text-muted">{t("Not assessed (storage not published for the whole period, or series too short).")}</div>
+          ) : (
+            <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
+              <Row k={t("Significant")} v={c.gw_coupled ? t("yes") : t("no")} />
+              <Row k={t("r (partial) · lag")} v={`${fmt.num(c.gw_r ?? null, 2)} · ${t("{n} mo", { n: c.gw_lag_months ?? 0 })}`} />
+              <Row k="p · q (FDR)" v={`${fmt.num(c.gw_p ?? null, 3)} · ${fmt.num(c.gw_q ?? null, 3)}`} />
+              <Row k={t("g per 100 mm storage")} v={`${fmt.vel(c.gw_k_mm_per_100mm ?? null)} ± ${fmt.num(c.gw_k_se ?? null)} mm`} />
+              <Row k={t("Storage trend")} v={`${fmt.vel(c.groundwater.pixel?.trend_mm_yr ?? null)} mm/yr`} title={t("trend of the storage of the 0.25° pixel over the period")} />
+            </div>
+          )}
+        </div>
+      )}
       <div className="mt-2">
         <CellChart c={c} />
       </div>
@@ -450,31 +534,15 @@ function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
   );
 }
 
-function Method() {
-  const [open, setOpen] = useState(false);
+function MethodLink() {
   return (
-    <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
-      <button type="button" className="flex w-full items-center text-left" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("HOW THIS MAP IS MADE")}</span>
-        <span className="ml-auto text-faint">{open ? "−" : "+"}</span>
-      </button>
-      {open && (
-        <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-[12px] leading-snug text-ink-2">
-          <li>{t("Points → square cells (median series, ≥ min points per cell).")}</li>
-          <li>{t("DEM slope at cell scale: flat cells = subsidence, steep cells = landslide (ADAtools-like rule).")}</li>
-          <li>{t("LOS projected on the expected motion: vertical, or downslope (Cigna et al. 2013 L2S factor).")}</li>
-          <li>
-            {t(
-              "Rainfall (CHIRPS v3, ERA5 fallback): d = a + b·t + k·CRD(t − τ), lag 0 to max lag months; significance from phase-randomised rainfall (Ebisuzaki 1997) with a map-wide false discovery rate (Benjamini & Hochberg 1995).",
-            )}
-          </li>
-          <li>{t("Intensity: stability 2σ (Barra et al. 2017); landslide classes on Cruden & Varnes (1996); raised by a dry / wet (P10 / P90) year and by acceleration.")}</li>
-          <li>{t("Secondary: angular distortion vs 1/500, 1/300, 1/150 (Bjerrum 1963; Skempton & MacDonald 1956), or slope / susceptibility.")}</li>
-          <li>{t("Hazard = matrix(intensity, secondary), as in the PSI-based matrix approach (Cigna et al. 2013).")}</li>
-        </ol>
-      )}
-      {open && <div className="mt-2 text-[11px] text-faint">{t("Full method, sources and research plan:")} docs/{lang()}/research/rainfall-insar-hazard.md</div>}
-    </div>
+    <a
+      href={href({ page: "learn", chapter: "hazard", step: 0 })}
+      className="flex items-center gap-2 rounded-xl border border-line-2 bg-panel/95 px-3 py-2.5 no-underline shadow-xl shadow-black/30 backdrop-blur hover:bg-raised"
+    >
+      <span className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("HOW THIS MAP IS MADE")}</span>
+      <span className="ml-auto text-[12px] text-accent">{t("Principles, chapter 2")} →</span>
+    </a>
   );
 }
 
@@ -484,6 +552,7 @@ const PARAMS: { key: string; label: string; options: (number | string)[]; unit?:
   { key: "max_lag_months", label: "Max lag", options: [3, 6, 9, 12], unit: "mo" },
   { key: "alpha", label: "FDR", options: [0.01, 0.05, 0.1] },
   { key: "rain_source", label: "Rain", options: ["auto", "chirps", "era5"] },
+  { key: "groundwater", label: "Groundwater", options: ["auto", "gldas", "off"] },
 ];
 
 export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace | undefined; project?: string; product?: string; cell?: number }) {
@@ -506,7 +575,7 @@ export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace |
   const choices = useMemo(() => {
     const out: { project: string; product: string; label: string }[] = [];
     Object.values(ws?.projects ?? {}).forEach((p) =>
-      p.tracks.forEach((t) => t.product && out.push({ project: p.name, product: t.product.id, label: `${p.name} · ${fmt.sensor(t.sensor)} ${t.direction} v${t.product.version}` })),
+      p.tracks.forEach((tr) => tr.product && out.push({ project: p.name, product: tr.product.id, label: `${p.name} · ${fmt.sensor(tr.sensor)} ${t(tr.direction)} v${tr.product.version}` })),
     );
     return out;
   }, [ws]);
@@ -524,7 +593,7 @@ export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace |
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   });
   const s = status.data?.summary ?? null;
-  useWarnings(`hazard:${project}/${product}:${s?.created}`, `${t("Hazard")} · ${project}`, s?.warnings, project && product ? `#/hazard/${encodeURIComponent(project)}/${encodeURIComponent(product)}` : undefined);
+  useWarnings(`hazard:${project}/${product}:${s?.created}`, `${t("Hazard zoning")} · ${project}`, s?.warnings, project && product ? `#/hazard/${encodeURIComponent(project)}/${encodeURIComponent(product)}` : undefined);
   const cells = useQuery({
     queryKey: ["hazard-cells", project, product, s?.created],
     queryFn: async (): Promise<Cells> => {
@@ -694,7 +763,7 @@ ${ts(st.reason ?? "")}`}`,
     } catch (e) {
       const msg = (e as Error).message;
       // the page is newer than the running server (built files are read from disk, the API code is not)
-      setBusy(/method not allowed|not found/i.test(msg) ? t("{msg}: the running server predates the Hazard page, restart geoeyes serve", { msg: ts(msg) }) : ts(msg));
+      setBusy(/method not allowed|not found/i.test(msg) ? t("{msg}: the running server predates this page, restart geoeyes serve", { msg: ts(msg) }) : ts(msg));
     }
   };
 
@@ -717,8 +786,8 @@ ${ts(st.reason ?? "")}`}`,
         </div>
       )}
       {leftOpen && (
-        <div className="pointer-events-none absolute top-3 bottom-3 left-3 z-10 flex w-[min(350px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto">
-          <Fold id="hazard.run" title={t("HAZARD ZONING · INSAR + RAINFALL")} extra={<ColumnToggle open side="left" label={t("zoning")} onClick={() => setLeftOpen(false)} />}>
+        <div className="pointer-events-none absolute top-3 bottom-[184px] left-3 z-10 flex w-[min(350px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto">
+          <Fold id="hazard.run" title={t("HAZARD ZONING")} extra={<ColumnToggle open side="left" label={t("zoning")} onClick={() => setLeftOpen(false)} />}>
             <select
               value={project && product ? `${project}/${product}` : ""}
               onChange={(e) => {
@@ -738,7 +807,7 @@ ${ts(st.reason ?? "")}`}`,
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
               {PARAMS.map((p) => (
                 <label key={p.key} className="flex items-center gap-1.5 text-[12px] text-muted">
-                  <span className="w-14">{t(p.label)}</span>
+                  <span className="w-[76px] flex-none truncate" title={t(p.label)}>{t(p.label)}</span>
                   <select
                     value={String(params[p.key] ?? (p.key === "cell_m" ? 100 : p.key === "horizon_yr" ? 10 : p.key === "max_lag_months" ? 6 : p.key === "alpha" ? 0.05 : "auto"))}
                     onChange={(e) => setParams((v) => ({ ...v, [p.key]: typeof p.options[0] === "number" ? Number(e.target.value) : e.target.value }))}
@@ -747,7 +816,7 @@ ${ts(st.reason ?? "")}`}`,
                     {p.options.map((o) => (
                       <option key={o} value={String(o)}>
                         {o}
-                        {p.unit ? ` ${p.unit}` : ""}
+                        {p.unit ? ` ${t(p.unit)}` : ""}
                       </option>
                     ))}
                   </select>
@@ -758,7 +827,7 @@ ${ts(st.reason ?? "")}`}`,
               className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted"
               title={t("Stable ground (e.g. bedrock, a GNSS station): the series are re-referenced to the median of its cells. Empty = the product's reference")}
             >
-              <span className="w-14 flex-none">{t("Stable")}</span>
+              <span className="w-[76px] flex-none truncate">{t("Stable")}</span>
               <input
                 value={refBox}
                 onChange={(e) => setRefBox(e.target.value)}
@@ -772,9 +841,10 @@ ${ts(st.reason ?? "")}`}`,
                 "Add the GNSS calibration of this product (Project → Validation → GNSS) to the series before rating them: rates relative to the GNSS frame instead of the product's reference",
               )}
             >
-              <input type="checkbox" className="accent-[#4cc2ff]" disabled={!calib} checked={tie && !!calib} onChange={(e) => setTie(e.target.checked)} />
-              <span className="flex-none whitespace-nowrap">{t("GNSS tie")}</span>
-              <span className="truncate">
+              <span className="w-[76px] flex-none">GNSS</span>
+              <input type="checkbox" className="ml-0.5 flex-none accent-[#4cc2ff]" disabled={!calib} checked={tie && !!calib} onChange={(e) => setTie(e.target.checked)} />
+              <span className="flex-none whitespace-nowrap">{t("tie")}</span>
+              <span className="min-w-0 truncate">
                 {calib
                   ? `· ${calib.stations.join(", ")} (${fmt.vel(calib.rate_offset_mm_yr)} mm/yr${calib.loo_rms_after_mm_yr != null ? `, LOO ±${fmt.num(calib.loo_rms_after_mm_yr)}` : `, ${t("1 station")}`})`
                   : gnss.error
@@ -886,24 +956,11 @@ ${ts(st.reason ?? "")}`}`,
               )}
             </Fold>
           )}
-          <Method />
+          <MethodLink />
         </div>
       )}
 
-      {/* top: base map */}
-      <div className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 rounded-lg border border-line-2 bg-panel/95 p-0.5 shadow-lg shadow-black/30 backdrop-blur max-lg:hidden">
-        {(["dark", "light", "satellite"] as Base[]).map((b) => (
-          <button
-            key={b}
-            type="button"
-            onClick={() => setBase(b)}
-            aria-pressed={base === b}
-            className={`h-8 rounded-md px-3 text-[12.5px] ${base === b ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
-          >
-            {t(BASES[b as Exclude<Base, "none">].label)}
-          </button>
-        ))}
-      </div>
+      <BasemapPicker map={map} base={base} onChange={setBase} />
 
       {/* right: view, legend, cell */}
       {s && !rightOpen && (
@@ -913,21 +970,18 @@ ${ts(st.reason ?? "")}`}`,
       )}
       {s && rightOpen && (
         <div className="pointer-events-none absolute top-3 right-3 bottom-3 z-10 flex w-[min(370px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto max-md:top-auto max-md:max-h-[45%]">
-          <Fold id="hazard.legend" title={`${t("MAP")} · ${t(VIEWS.find((v) => v.id === view)!.label).toUpperCase()}`} extra={<ColumnToggle open side="right" label={t("legend")} onClick={() => setRightOpen(false)} />}>
-            <div className="flex flex-wrap gap-1">
-              {VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  title={t(v.what)}
-                  aria-pressed={view === v.id}
-                  onClick={() => setView(v.id)}
-                  className={`h-7 rounded-md px-2 text-[12px] ${view === v.id ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
-                >
-                  {t(v.label)}
-                </button>
+          <Fold id="hazard.legend" title={t("LAYERS")} extra={<ColumnToggle open side="right" label={t("legend")} onClick={() => setRightOpen(false)} />}>
+            <select value={view} onChange={(e) => setView(e.target.value as View)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+              {VIEW_GROUPS.map(([grp, ids]) => (
+                <optgroup key={grp} label={t(grp)}>
+                  {ids.map((id) => (
+                    <option key={id} value={id}>
+                      {t(VIEWS.find((v) => v.id === id)!.label)}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
-            </div>
+            </select>
             <Legend view={view} s={s} />
             <About view={view} />
             {cells.isLoading && <div className="mt-2 text-[12px] text-[#7cd2ff]">{t("Loading cells…")}</div>}

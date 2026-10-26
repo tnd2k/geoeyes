@@ -154,7 +154,7 @@ export function Gnss({ name }: { name: string }) {
             <div className="font-semibold">{t("GNSS (Nevada Geodetic Laboratory)")}</div>
             <div className="mt-0.5 text-muted">
               {t(
-                'Daily NGL stations inside the product (IGS20), compared with the InSAR points around each antenna; the GNSS can tie the InSAR reference (used by the Hazard page as "GNSS tie").',
+                'Daily NGL stations inside the product (IGS20), compared with the InSAR points around each antenna; the GNSS can tie the InSAR reference (used by the Thematic analysis page as "GNSS tie").',
               )}
             </div>
           </div>

@@ -7,6 +7,8 @@ export type Route =
   | { page: "new" }
   | { page: "compose" }
   | { page: "hazard"; name?: string; product?: string; cell?: number }
+  | { page: "ai"; name?: string; product?: string; tab?: string }
+  | { page: "learn"; name?: string; stack?: string; step?: number; chapter?: "hazard" }
   | { page: "project"; name: string; tab?: string };
 
 function parse(hash: string): Route {
@@ -14,6 +16,10 @@ function parse(hash: string): Route {
   if (parts[0] === "explorer") return { page: "explorer" };
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "compose") return { page: "compose" };
+  if (parts[0] === "learn-hazard") return { page: "learn", chapter: "hazard", step: parts[1] ? Number(parts[1]) : undefined };
+  if (parts[0] === "learn")
+    return { page: "learn", name: parts[1] || undefined, stack: parts[2] || undefined, step: parts[3] ? Number(parts[3]) : undefined };
+  if (parts[0] === "ai") return { page: "ai", name: parts[1] || undefined, product: parts[2] || undefined, tab: parts[3] || undefined };
   if (parts[0] === "hazard") return { page: "hazard", name: parts[1] || undefined, product: parts[2] || undefined, cell: parts[3] ? Number(parts[3]) : undefined };
   if (parts[0] === "project" && parts[1]) return { page: "project", name: parts[1], tab: parts[2] };
   return { page: "overview" };
@@ -23,6 +29,13 @@ export function href(r: Route): string {
   if (r.page === "explorer") return "#/explorer";
   if (r.page === "new") return "#/new";
   if (r.page === "compose") return "#/compose";
+  if (r.page === "learn" && r.chapter === "hazard") return `#/learn-hazard${r.step != null ? `/${r.step}` : ""}`;
+  if (r.page === "learn")
+    return r.name
+      ? `#/learn/${encodeURIComponent(r.name)}${r.stack ? `/${encodeURIComponent(r.stack)}${r.step != null ? `/${r.step}` : ""}` : ""}`
+      : "#/learn";
+  if (r.page === "ai")
+    return r.name && r.product ? `#/ai/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.tab ? `/${r.tab}` : ""}` : "#/ai";
   if (r.page === "hazard")
     return r.name && r.product
       ? `#/hazard/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.cell != null ? `/${r.cell}` : ""}`

@@ -234,7 +234,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
           </div>
           <div className="flex flex-wrap gap-2">
             {product && (
-              <Button onClick={() => showProduct(p.name, product.id, { open: true })}>{t("Open map")}</Button>
+              <Button onClick={() => showProduct(p.name, product.id, { open: true })}>{t("View results")}</Button>
             )}
             {product?.report && (
               <Button onClick={() => window.open(api.fileUrl(p.name, product.id, "report.pdf"), "_blank", "noopener")}>{t("Report PDF")}</Button>

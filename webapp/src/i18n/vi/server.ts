@@ -1,6 +1,9 @@
 // Messages written by the server (geoeyes.hazard, geoeyes.validation.gnss, the controller): exact texts and
 // patterns ($1, $2 ... keep the values of the English message).
 export const SERVER: Record<string, string> = {
+  "scene mean": "trung bình toàn cảnh",
+  "rainfall: the hazard analysis": "lượng mưa: lấy từ phân tích nguy cơ",
+  "IRLS (GeoEyes, weights = coherence²)": "IRLS (GeoEyes, trọng số = độ kết hợp²)",
   "no NGL station inside the product over its period": "không có trạm NGL nào trong vùng và thời gian của sản phẩm",
   "no NGL station could be compared (see the reasons per station)": "không so sánh được trạm NGL nào (xem lý do từng trạm)",
   "excluded in [validation.gnss]": "bị loại trong [validation.gnss]",
@@ -27,6 +30,15 @@ export const SERVER: Record<string, string> = {
 export const SERVER_PATTERNS: [RegExp, string][] = [
   [/^rainfall coupling not assessed: ([\d.]+) months \/ (\d+) epochs \(needs ([\d.]+) months and (\d+) epochs\)$/,
     "chưa đánh giá liên hệ mưa – biến dạng: $1 tháng / $2 lần chụp (cần $3 tháng và $4 lần chụp)"],
+  [/^too few moving \((\d+)\) or stable \((\d+)\) cells at ([\d.]+) mm\/yr to train a model: the rates here span (\S+) … (\S+) mm\/yr \(P5–P95, reference: ([^)]*)\); label_rate = ([\d.-]+) labels 10 % of the cells as moving, but that is below the measurement noise \(2σ ≈ ([\d.]+) mm\/yr\): the labels would be mostly noise, and this area may simply be too stable for a susceptibility model$/,
+    "quá ít ô chuyển dịch ($1) hoặc ô ổn định ($2) ở ngưỡng $3 mm/năm để huấn luyện mô hình: tốc độ ở đây chỉ trong khoảng $4 … $5 mm/năm (P5–P95, tham chiếu: $6); ngưỡng $7 mm/năm sẽ cho 10 % số ô là chuyển dịch, nhưng giá trị này nằm dưới mức nhiễu đo (2σ ≈ $8 mm/năm): nhãn gần như chỉ là nhiễu, và khu vực này có thể quá ổn định để xây dựng mô hình tính nhạy cảm"],
+  [/^too few moving \((\d+)\) or stable \((\d+)\) cells at ([\d.]+) mm\/yr to train a model: the rates here span (\S+) … (\S+) mm\/yr \(P5–P95, reference: ([^)]*)\); label_rate = ([\d.-]+) labels 10 % of the cells as moving$/,
+    "quá ít ô chuyển dịch ($1) hoặc ô ổn định ($2) ở ngưỡng $3 mm/năm để huấn luyện mô hình: tốc độ ở đây chỉ trong khoảng $4 … $5 mm/năm (P5–P95, tham chiếu: $6); hãy thử ngưỡng $7 mm/năm (10 % số ô là chuyển dịch)"],
+  [/^groundwater not read \((.*)\)$/, "không đọc được dữ liệu nước ngầm ($1)"],
+  [/^groundwater coupling tested on the observations up to (\S+) \(GLDAS is published with a lag\)$/,
+    "liên hệ nước ngầm – biến dạng chỉ được kiểm định trên dữ liệu quan trắc đến $1 (GLDAS được công bố trễ)"],
+  [/^groundwater coupling not assessed: GLDAS storage does not cover the observations yet \(published with a lag of a few months\) or the series are too short$/,
+    "chưa đánh giá liên hệ nước ngầm – biến dạng: dữ liệu GLDAS chưa phủ hết thời gian quan trắc (được công bố trễ vài tháng) hoặc chuỗi quá ngắn"],
   [/^(\d+) rainfall pixel\(s\): up to (\d+)% of the months not published yet \(counted as average\)$/,
     "$1 pixel mưa: tới $2% số tháng chưa được công bố (tính bằng giá trị trung bình)"],
   [/^CHIRPS could not be read(.*): ERA5 reanalysis used instead \(smoother monthly extremes\)$/,

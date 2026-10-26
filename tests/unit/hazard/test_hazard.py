@@ -162,7 +162,8 @@ def test_assess_end_to_end(product, offline, tmp_path):
     cx, cy = (c["lon"] - 105.80575) * 104e3, (c["lat"] - 21.0054) * 110.5e3
     core = np.hypot(cx, cy) < 200
     far = np.hypot(cx, cy) > 450
-    assert c.loc[core, "rate_mm_yr"].median() == pytest.approx(40, abs=3)        # sinking > 0, LOS / los_u
+    assert c.loc[core, "rate_mm_yr"].median() == pytest.approx(-40, abs=3)       # sinking < 0 (GeoEyes sign)
+    assert s["sign"] == "negative = sinking / downslope"
     assert (c.loc[far, "intensity"] == 0).mean() > 0.9
     assert (c.loc[core, "hazard"] >= 3).mean() > 0.9                             # I3 -> high or very high
     west = core & (cx < -50)
@@ -197,7 +198,7 @@ def test_reference_bbox(product, offline, tmp_path):
                rain_cache=tmp_path / "c", dem_cache=tmp_path / "c")
     assert s["reference"]["kind"] == "reference_bbox"
     fixed = pd.read_parquet(tmp_path / "b" / "cells.parquet")
-    assert biased["rate_mm_yr"].median() == pytest.approx(-6 / 0.78, abs=1)     # stable ground seen as uplift
+    assert biased["rate_mm_yr"].median() == pytest.approx(6 / 0.78, abs=1)      # stable ground seen as uplift
     assert fixed["rate_mm_yr"].median() == pytest.approx(0, abs=1)
     assert biased["opposite_motion"].mean() > 0.5 and fixed["opposite_motion"].mean() < 0.1
 
@@ -222,4 +223,19 @@ def test_gnss_tie(product, offline, tmp_path):
     assert base["reference"]["kind"] == "unknown" and tied["reference"]["kind"] == "gnss"
     a = pd.read_parquet(tmp_path / "a" / "cells.parquet")["rate_mm_yr"]
     b = pd.read_parquet(tmp_path / "b" / "cells.parquet")["rate_mm_yr"]
-    np.testing.assert_allclose(b - a, -5.0 / 0.78, atol=0.05)        # +5 mm/yr LOS up = 6.4 mm/yr less sinking
+    np.testing.assert_allclose(b - a, 5.0 / 0.78, atol=0.05)         # +5 mm/yr LOS up = 6.4 mm/yr less sinking
+
+
+def test_old_analyses_read_with_the_geoeyes_sign(tmp_path):
+    """Analyses written before the GeoEyes sign (schema 1, sinking > 0) are negated when read."""
+    import json
+
+    import pandas as pd
+
+    from geoeyes.hazard.assess import SIGN, read_cells
+    pd.DataFrame({"rate_mm_yr": [12.0], "rain_r": [0.7], "slope_deg": [3.0]}).to_parquet(tmp_path / "cells.parquet")
+    (tmp_path / "hazard.json").write_text(json.dumps({"schema": "geoeyes.hazard/1"}), encoding="utf-8")
+    c = read_cells(tmp_path)
+    assert c["rate_mm_yr"][0] == -12.0 and c["rain_r"][0] == -0.7 and c["slope_deg"][0] == 3.0
+    (tmp_path / "hazard.json").write_text(json.dumps({"schema": "geoeyes.hazard/2", "sign": SIGN}), encoding="utf-8")
+    assert read_cells(tmp_path)["rate_mm_yr"][0] == 12.0

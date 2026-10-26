@@ -275,8 +275,14 @@ export function ActivityWatcher({ ws }: { ws: Workspace | undefined }) {
       changed = true;
       if (first) return;                               // already finished before this browser watched it
       const ok = j.state === "done";
-      const what = j.kind === "hazard" ? "Hazard zoning" : "GNSS comparison";
-      const href = j.kind === "hazard" ? `#/hazard/${encodeURIComponent(j.project)}/${encodeURIComponent(j.product)}` : `#/project/${encodeURIComponent(j.project)}/validation`;
+      const what = { hazard: "Hazard zoning", gnss: "GNSS comparison", susceptibility: "Susceptibility model", forecast: "Deformation forecast" }[j.kind];
+      const p = `${encodeURIComponent(j.project)}/${encodeURIComponent(j.product)}`;
+      const href = {
+        hazard: `#/hazard/${p}`,
+        gnss: `#/project/${encodeURIComponent(j.project)}/validation`,
+        susceptibility: `#/ai/${p}/susceptibility`,
+        forecast: `#/ai/${p}/forecast`,
+      }[j.kind];
       notify(
         { id: `${j.kind}:${j.project}:${j.started}`, level: ok ? "success" : "error", title: t(`${what} ${ok ? "finished" : "failed"}: {project}`, { project: j.project }), body: j.product, href },
         { desktop: true },

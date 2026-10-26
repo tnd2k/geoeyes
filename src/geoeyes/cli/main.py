@@ -207,6 +207,26 @@ def cmd_gnss(args) -> int:
     return 0
 
 
+def _cmd_ml(kind: str):
+    def cmd(args) -> int:
+        """AI analysis of a product (``--product``, else the latest product of each track)."""
+        import logging
+
+        from geoeyes import ml
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        cfg, project, ws = _open(args)
+        ids = _product_ids(args, cfg, project)
+        if not ids:
+            print("no product yet: run the project first (geoeyes run)", file=sys.stderr)
+            return 1
+        fn = {"susceptibility": ml.run_susceptibility, "forecast": ml.run_forecast, "buildings": ml.run_buildings}[kind]
+        for pid in ids:
+            s = fn(cfg, project, ws, pid, _overrides(args.set), progress=lambda msg: print(msg, flush=True))
+            print(f"{pid}: {kind} done ({s.get('chosen')}) -> {project.analysis(kind, pid)}")
+        return 0
+    return cmd
+
+
 def _product_ids(args, cfg, project) -> list[str]:
     """``--product``, else the latest product of each (selected) track."""
     from geoeyes.controller.phase import ProjectState
@@ -303,6 +323,14 @@ def build_parser() -> argparse.ArgumentParser:
     gn.add_argument("--track", action="append", help="track id (repeatable)")
     gn.add_argument("--set", action="append", metavar="KEY=VALUE",
                     help="override a [validation.gnss] parameter, e.g. --set radius_m=200 (repeatable)")
+    for kind, help_ in (("susceptibility", "AI: ground-motion susceptibility from thematic layers (needs hazard)"),
+                        ("forecast", "AI: deformation forecast of the cells, backtested against baselines"),
+                        ("buildings", "InSAR velocity and tilt of every building (Overture footprints)")):
+        ml = add(kind, _cmd_ml(kind), selection=False, help_=help_)
+        ml.add_argument("--product", help="product id (default: the latest product of each track)")
+        ml.add_argument("--track", action="append", help="track id (repeatable)")
+        ml.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help=f"override a [postprocess.{kind}] parameter (repeatable)")
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")
@@ -323,6 +351,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    # Windows consoles default to a legacy code page (cp1252): messages with "≥", "τ", "°" would crash the run
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

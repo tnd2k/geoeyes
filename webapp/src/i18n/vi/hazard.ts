@@ -9,7 +9,6 @@ export const HAZARD: Record<string, string> = {
   "not assessed": "chưa đánh giá",
   "Hazard matrix": "Ma trận nguy cơ",
   intensity: "cường độ",
-  "secondary class": "lớp phụ",
   MAP: "BẢN ĐỒ",
   "What this map shows": "Bản đồ này cho biết",
   subsidence: "sụt lún",
@@ -37,17 +36,14 @@ export const HAZARD: Record<string, string> = {
   // the thematic maps
   "Hazard level": "Mức nguy cơ",
   "Intensity (InSAR)": "Cường độ (InSAR)",
-  "Distortion / slope": "Biến dạng / độ dốc",
   Rate: "Tốc độ",
   "Rain coupling": "Liên hệ với mưa",
-  "Rain lag": "Độ trễ theo mưa",
+  "Rain lag": "Độ trễ so với mưa",
   Mode: "Loại quá trình",
   "The final level of each 100 m cell: how fast the ground moves (InSAR intensity) combined with what the motion can do (distortion for subsidence, slope for landslides).":
     "Mức nguy cơ cuối cùng của từng ô 100 m: mặt đất chuyển dịch nhanh đến đâu (cường độ InSAR) kết hợp với việc chuyển dịch đó có thể gây ra gì (biến dạng với sụt lún, độ dốc với trượt lở).",
   "Red cells need attention first: fast motion where it bends buildings or on steep ground.":
     "Ô đỏ cần chú ý trước tiên: chuyển dịch nhanh ở nơi làm cong vênh công trình hoặc trên sườn dốc.",
-  "Read the level in the matrix: intensity (rows) × secondary class (columns).":
-    "Đọc mức trong ma trận: cường độ (hàng) × lớp phụ (cột).",
   "Grey cells were not assessed (too few points, or a slope the satellite cannot see).":
     "Ô xám chưa được đánh giá (quá ít điểm, hoặc sườn dốc mà vệ tinh không nhìn thấy được chuyển dịch).",
   "How fast each cell moves in the direction that matters (sinking on flat ground, down the slope on hillsides), in four classes.":
@@ -64,8 +60,8 @@ export const HAZARD: Record<string, string> = {
     "Từ S1 trở lên: lún lệch vượt giới hạn an toàn cho công trình (1/500); S3: hư hại kết cấu (1/150).",
   "Independent of the reference: it only uses differences between neighbouring cells.":
     "Không phụ thuộc tham chiếu: chỉ dùng chênh lệch giữa các ô kề nhau.",
-  "The velocity of each cell in mm per year, along the expected motion: vertical on flat ground, down the slope on hillsides.":
-    "Vận tốc của từng ô (mm/năm) theo hướng chuyển dịch dự kiến: thẳng đứng ở vùng bằng phẳng, xuống dốc ở sườn đồi.",
+  "The velocity of each cell in mm per year, along the expected motion: vertical on flat ground, along the slope on hillsides. As everywhere in GeoEyes, negative means sinking or moving down the slope.":
+    "Vận tốc của mỗi ô (mm/năm) theo hướng chuyển dịch dự kiến: thẳng đứng ở nền phẳng, dọc sườn ở sườn dốc. Như mọi nơi trong GeoEyes, giá trị âm là lún hoặc dịch xuống dốc.",
   "Red: sinking (or moving down the slope). Blue: rising (or apparent upslope motion). Grey: about stable.":
     "Đỏ: lún (hoặc trượt xuống dốc). Xanh: nâng (hoặc dịch chuyển ngược dốc biểu kiến). Xám: gần như ổn định.",
   "Values are relative to the product's reference area: a reference that moves shifts the whole map.":
@@ -91,7 +87,13 @@ export const HAZARD: Record<string, string> = {
   // run panel
   "Hazard zoning": "Phân vùng nguy cơ",
   zoning: "phân vùng",
-  "HAZARD ZONING · INSAR + RAINFALL": "PHÂN VÙNG NGUY CƠ · INSAR + LƯỢNG MƯA",
+  "HAZARD ZONING": "PHÂN VÙNG NGUY CƠ",
+  "Map layer": "Lớp bản đồ",
+  Zoning: "Phân vùng",
+  Components: "Thành phần",
+  "Water drivers": "Tác nhân nước",
+  yr: "năm",
+  mo: "tháng",
   Product: "Sản phẩm",
   "No product in the workspace": "Không gian làm việc chưa có sản phẩm",
   Cell: "Ô",
@@ -105,6 +107,7 @@ export const HAZARD: Record<string, string> = {
   "Add the GNSS calibration of this product (Project → Validation → GNSS) to the series before rating them: rates relative to the GNSS frame instead of the product's reference":
     "Cộng hiệu chỉnh GNSS của sản phẩm này (Dự án → Kiểm định → GNSS) vào các chuỗi trước khi xếp lớp: tốc độ tính theo khung GNSS thay vì theo tham chiếu của sản phẩm",
   "GNSS tie": "Gắn vào GNSS",
+  tie: "gắn vào",
   "1 station": "1 trạm",
   "GNSS unavailable: restart geoeyes serve (the server predates this page)":
     "Không có GNSS: khởi động lại geoeyes serve (máy chủ cũ hơn trang này)",
@@ -114,8 +117,6 @@ export const HAZARD: Record<string, string> = {
   "Run again": "Chạy lại",
   "Run hazard zoning": "Chạy phân vùng nguy cơ",
   "Reference area: west, south, east, north (degrees)": "Vùng tham chiếu: tây, nam, đông, bắc (độ)",
-  "{msg}: the running server predates the Hazard page, restart geoeyes serve":
-    "{msg}: máy chủ đang chạy cũ hơn trang Nguy cơ, hãy khởi động lại geoeyes serve",
   "Not zoned yet. The run reads the DEM and the rainfall (CHIRPS, cached; the first time takes a minute) and writes the cells under analyses/hazard of the project.":
     "Chưa phân vùng. Lần chạy đọc DEM và lượng mưa (CHIRPS, có lưu đệm; lần đầu mất khoảng một phút) và ghi các ô vào analyses/hazard của dự án.",
 
@@ -160,8 +161,8 @@ export const HAZARD: Record<string, string> = {
   "{mode} cell #{n}": "ô {mode} #{n}",
   Close: "Đóng",
   "Points in cell": "Số điểm trong ô",
-  "Rate (sinking +)": "Tốc độ (lún +)",
-  "Rate (downslope +)": "Tốc độ (xuống dốc +)",
+  "Rate (up +)": "Tốc độ (+ nâng lên)",
+  "Rate (upslope +)": "Tốc độ (+ ngược dốc)",
   "Stability threshold": "Ngưỡng ổn định",
   Intensity: "Cường độ",
   "I{a} observed → I{b}": "I{a} quan trắc → I{b}",
@@ -170,7 +171,6 @@ export const HAZARD: Record<string, string> = {
   "largest differential settlement to a neighbouring cell, over the horizon":
     "lún lệch lớn nhất so với một ô kề, sau khoảng thời gian dự báo",
   "Slope / sensitivity": "Độ dốc / độ nhạy",
-  Secondary: "Lớp phụ",
   Acceleration: "Gia tốc",
   significant: "có ý nghĩa",
   "Moves against the hazard direction ({dir}): check the reference area before reading it as stable.":
@@ -187,8 +187,8 @@ export const HAZARD: Record<string, string> = {
   "k per 100 mm": "k trên 100 mm",
   "Trend w/o rain": "Xu thế khi bỏ mưa",
   "Dry (P10) / wet (P90) yr": "Năm khô (P10) / ướt (P90)",
-  "mm (sinking +)": "mm (lún +)",
-  "mm (downslope +)": "mm (xuống dốc +)",
+  "mm (up +)": "mm (+ nâng lên)",
+  "mm (upslope +)": "mm (+ ngược dốc)",
   "cell median": "trung vị của ô",
   linear: "tuyến tính",
   "trend + k·CRD(t − {n} mo)": "xu thế + k·CRD(t − {n} tháng)",
@@ -196,19 +196,35 @@ export const HAZARD: Record<string, string> = {
 
   // method
   "HOW THIS MAP IS MADE": "CÁCH LẬP BẢN ĐỒ NÀY",
-  "Points → square cells (median series, ≥ min points per cell).":
-    "Điểm → ô vuông (chuỗi trung vị, ≥ số điểm tối thiểu mỗi ô).",
-  "DEM slope at cell scale: flat cells = subsidence, steep cells = landslide (ADAtools-like rule).":
-    "Độ dốc DEM ở quy mô ô: ô bằng phẳng = sụt lún, ô dốc = trượt lở (quy tắc tương tự ADAtools).",
-  "LOS projected on the expected motion: vertical, or downslope (Cigna et al. 2013 L2S factor).":
-    "Chiếu LOS lên hướng chuyển dịch dự kiến: thẳng đứng, hoặc xuống dốc (hệ số L2S, Cigna et al. 2013).",
-  "Rainfall (CHIRPS v3, ERA5 fallback): d = a + b·t + k·CRD(t − τ), lag 0 to max lag months; significance from phase-randomised rainfall (Ebisuzaki 1997) with a map-wide false discovery rate (Benjamini & Hochberg 1995).":
-    "Lượng mưa (CHIRPS v3, dự phòng ERA5): d = a + b·t + k·CRD(t − τ), độ trễ từ 0 đến độ trễ tối đa (tháng); ý nghĩa thống kê từ chuỗi mưa thay thế xáo pha ngẫu nhiên (Ebisuzaki 1997) với tỉ lệ phát hiện sai (FDR) trên toàn bản đồ (Benjamini & Hochberg 1995).",
-  "Intensity: stability 2σ (Barra et al. 2017); landslide classes on Cruden & Varnes (1996); raised by a dry / wet (P10 / P90) year and by acceleration.":
-    "Cường độ: ngưỡng ổn định 2σ (Barra et al. 2017); lớp trượt lở theo Cruden & Varnes (1996); nâng lớp theo năm khô / ướt (P10 / P90) và theo gia tốc.",
-  "Secondary: angular distortion vs 1/500, 1/300, 1/150 (Bjerrum 1963; Skempton & MacDonald 1956), or slope / susceptibility.":
-    "Lớp phụ: góc biến dạng so với 1/500, 1/300, 1/150 (Bjerrum 1963; Skempton & MacDonald 1956), hoặc độ dốc / tính nhạy cảm.",
-  "Hazard = matrix(intensity, secondary), as in the PSI-based matrix approach (Cigna et al. 2013).":
-    "Nguy cơ = ma trận(cường độ, lớp phụ), theo cách tiếp cận ma trận dựa trên PSI (Cigna et al. 2013).",
   "Full method, sources and research plan:": "Phương pháp đầy đủ, nguồn và kế hoạch nghiên cứu:",
+  // groundwater (NASA GLDAS)
+  "Groundwater coupling": "Liên hệ với nước ngầm",
+  Groundwater: "Nước ngầm",
+  "Where the ground motion follows the groundwater storage of the region (NASA GLDAS, with GRACE satellite gravity), after removing its steady trend.":
+    "Nơi chuyển dịch mặt đất biến đổi theo trữ lượng nước ngầm của khu vực (NASA GLDAS, đồng hoá trọng lực vệ tinh GRACE), sau khi đã loại bỏ xu thế ổn định.",
+  "Blue: the ground sinks more when storage falls and recovers when it rises, the elastic response of an aquifer system. Red: the opposite sign.":
+    "Xanh: mặt đất lún nhanh hơn khi trữ lượng giảm và hồi lại khi trữ lượng tăng, đúng phản ứng đàn hồi của tầng chứa nước. Đỏ: quan hệ ngược chiều.",
+  "The storage grid is 0.25° (about 27 km): it shows when the region gains or loses water, not where wells pump. Read it as a regional driver, not as a local cause.":
+    "Lưới trữ lượng có độ phân giải 0,25° (khoảng 27 km): nó cho biết khi nào cả vùng tích hay mất nước, chứ không chỉ ra giếng bơm ở đâu. Hãy hiểu đây là tác nhân cấp vùng, không phải nguyên nhân tại chỗ.",
+  "Only statistically significant cells are coloured; this layer does not change the hazard level.":
+    "Chỉ tô màu các ô có ý nghĩa thống kê; lớp này không làm thay đổi cấp nguy cơ.",
+  "Groundwater needs an Earthdata login: set EARTHDATA_TOKEN and run the zoning again.":
+    "Dữ liệu nước ngầm cần tài khoản Earthdata: hãy đặt EARTHDATA_TOKEN rồi chạy lại phân vùng.",
+  "Groundwater coupling is off in the parameters.": "Liên hệ với nước ngầm đang tắt trong tham số.",
+  "No groundwater in this zoning: run it again.": "Lần phân vùng này chưa có nước ngầm: hãy chạy lại.",
+  "more storage, more motion": "trữ lượng tăng, chuyển dịch tăng",
+  "less storage, more sinking (aquifer)": "trữ lượng giảm, lún tăng (tầng chứa nước)",
+  "{n} of {m} cells significant": "{n} / {m} ô có ý nghĩa",
+  "storage trend {v} mm/yr": "xu thế trữ lượng {v} mm/năm",
+  "trend + g·GWS(t − {n} mo)": "xu thế + g·GWS(t − {n} tháng)",
+  "GROUNDWATER COUPLING": "LIÊN HỆ NƯỚC NGẦM – BIẾN DẠNG",
+  "Not assessed (storage not published for the whole period, or series too short).":
+    "Chưa đánh giá (trữ lượng chưa được công bố cho cả giai đoạn, hoặc chuỗi quá ngắn).",
+  "g per 100 mm storage": "g trên 100 mm trữ lượng",
+  "Storage trend": "Xu thế trữ lượng",
+  "trend of the storage of the 0.25° pixel over the period": "xu thế trữ lượng của pixel 0,25° trong giai đoạn quan trắc",
+  // damage potential (was: secondary class)
+  "Damage potential": "Tổn hại tiềm tàng",
+  "damage potential": "tổn hại tiềm tàng",
+  "Read the level in the matrix: intensity (rows) × damage potential (columns).": "Đọc mức trong ma trận: cường độ (hàng) × tổn hại tiềm tàng (cột).",
 };

@@ -347,7 +347,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     <div className="flex h-full min-h-0">
       <div className="w-[300px] flex-none space-y-4 overflow-y-auto border-r border-line bg-panel-2 p-4">
         <div>
-          <h1 className="text-[17px] font-semibold">{t("Map image")}</h1>
+          <h1 className="text-[17px] font-semibold">{t("Map export")}</h1>
           <p className="mt-1 text-[12px] text-muted">{t("Pan and zoom the map inside the sheet, then export.")}</p>
         </div>
         <div className="space-y-2">

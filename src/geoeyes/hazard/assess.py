@@ -5,9 +5,11 @@ Steps (each documented in the research note):
 1. cells: the points are reduced to square cells (median series, median line of sight; at least ``min_points``);
 2. terrain: slope and downslope direction from the DEM smoothed to the cell size; ``landslide`` cells are the ones
    steeper than ``landslide_min_slope_deg``, the others are ``subsidence`` cells;
-3. motion: the LOS series is projected on the expected motion: vertical (subsidence, sinking > 0) or the
-   steepest descent (landslide, downslope > 0; cells whose line of sight sees less than ``min_sensitivity`` of
-   it are not assessed); linear (and quadratic) fit -> rate, its error, acceleration;
+3. motion: the LOS series is projected on the expected motion: vertical (subsidence) or the steepest descent
+   (landslide; cells whose line of sight sees less than ``min_sensitivity`` of it are not assessed); linear (and
+   quadratic) fit -> rate, its error, acceleration. The classes work on the motion in the hazard direction
+   (sinking / downslope > 0); the outputs keep the GeoEyes sign: negative = sinking or downslope, positive =
+   uplift or upslope (``SIGNED``; ``hazard.json`` "sign");
 4. rainfall: CHIRPS monthly per pixel over the period (plus the lag window), annual totals over the climate
    normal; rainfall coupling d = a + b·t + k·CRD(t − τ) with a surrogate test (``coupling``);
 5. intensity class from the observed rate, raised to the rate of a dry (P10) or wet (P90) year where the
@@ -16,8 +18,8 @@ Steps (each documented in the research note):
 7. hazard level = matrix[intensity][secondary].
 
 Outputs in ``<project>/analyses/hazard/<product_id>/``: ``cells.parquet`` (one row per cell), ``cells_ts.npy``
-(series in the motion direction), ``rain.npz``, ``hazard.json`` (parameters, summary, sources), ``hazard.gpkg``
-(cell squares for QGIS) and ``manifest.json``.
+(series along the motion, negative = sinking / downslope), ``rain.npz``, ``hazard.json`` (parameters, summary,
+sources), ``hazard.gpkg`` (cell squares for QGIS) and ``manifest.json``.
 """
 from __future__ import annotations
 
@@ -42,7 +44,11 @@ from geoeyes.io.points import timeseries_arrays
 
 log = logging.getLogger(__name__)
 
-SCHEMA = "geoeyes.hazard/1"
+SCHEMA = "geoeyes.hazard/2"
+SIGN = "negative = sinking / downslope"
+# columns written with the GeoEyes sign (computed in the hazard direction, sinking / downslope > 0)
+SIGNED = ("rate_mm_yr", "acc_mm_yr2", "rain_r", "rain_k_mm_per_100mm", "trend_rain_corrected_mm_yr",
+          "rate_dry_year_mm_yr", "rate_wet_year_mm_yr", "gw_r", "gw_k_mm_per_100mm")
 M_PER_DEG_LAT = terrain.M_PER_DEG_LAT
 M_PER_DEG_LON = terrain.M_PER_DEG_LON
 
@@ -74,6 +80,8 @@ class HazardParams:
     slope_breaks: tuple[float, float, float] = (15.0, 25.0, 35.0)                  # degrees: S1, S2, S3 from
                                                 # (a proxy until a susceptibility map is given)
     rain_source: str = "auto"                   # auto (CHIRPS, ERA5 if CHIRPS cannot be read) | chirps | era5
+    groundwater: str = "auto"                   # GLDAS groundwater coupling: auto (when EARTHDATA_TOKEN is set) |
+                                                # gldas (required) | off
     accel_t: float = 3.0                        # |acceleration / its error| for a significant acceleration
     accel_min_span_months: float = 18.0
     climate_years: tuple[int, int] = (1991, 2020)               # WMO climate normal for the P10 / P90 years
@@ -105,6 +113,8 @@ class HazardParams:
             raise ConfigError("[postprocess.hazard] matrix: 4 rows of 4 levels (0..4)")
         if len(p.reference_bbox) not in (0, 4):
             raise ConfigError("[postprocess.hazard] reference_bbox: [west, south, east, north]")
+        if p.groundwater not in ("auto", "gldas", "off"):
+            raise ConfigError(f"[postprocess.hazard] groundwater: auto | gldas | off, not {p.groundwater!r}")
         return p
 
 
@@ -159,7 +169,7 @@ def load_cells(product: Path, cell_m: float, min_points: int) -> tuple[np.ndarra
 
 
 def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, dem_cache: Path,
-           dem_source: str = "", progress=None) -> dict:
+           dem_source: str = "", gw_cache: Path | None = None, earthdata_token: str = "", progress=None) -> dict:
     """Hazard zoning of ``product`` into ``out``; returns the summary written to ``hazard.json``."""
     say = progress or (lambda msg: log.info("%s", msg))
     p = params
@@ -285,6 +295,9 @@ def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, 
     coupled = (qval <= p.alpha) & np.isfinite(k)
     say(f"rainfall coupling significant in {int(coupled.sum())} of {int(np.isfinite(pval).sum())} assessed cells")
 
+    # ---------------------------------------------------------------- groundwater (diagnostic, not in the level)
+    gw = _groundwater(p, y, dates, cells, can_couple, gw_cache, earthdata_token, say, warnings)
+
     # ---------------------------------------------------------------- intensity
     # rates in the hazard direction (sinking / downslope > 0); the worse of a dry and a wet year where coupled
     scenario = np.where(coupled, np.fmax(rate_dry, rate_wet), np.nan)
@@ -334,16 +347,27 @@ def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, 
         "intensity_observed": i_obs.astype(np.int8), "intensity": i_eff,
         "angular_distortion": beta.astype(np.float32), "susceptibility": susc, "secondary": secondary,
         "hazard": level, "rain_row": pr.astype(np.int16), "rain_col": pc.astype(np.int16),
+        **gw["columns"],
     })
+    for c in SIGNED:                                              # back to the GeoEyes sign
+        table[c] = -table[c]
     table.to_parquet(out / "cells.parquet", index=False)
-    np.save(out / "cells_ts.npy", np.where(np.isfinite(y), y, np.nan).astype(np.float32))
+    np.save(out / "cells_ts.npy", np.where(np.isfinite(y), -y, np.nan).astype(np.float32))
     np.savez(out / "rain.npz", months=np.array(rain_m.periods), monthly=rain_m.mm, years=np.array(rain_y.periods),
              annual=rain_y.mm, west=rain_m.west, north=rain_m.north, res=rain_m.res)
+    outputs = ["cells.parquet", "cells_ts.npy", "rain.npz", "hazard.json", "hazard.gpkg"]
+    if gw["grid"] is not None:
+        g = gw["grid"]
+        np.savez(out / "groundwater.npz", months=np.array(g.periods), monthly=g.mm, west=g.west, north=g.north,
+                 res=g.res)
+        outputs.append("groundwater.npz")
+    else:
+        (out / "groundwater.npz").unlink(missing_ok=True)
     _write_gpkg(out / "hazard.gpkg", table, p.cell_m, float(cells.extra["lat0"][0]))
 
     area_km2 = (p.cell_m / 1000) ** 2
     summary = {
-        "schema": SCHEMA, "product_id": product.name,
+        "schema": SCHEMA, "sign": SIGN, "product_id": product.name,
         "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "params": {kk: (list(map(list, v)) if kk == "matrix" else list(v) if isinstance(v, tuple) else v)
                    for kk, v in asdict(p).items()},
@@ -359,11 +383,13 @@ def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, 
                      "cells_significant": int(coupled.sum()),
                      "cells_p_below_alpha": int((pval <= p.alpha).sum()), "fdr": p.fdr,
                      "lag_months_median": None if not coupled.any() else float(np.median(lag[coupled])),
-                     "share_positive_k": None if not coupled.any() else round(float((k[coupled] > 0).mean()), 3)},
+                     # more rain, more sinking / downslope motion (k < 0 with the GeoEyes sign)
+                     "share_negative_k": None if not coupled.any() else round(float((k[coupled] > 0).mean()), 3)},
         "accelerating_cells": int(accel.sum()), "opposite_motion_cells": int(opposite.sum()),
         "reference": reference,
         "rain": {"source": rain_m.source, "res_deg": rain_m.res, "months": rain_m.periods,
                  "climate_years": list(p.climate_years), "pixels": pixels},
+        "groundwater": gw["summary"],
         "warnings": warnings,
         "method": "docs/en/research/rainfall-insar-hazard.md",
     }
@@ -371,10 +397,97 @@ def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, 
     m = Manifest(kind="hazard", id=product.name, engine=SCHEMA,
                  inputs=[InputRef("product", str(product), _sha(product / "manifest.json"))],
                  params=summary["params"], metrics={"n_cells": nc, "cells_significant": int(coupled.sum())})
-    m.add_outputs(out, ["cells.parquet", "cells_ts.npy", "rain.npz", "hazard.json", "hazard.gpkg"])
+    m.add_outputs(out, outputs)
     m.write(out)
     say("done")
     return summary
+
+
+def _groundwater(p: HazardParams, y: np.ndarray, dates: np.ndarray, cells: Cells, can_couple: bool,
+                 cache: Path | None, token: str, say, warnings: list[str]) -> dict:
+    """Coupling of the series in the hazard direction with GLDAS groundwater storage
+    (docs/en/research/groundwater-insar.md):
+    d = a + b·t + g·GWS(t − τ), tested like the rainfall. A diagnostic: it does not change the hazard level (the
+    0.25° storage is regional; the pumping that drives subsidence is local)."""
+    nc = y.shape[0]
+    cols = {"gw_lag_months": np.full(nc, -1, np.int8), "gw_r": np.full(nc, np.nan, np.float32),
+            "gw_p": np.full(nc, np.nan, np.float32), "gw_q": np.full(nc, np.nan, np.float32),
+            "gw_k_mm_per_100mm": np.full(nc, np.nan, np.float32), "gw_k_se": np.full(nc, np.nan, np.float32),
+            "gw_coupled": np.zeros(nc, bool), "gw_row": np.full(nc, -1, np.int16),
+            "gw_col": np.full(nc, -1, np.int16)}
+    none = {"columns": cols, "grid": None}
+    if p.groundwater == "off":
+        return none | {"summary": {"used": False, "reason": "off"}}
+    if not token or cache is None:
+        if p.groundwater == "gldas":
+            raise ConfigError("[postprocess.hazard] groundwater = gldas needs EARTHDATA_TOKEN")
+        return none | {"summary": {"used": False, "reason": "no EARTHDATA_TOKEN"}}
+    from geoeyes.ancillary import groundwater
+    try:
+        say("groundwater: GLDAS storage (NASA Harmony; the first run takes a few minutes)")
+        g = groundwater.monthly_grid(cache, [cells.lon.min(), cells.lat.min(), cells.lon.max(), cells.lat.max()],
+                                     _months_before(dates[0], p.max_lag_months), date.fromisoformat(str(dates[-1])),
+                                     token, progress=say)
+    except Exception as exc:
+        if p.groundwater == "gldas":
+            raise
+        warnings.append(f"groundwater not read ({exc})")
+        log.warning("hazard: groundwater: %s", exc)
+        return none | {"summary": {"used": False, "reason": str(exc)}}
+    gr, gc = g.pixel(cells.lon, cells.lat)
+    cols["gw_row"], cols["gw_col"] = gr.astype(np.int16), gc.astype(np.int16)
+    t0 = np.datetime64(f"{g.periods[0]}-01")
+    t_obs = (dates - t0).astype(np.float64)
+    end = str(np.datetime64(str(dates[-1]), "M"))
+    span = [i for i, m in enumerate(g.periods) if m <= end]
+    pval = np.full(nc, np.nan)
+    pixels = []
+    for row, col in sorted({(int(a), int(b)) for a, b in zip(gr, gc, strict=True)}):
+        sel = (gr == row) & (gc == col)
+        series = g.mm[span, row, col]
+        s, changes = coupling.storage(series, [g.periods[i] for i in span], t0)
+        ok = np.isfinite(series)
+        trend = float(np.polyfit(s.t_days / coupling.DAYS_PER_YEAR, s.values, 1)[0]) if ok.sum() >= 12 else None
+        lon_p, lat_p = g.centre(row, col)
+        info = {"row": row, "col": col, "lon": round(lon_p, 3), "lat": round(lat_p, 3), "cells": int(sel.sum()),
+                "mean_mm": round(s.mean_month_mm, 0), "missing": round(s.missing, 3),
+                "trend_mm_yr": None if trend is None else round(trend, 1), "assessed": False}
+        pixels.append(info)
+        if not can_couple or s.missing > 0.2 or not ok.any():
+            continue
+        # storage is published months late: the test uses the observations it covers (never storage held flat)
+        within = t_obs <= s.t_days[-1] + 15
+        span_in = (t_obs[within][-1] - t_obs[0]) / coupling.DAYS_PER_MONTH if within.any() else 0.0
+        if span_in < p.min_span_months or within.sum() < p.min_epochs:
+            continue
+        info["until"] = str(dates[within][-1])
+        res = coupling.couple(y[sel][:, within], t_obs[within], s, changes, p.max_lag_months, p.n_surrogates,
+                              seed=row * 1000 + col + 7)
+        cols["gw_lag_months"][sel] = res.lag_months
+        cols["gw_r"][sel], cols["gw_k_mm_per_100mm"][sel] = res.r, 100 * res.k
+        cols["gw_k_se"][sel], pval[sel] = 100 * res.k_se, res.p
+        info["assessed"] = True
+    qval = coupling.fdr_bh(pval) if p.fdr else pval
+    coupled = (qval <= p.alpha) & np.isfinite(cols["gw_k_mm_per_100mm"])
+    cols["gw_p"], cols["gw_q"], cols["gw_coupled"] = pval.astype(np.float32), qval.astype(np.float32), coupled
+    if not any(px["assessed"] for px in pixels):
+        warnings.append("groundwater coupling not assessed: GLDAS storage does not cover the observations yet "
+                        "(published with a lag of a few months) or the series are too short")
+    elif any(px.get("until", str(dates[-1])) < str(dates[-1]) for px in pixels if px["assessed"]):
+        until = min(px["until"] for px in pixels if px["assessed"])
+        warnings.append(f"groundwater coupling tested on the observations up to {until} (GLDAS is published "
+                        "with a lag)")
+    k = cols["gw_k_mm_per_100mm"]
+    say(f"groundwater coupling significant in {int(coupled.sum())} of {int(np.isfinite(pval).sum())} assessed cells")
+    trends = [px["trend_mm_yr"] for px in pixels if px["trend_mm_yr"] is not None]
+    summary = {"used": True, "source": g.source, "res_deg": g.res, "months": g.periods,
+               "cells_tested": int(np.isfinite(pval).sum()), "cells_significant": int(coupled.sum()),
+               "lag_months_median": None if not coupled.any() else float(np.median(cols["gw_lag_months"][coupled])),
+               # ground that rises and falls with the storage (elastic aquifer): g > 0 with the GeoEyes sign,
+               # g < 0 in the hazard direction used here
+               "share_positive_g": None if not coupled.any() else round(float((k[coupled] < 0).mean()), 3),
+               "trend_mm_yr": None if not trends else round(float(np.mean(trends)), 1), "pixels": pixels}
+    return {"columns": cols, "grid": g, "summary": summary}
 
 
 def _product_reference(product: Path) -> dict:
@@ -438,3 +551,19 @@ def _write_gpkg(path: Path, table: pd.DataFrame, cell_m: float, lat0: float) -> 
 def read_summary(folder: Path) -> dict | None:
     f = folder / "hazard.json"
     return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+
+
+def up_positive(summary: dict | None) -> bool:
+    """Whether an analysis already has the GeoEyes sign; analyses made before (schema 1) are positive in the hazard
+    direction and their ``SIGNED`` columns and series are negated when read (``read_cells``)."""
+    return bool(summary and summary.get("sign") == SIGN)
+
+
+def read_cells(folder: Path, summary: dict | None = None) -> pd.DataFrame:
+    """``cells.parquet`` with the GeoEyes sign, whatever version wrote it."""
+    cells = pd.read_parquet(folder / "cells.parquet")
+    if not up_positive(summary if summary is not None else read_summary(folder)):
+        for c in SIGNED:
+            if c in cells:
+                cells[c] = -cells[c]
+    return cells

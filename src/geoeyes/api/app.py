@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from geoeyes.api import compare, gnss, hazard, jobs, monitor, points, service, settings
+from geoeyes.api import ai, compare, gnss, hazard, jobs, learn, monitor, points, service, settings
 from geoeyes.config.loader import load
 from geoeyes.core.errors import ConfigError, GeoEyesError, LockedError
 from geoeyes.workspace import WorkspaceLayout
@@ -246,6 +246,52 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         HazardParams.from_dict({**dict(load(project(name).config).postprocess.hazard), **overrides})   # validate
         return hazard.start(ws, name, pid, overrides)
 
+    # ------------------------------------------------------------ learning path (one pair, step by step)
+    @app.get("/api/projects/{name}/learn")
+    def learn_stacks(name: str):
+        return learn.stacks(project(name))
+
+    @app.get("/api/projects/{name}/learn/{stack_id}/thumb")
+    def learn_thumb_meta(name: str, stack_id: str):
+        try:
+            return learn.thumb(project(name), stack_id)[0]
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/learn/{stack_id}/thumb.bin")
+    def learn_thumb(name: str, stack_id: str):
+        try:
+            return Response(learn.thumb(project(name), stack_id)[1], media_type="application/octet-stream")
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/learn/{stack_id}/pair")
+    def learn_pair_meta(name: str, stack_id: str, request: Request):
+        try:
+            return learn.pair(project(name), stack_id, dict(request.query_params))[0]
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/learn/{stack_id}/pair.bin")
+    def learn_pair(name: str, stack_id: str, request: Request):
+        try:
+            return Response(learn.pair(project(name), stack_id, dict(request.query_params))[1],
+                            media_type="application/octet-stream")
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/learn/{stack_id}/points")
+    def learn_points(name: str, stack_id: str, request: Request):
+        try:
+            return learn.points(project(name), stack_id, dict(request.query_params))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/learn/series/{pid}/{uid}")
+    def learn_series(name: str, pid: str, uid: str):
+        product(name, pid)
+        return learn.series(project(name), pid, uid)
+
     @app.get("/api/projects/{name}/products/{pid}/hazard/cells")
     def hazard_cells_meta(name: str, pid: str):
         try:
@@ -271,6 +317,75 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def hazard_file(name: str, pid: str, rel: str):
         f = _inside(hazard.folder(project(name), pid), rel)
         return FileResponse(f, filename=f"{pid}_{f.name}")
+
+    # ------------------------------------------------------------ AI: susceptibility and forecast
+    @app.get("/api/projects/{name}/products/{pid}/ai")
+    def ai_status(name: str, pid: str):
+        product(name, pid)
+        return ai.status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/ai/{task}")
+    def ai_start(name: str, pid: str, task: str, body: dict = Body(default={})):
+        """Run ``geoeyes susceptibility`` / ``geoeyes forecast`` on the product in the background."""
+        from geoeyes.ml.forecast import ForecastParams
+        from geoeyes.ml.susceptibility import SusceptibilityParams
+        product(name, pid)
+        if task not in ai.TASKS:
+            raise HTTPException(404, f"{task}: susceptibility | forecast")
+        overrides = dict(body.get("params") or {})
+        cls = SusceptibilityParams if task == "susceptibility" else ForecastParams
+        cls.from_dict({**dict(getattr(load(project(name).config).postprocess, task)), **overrides})     # validate
+        return ai.start(ws, name, task, pid, overrides)
+
+    def _bin(fn, name: str, pid: str, meta_only: bool):
+        try:
+            meta, data = fn(project(name), pid)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+        return meta if meta_only else Response(data, media_type="application/octet-stream")
+
+    @app.get("/api/projects/{name}/products/{pid}/ai/susceptibility/grid")
+    def ai_grid_meta(name: str, pid: str):
+        return _bin(ai.susceptibility_grid, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/ai/susceptibility/grid.bin")
+    def ai_grid(name: str, pid: str):
+        return _bin(ai.susceptibility_grid, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/ai/forecast/cells")
+    def ai_forecast_meta(name: str, pid: str):
+        return _bin(ai.forecast_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/ai/forecast/cells.bin")
+    def ai_forecast_cells(name: str, pid: str):
+        return _bin(ai.forecast_cells, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/ai/forecast/cells/{i}")
+    def ai_forecast_cell(name: str, pid: str, i: int):
+        try:
+            return ai.forecast_cell(project(name), pid, i)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/buildings")
+    def buildings_status(name: str, pid: str):
+        product(name, pid)
+        return ai.buildings_status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/buildings")
+    def buildings_start(name: str, pid: str):
+        product(name, pid)
+        return ai.start(ws, name, "buildings", pid, {})
+
+    @app.get("/api/projects/{name}/products/{pid}/buildings/stats")
+    def buildings_stats(name: str, pid: str, bbox: str):
+        b = [float(v) for v in bbox.split(",")]
+        if len(b) != 4:
+            raise HTTPException(400, "bbox: west,south,east,north")
+        try:
+            return ai.buildings_in(project(name), pid, b)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
 
     # ------------------------------------------------------------ GNSS comparison and calibration
     @app.get("/api/projects/{name}/products/{pid}/gnss")

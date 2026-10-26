@@ -7,10 +7,11 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AreaInfo, type CatalogProduct, type CompareMeta, type LayerMeta, type Workspace } from "../api";
+import { BasemapPicker } from "../components/BasemapPicker";
 import { RainBars } from "../components/RainBars";
 import { TimeSeries } from "../components/TimeSeries";
 import { t, ts } from "../i18n";
-import { BASES, colorize, loadLayer, mapStyle, pickedVelocity, productLayer, type Base, type LayerData } from "../map";
+import { colorize, loadLayer, mapStyle, pickedVelocity, productLayer, type Base, type LayerData } from "../map";
 import { useApp, type MapLayer } from "../state";
 import { Button, ColumnToggle, Confidence, fmt, Fold, usePersisted } from "../ui";
 
@@ -404,21 +405,10 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
         <div ref={mapEl} className="h-full w-full" />
       </div>
 
+      <BasemapPicker map={map} base={base} onChange={setBase} />
+
       {/* toolbar */}
       <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg border border-line-2 bg-panel/95 p-0.5 shadow-lg shadow-black/30 backdrop-blur">
-          {(["dark", "light", "satellite"] as Base[]).map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => setBase(b)}
-              aria-pressed={base === b}
-              className={`h-8 rounded-md px-3 text-[12.5px] ${base === b ? "bg-raised text-ink" : "text-muted hover:text-ink"}`}
-            >
-              {t(BASES[b as Exclude<Base, "none">].label)}
-            </button>
-          ))}
-        </div>
         <Button
           className="bg-panel/95 shadow-lg shadow-black/30 backdrop-blur"
           disabled={!top}

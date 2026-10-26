@@ -116,7 +116,182 @@ export interface HazardSummary {
     climate_years: [number, number];
     pixels: { lon: number; lat: number; cells: number; mean_month_mm: number; missing: number; annual: { p10: number; p50: number; p90: number } | null; assessed: boolean }[];
   };
+  groundwater?: GroundwaterSummary;
   warnings: string[];
+}
+
+export interface LearnParams {
+  first: string;
+  second: string;
+  row0: number;
+  col0: number;
+  rows: number;
+  cols: number;
+  looks_az: number;
+  looks_rg: number;
+  coh_win?: number;
+  coh_thr?: number;
+  alpha?: number;
+  fft?: number;
+  passes?: number;
+  linked?: boolean;
+  ref_row?: number;
+  ref_col?: number;
+  exercise?: boolean;
+}
+
+export interface LearnStack {
+  stack_id: string;
+  error?: string;
+  sensor: string;
+  track: string;
+  pass_direction?: string;
+  look_side?: string;
+  wavelength_m: number;
+  reference_date: string;
+  dates: string[];
+  bperp_m: number[];
+  shape: [number, number];
+  spacing_m: { azimuth: number; range_slant: number; range_ground: number };
+  incidence_deg: number;
+  heading_deg?: number;
+  linked: boolean;
+  default: LearnParams;
+  coreg_residual?: number[][];
+  esd_shift?: number[];
+}
+
+export interface LearnPairMeta {
+  params: Required<LearnParams>;
+  shape: [number, number];
+  layers: string[];
+  variable: string;
+  spacing_m: { azimuth: number; range_ground: number };
+  wavelength_m: number;
+  days: number;
+  bperp_m: number;
+  height_of_ambiguity_m: number | null;
+  kh_rad_per_m: number;
+  incidence_deg: number;
+  flat_fringes_per_km_range: number;
+  fringes_per_km: { raw: number; after_flat: number; diff: number };
+  dem_range_m: [number, number];
+  topo_range_rad: number;
+  coherence_median: number;
+  kept_share: number;
+  residues: { diff: number; filt: number };
+  unwrap: { method: string; pcg_rms: number; reference: { kind: string; row?: number; col?: number } };
+  mm_per_fringe: number;
+  bounds: [number, number, number, number];
+  stats: Record<string, [number, number, number, number]>;
+}
+
+export interface LearnPoints {
+  product: string | null;
+  uids: string[];
+  rows: number[];
+  cols: number[];
+  vel: number[];
+  vel_range: [number, number] | null;
+}
+
+export interface LearnSeries {
+  uid: string;
+  dates: string[];
+  disp_mm: number[];
+  fit_mm: number[];
+  vel_mm_yr: number;
+  vel_product_mm_yr: number | null;
+  vel_std_mm_yr: number | null;
+}
+
+export interface GroundwaterSummary {
+  used: boolean;
+  reason?: string;
+  source?: string;
+  res_deg?: number;
+  months?: string[];
+  cells_tested?: number;
+  cells_significant?: number;
+  lag_months_median?: number | null;
+  share_negative_k?: number | null;
+  trend_mm_yr?: number | null;
+  pixels?: { lon: number; lat: number; cells: number; mean_mm: number; missing: number; trend_mm_yr: number | null; assessed: boolean }[];
+}
+
+export interface ModelScores {
+  auc: number | null;
+  ap: number | null;
+  brier: number | null;
+}
+
+export interface SusceptibilitySummary {
+  product_id: string;
+  created: string;
+  params: { label_rate: number; mode: string; block_m: number; folds: number; exclude: string[] };
+  grid: { cells: number; cell_m: number; lat0: number; bounds: number[] };
+  labels: { cells: number; moving: number; share: number; reference: { kind: string } | null };
+  predictors: string[];
+  layers: Record<string, { group: string; label: string; unit: string }>;
+  models: Record<string, { spatial_cv: ModelScores; random_cv: ModelScores; importance: Record<string, number> }>;
+  chosen: string;
+  odds_ratio_per_sd: Record<string, number>;
+  classes: number[];
+  outside_share: number;
+  warnings: string[];
+  sources: string[];
+}
+
+export interface ForecastSummary {
+  product_id: string;
+  created: string;
+  params: { cell_m: number; horizons_days: number[]; n_origins: number };
+  dates: string[];
+  last_date: string;
+  n_cells: number;
+  horizons_days: number[];
+  chosen: string;
+  rain: boolean;
+  groundwater?: boolean;
+  backtest: {
+    cuts_days: number[];
+    mae_mm: Record<string, Record<string, number | null>>;
+    skill: Record<string, Record<string, number | null>>;
+    coverage: Record<string, Record<string, number | null>>;
+    interval_mm: Record<string, Record<string, number | null>>;
+  };
+}
+
+export interface AiTaskStatus<S> {
+  summary: S | null;
+  running: boolean;
+  failed: boolean;
+  log: string[];
+}
+
+export interface AiStatus {
+  susceptibility: AiTaskStatus<SusceptibilitySummary>;
+  forecast: AiTaskStatus<ForecastSummary>;
+  hazard: boolean;
+}
+
+export interface GridMeta {
+  origin: [number, number];
+  fields: string[];
+  n: number;
+  cell_m: number;
+  lat0: number;
+  stats?: Record<string, { min: number | null; max: number | null; p02: number | null; p98: number | null }>;
+  horizons?: number[];
+}
+
+export interface ForecastCell {
+  cell: number;
+  dates: string[];
+  series_mm: (number | null)[];
+  forecast: { date: string; horizon_days: number; change_mm: number | null; lo80: number | null; hi80: number | null; lo95: number | null; hi95: number | null }[];
+  chosen: string;
+  last_date: string;
 }
 
 export interface HazardStatus {
@@ -170,6 +345,15 @@ export interface HazardCell {
   rain_model_mm?: (number | null)[];
   crd_lagged_mm?: (number | null)[];
   rain: { months: string[]; mm: (number | null)[]; crd_mm: (number | null)[]; source: string; pixel: HazardSummary["rain"]["pixels"][number] | null };
+  gw_lag_months?: number;
+  gw_r?: number | null;
+  gw_p?: number | null;
+  gw_q?: number | null;
+  gw_k_mm_per_100mm?: number | null;
+  gw_k_se?: number | null;
+  gw_coupled?: boolean;
+  gw_model_mm?: (number | null)[];
+  groundwater?: { months: string[]; anomaly_mm: (number | null)[]; source: string; pixel: NonNullable<GroundwaterSummary["pixels"]>[number] | null };
 }
 
 export interface GnssStats {
@@ -586,7 +770,7 @@ export const api = {
       }`,
     ),
   activity: () =>
-    request<{ jobs: { project: string; kind: "hazard" | "gnss"; product: string; started: string; finished: string | null; state: "running" | "done" | "failed" }[] }>(
+    request<{ jobs: { project: string; kind: "hazard" | "gnss" | "susceptibility" | "forecast"; product: string; started: string; finished: string | null; state: "running" | "done" | "failed" }[] }>(
       "/api/activity",
     ),
   rainfall: (name: string, pid: string) =>
@@ -595,6 +779,16 @@ export const api = {
   gnssRun: (name: string, pid: string, params: Record<string, unknown>) =>
     request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/gnss`, json({ params })),
   gnssStation: (name: string, pid: string, site: string) => request<GnssSeries>(`${P(name)}/products/${pid}/gnss/stations/${site}`),
+  ai: (name: string, pid: string) => request<AiStatus>(`${P(name)}/products/${pid}/ai`),
+  aiRun: (name: string, pid: string, task: "susceptibility" | "forecast", params: Record<string, unknown>) =>
+    request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/ai/${task}`, json({ params })),
+  aiGrid: async (name: string, pid: string, which: "susceptibility/grid" | "forecast/cells") => {
+    const meta = await request<GridMeta>(`${P(name)}/products/${pid}/ai/${which}`);
+    const r = await fetch(`${P(name)}/products/${pid}/ai/${which}.bin`);
+    if (!r.ok) throw new Error(`ai grid: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  aiForecastCell: (name: string, pid: string, i: number) => request<ForecastCell>(`${P(name)}/products/${pid}/ai/forecast/cells/${i}`),
   hazard: (name: string, pid: string) => request<HazardStatus>(`${P(name)}/products/${pid}/hazard`),
   hazardRun: (name: string, pid: string, params: Record<string, unknown>) =>
     request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/hazard`, json({ params })),
@@ -604,6 +798,28 @@ export const api = {
     if (!r.ok) throw new Error(`hazard cells: ${r.statusText}`);
     return { meta, buf: new Float32Array(await r.arrayBuffer()) };
   },
+  learnStacks: (name: string) => request<{ stacks: LearnStack[] }>(`${P(name)}/learn`),
+  learnThumb: async (name: string, stack: string) => {
+    const meta = await request<{ shape: [number, number]; factor: number; date: string }>(`${P(name)}/learn/${stack}/thumb`);
+    const r = await fetch(`${P(name)}/learn/${stack}/thumb.bin`);
+    if (!r.ok) throw new Error(`thumbnail: ${r.statusText}`);
+    return { meta, data: new Float32Array(await r.arrayBuffer()) };
+  },
+  learnPair: async (name: string, stack: string, p: LearnParams) => {
+    const q = new URLSearchParams(Object.entries(p).map(([k, v]) => [k, String(v)])).toString();
+    const meta = await request<LearnPairMeta>(`${P(name)}/learn/${stack}/pair?${q}`);
+    const r = await fetch(`${P(name)}/learn/${stack}/pair.bin?${q}`);
+    if (!r.ok) throw new Error(`pair: ${r.statusText}`);
+    const buf = new Float32Array(await r.arrayBuffer());
+    const n = meta.shape[0] * meta.shape[1];
+    const layers: Record<string, Float32Array> = {};
+    meta.layers.forEach((k, i) => (layers[k] = buf.subarray(i * n, (i + 1) * n)));
+    return { meta, layers };
+  },
+  learnPoints: (name: string, stack: string, p: LearnParams) =>
+    request<LearnPoints>(`${P(name)}/learn/${stack}/points?${new URLSearchParams(Object.entries(p).map(([k, v]) => [k, String(v)])).toString()}`),
+  learnSeries: (name: string, pid: string, uid: string) =>
+    request<LearnSeries>(`${P(name)}/learn/series/${encodeURIComponent(pid)}/${encodeURIComponent(uid)}`),
   hazardCell: (name: string, pid: string, i: number) => request<HazardCell>(`${P(name)}/products/${pid}/hazard/cells/${i}`),
   hazardFile: (name: string, pid: string, file: string) => `${P(name)}/products/${pid}/hazard/files/${file}`,
   monitor: (name: string) => request<Monitoring>(`${P(name)}/monitor`),

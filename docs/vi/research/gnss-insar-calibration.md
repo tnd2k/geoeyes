@@ -3,7 +3,7 @@
 # Dùng GNSS (Nevada Geodetic Laboratory) để kiểm định và hiệu chỉnh chuỗi thời gian InSAR
 
 > Ghi chú nghiên cứu, đồng thời mô tả phương pháp của `geoeyes gnss` (gói `geoeyes.validation.gnss`; trên ứng dụng
-> web: trang dự án → Validation → GNSS, và mục "GNSS tie" trên trang Hazard).
+> web: Xử lý → Kiểm định → GNSS, và mục "Gắn vào GNSS" trên trang Phân tích chuyên đề).
 > Trạng thái: **đã triển khai v1 ngày 2026-10-25**; kết quả trên các dự án thử nghiệm của GeoEyes nêu ở §6.
 > Liên quan: [rainfall-insar-hazard.md](rainfall-insar-hazard.md) (cường độ nguy cơ cần tham chiếu ổn định);
 > bản ghi quyết định ADR-025.

@@ -241,6 +241,9 @@ class PostprocessSection(_Section):
     # hazard zoning with rainfall (geoeyes hazard): see geoeyes.hazard.HazardParams and
     # docs/en/research/rainfall-insar-hazard.md
     hazard: dict[str, Any] = {}
+    # AI (geoeyes susceptibility / geoeyes forecast): see geoeyes.ml and docs/en/research/ai-*.md
+    susceptibility: dict[str, Any] = {}
+    forecast: dict[str, Any] = {}
 
 
 class ValidationSection(_Section):

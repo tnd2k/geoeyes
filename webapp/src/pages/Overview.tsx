@@ -81,7 +81,7 @@ function Card({ p }: { p: ProjectSummary }) {
       <div className="mt-3 flex gap-2 border-t border-line pt-3">
         {prod && (
           <button type="button" className="text-[12.5px] text-accent hover:underline" onClick={() => showProduct(p.name, prod.id, { open: true })}>
-            {t("Open map")}
+            {t("View results")}
           </button>
         )}
         <button type="button" className="text-[12.5px] text-muted hover:text-ink" onClick={() => go({ page: "project", name: p.name })}>
@@ -111,7 +111,7 @@ export function Overview({ ws }: { ws: Workspace | undefined }) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[1280px] px-6 py-6">
-        <h1 className="text-[22px] font-semibold">{t("Overview")}</h1>
+        <h1 className="text-[22px] font-semibold">{t("Projects")}</h1>
         <p className="mt-1 text-[13px] text-muted">
           {t("Workspace")} <span className="font-mono text-ink-2">{ws.root}</span>
         </p>
@@ -124,7 +124,7 @@ export function Overview({ ws }: { ws: Workspace | undefined }) {
         </div>
 
         <div className="mt-7 flex flex-wrap items-center gap-3">
-          <h2 className="text-[15px] font-semibold">{t("Projects")}</h2>
+          <h2 className="text-[15px] font-semibold">{t("All projects")}</h2>
           <div className="flex rounded-lg border border-line-2 bg-panel p-0.5">
             {(
               [

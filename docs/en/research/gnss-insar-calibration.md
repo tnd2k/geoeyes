@@ -1,7 +1,7 @@
 # GNSS (Nevada Geodetic Laboratory) to validate and calibrate InSAR time series
 
-> Research note and method of `geoeyes gnss` (package `geoeyes.validation.gnss`, web app: project page →
-> Validation → GNSS, and "GNSS tie" on the Hazard page).
+> Research note and method of `geoeyes gnss` (package `geoeyes.validation.gnss`, web app: Processing →
+> Validation → GNSS, and "GNSS tie" on the Thematic analysis page).
 > Status: **v1 implemented 2026-10-25**, results on the GeoEyes test projects in §6.
 > Related: [rainfall-insar-hazard.md](rainfall-insar-hazard.md) (the hazard intensities need a stable reference);
 > decision record ADR-025.

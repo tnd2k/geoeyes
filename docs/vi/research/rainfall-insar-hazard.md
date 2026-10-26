@@ -2,7 +2,7 @@
 
 # Mưa và InSAR trong phân vùng nguy cơ sụt lún và trượt lở
 
-> Ghi chú nghiên cứu, đồng thời mô tả phương pháp của `geoeyes hazard` (gói `geoeyes.hazard`, trang **Hazard** trên ứng dụng web).
+> Ghi chú nghiên cứu, đồng thời mô tả phương pháp của `geoeyes hazard` (gói `geoeyes.hazard`, trang **Phân tích chuyên đề** trên ứng dụng web).
 > Trạng thái: **đã triển khai v1 ngày 2026-10-25**; kết quả đầu tiên trên các dự án thử nghiệm của GeoEyes nêu ở §7.
 > Bản ghi quyết định: ADR-024 trong [`docs/vi/architecture/decisions.md`](../architecture/decisions.md).
 
@@ -214,6 +214,12 @@ hướng về phía vệ tinh).
   - Ô có |**s**·**l**| < `min_sensitivity` (0,3) được xếp là chưa đánh giá. Tại đó hướng nhìn chỉ ghi nhận được dưới
     30% chuyển dịch xuôi dốc, và phép chiếu sẽ khuếch đại nhiễu hơn ba lần.
 
+**Dấu của kết quả.** y (lún hoặc xuôi dốc mang dấu dương) chỉ dùng bên trong phân tích để xếp lớp các ô. Mọi giá trị
+ghi ra hoặc hiển thị đều giữ quy ước dấu của GeoEyes như trong sản phẩm: `rate_mm_yr`, chuỗi thời gian, gia tốc, các
+hệ số liên hệ với mưa và nước ngầm (k, g, r) **mang dấu âm khi lún hoặc dịch xuống dốc**, dương khi nâng lên hoặc dịch
+ngược dốc (mục "sign" trong `hazard.json`; schema `geoeyes.hazard/2`). Các phân tích tạo trước thay đổi này (schema 1)
+được tự đổi dấu khi đọc.
+
 **Tốc độ và độ ổn định.** Khớp tuyến tính cho tốc độ (mm/năm) và sai số chuẩn σ; khớp bậc hai cho gia tốc. Ô được coi
 là ổn định (I0) khi tốc độ nhỏ hơn max(2 mm/năm, 2σ), theo:
 
@@ -289,7 +295,7 @@ nhất trong ba tốc độ: quan sát, năm khô và năm ướt.
 Gia tốc đạt ý nghĩa thống kê theo hướng nguy cơ sẽ nâng I thêm một lớp (Intrieri et al. 2018). Đạt ý nghĩa ở đây
 nghĩa là |gia tốc / sai số của nó| ≥ 3 trên chuỗi dài ít nhất 18 tháng.
 
-**Lớp phụ S.**
+**Tổn hại tiềm tàng S** (lớp phụ).
 
 - **Sụt lún: góc biến dạng.** β = giá trị lớn nhất của |v_i − v_j| · T / L xét trên 8 ô lân cận, với
   T = `horizon_yr` (10 năm) và L là khoảng cách giữa tâm hai ô. Các lớp phân theo các giới hạn thiệt hại:
@@ -307,7 +313,7 @@ nghĩa là |gia tốc / sai số của nó| ≥ 3 trên chuỗi dài ít nhất 
 ### 4.5 Ma trận nguy cơ
 
 Ma trận nguy cơ mặc định (do chuyên gia chọn, cấu hình được qua `matrix`) cho mức nguy cơ ứng với từng cặp lớp cường
-độ và lớp phụ:
+độ và tổn hại tiềm tàng:
 
 | | S0 | S1 | S2 | S3 |
 |---|---|---|---|---|
@@ -403,6 +409,8 @@ lại phải hoàn thành trước khi bản đồ có thể làm căn cứ ra q
     nở nhiệt (Fornaro et al. 2013);
   - đối chiếu với số liệu quan trắc mực nước ở những nơi có (Hà Nội: Bui et al. 2021; Tây Ban Nha: Béjar-Pizarro et
     al. 2017);
+  - từ v1.1, mỗi ô còn được kiểm định liên hệ với trữ lượng nước ngầm của NASA GLDAS (đồng hoá GRACE), như một chẩn
+    đoán: xem [groundwater-insar.md](groundwater-insar.md);
   - so sánh sản phẩm quỹ đạo lên và quỹ đạo xuống để tách chuyển dịch thẳng đứng và nằm ngang.
 - **Đầu ra:** với mỗi vùng có liên hệ, phần do mưa, phần do nhiệt độ và phần do mực áp lực giải thích.
 - **Tiêu chí:** hệ số của mưa vẫn đạt ý nghĩa thống kê khi đã đưa nhiệt độ vào mô hình.
@@ -516,7 +524,7 @@ truy cập) nên hệ thống chuyển sang ERA5 và ghi rõ trong bản tóm t�
 | Điều phối, tham số, đầu ra | `src/geoeyes/hazard/assess.py` |
 | CLI `geoeyes hazard <project> [--product ID] [--set key=value]` | `src/geoeyes/cli/main.py` |
 | API `/api/projects/{p}/products/{id}/hazard[...]` | `src/geoeyes/api/hazard.py` |
-| Trang web **Hazard** (bản đồ, các chế độ xem, chú giải và ma trận, bảng thông tin ô, phương pháp) | `webapp/src/pages/Hazard.tsx` |
+| Trang web **Phân tích chuyên đề** (bản đồ, lớp bản đồ, chú giải và ma trận, bảng thông tin ô) và chương 2 của trang Nguyên lý (phương pháp) | `webapp/src/pages/Hazard.tsx`, `webapp/src/pages/LearnHazard.tsx` |
 | Test (tìm lại đáp ứng cài sẵn, chuỗi thay thế, FDR, các lớp, chạy đầu cuối, đặt lại tham chiếu) | `tests/unit/hazard/test_hazard.py` |
 
 **Truy cập CHIRPS.** Máy chủ của Climate Hazards Center hạn chế các máy khách đọc nhiều tệp cùng lúc: `robots.txt`

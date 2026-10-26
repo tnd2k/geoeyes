@@ -4,7 +4,9 @@ import { api } from "./api";
 import { ProjectTree } from "./components/ProjectTree";
 import { Explorer } from "./pages/Explorer";
 import { Compose } from "./pages/Compose";
+import { Ai } from "./pages/Ai";
 import { Hazard } from "./pages/Hazard";
+import { Learn } from "./pages/Learn";
 import { NewProject } from "./pages/NewProject";
 import { Overview } from "./pages/Overview";
 import { Project } from "./pages/Project";
@@ -83,12 +85,16 @@ function Shell() {
   });
   const lastProject =
     route.page === "project" ? route.name : Object.values(ws.data?.projects ?? {}).find((p) => p.status === "running")?.name;
-  const nav = [
-    { label: t("Overview"), to: href({ page: "overview" }), on: route.page === "overview" },
-    { label: t("Explorer"), to: href({ page: "explorer" }), on: route.page === "explorer" },
-    { label: t("Hazard"), to: href({ page: "hazard" }), on: route.page === "hazard" },
-    { label: t("Map image"), to: href({ page: "compose" }), on: route.page === "compose" },
-    ...(lastProject ? [{ label: t("Project"), to: href({ page: "project", name: lastProject }), on: route.page === "project" }] : []),
+  const nav: { label: string; to: string; on: boolean; title?: string }[] = [
+    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" },
+    ...(lastProject
+      ? [{ label: t("Processing"), to: href({ page: "project", name: lastProject }), on: route.page === "project", title: lastProject }]
+      : []),
+    { label: t("Results"), to: href({ page: "explorer" }), on: route.page === "explorer" },
+    { label: t("Thematic analysis"), to: href({ page: "hazard" }), on: route.page === "hazard" },
+    { label: t("Machine learning research"), to: href({ page: "ai" }), on: route.page === "ai" },
+    { label: t("Map export"), to: href({ page: "compose" }), on: route.page === "compose" },
+    { label: t("Principles"), to: href({ page: "learn" }), on: route.page === "learn" },
   ];
 
   return (
@@ -115,6 +121,7 @@ function Shell() {
             <a
               key={n.label}
               href={n.to}
+              title={n.title}
               className={`rounded-lg px-3.5 py-1.5 text-[13.5px] no-underline ${n.on ? "bg-raised font-semibold text-ink" : "text-muted hover:text-ink"}`}
             >
               {n.label}
@@ -143,6 +150,8 @@ function Shell() {
           {route.page === "project" && <Project name={route.name} tab={route.tab} />}
           {route.page === "new" && <NewProject ws={ws.data} />}
           {route.page === "compose" && <Compose ws={ws.data} />}
+          {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
+          {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
           {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} />}
         </main>
       </div>

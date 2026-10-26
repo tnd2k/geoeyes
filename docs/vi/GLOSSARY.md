@@ -25,7 +25,7 @@ Quy ước chung:
 | susceptibility | tính nhạy cảm (khả năng xảy ra) |
 | risk / exposure / vulnerability | rủi ro / mức độ phơi nhiễm / tính dễ tổn thương |
 | intensity (class) | cường độ (lớp cường độ) |
-| secondary class | lớp phụ |
+| secondary class, damage potential (S) | tổn hại tiềm tàng (lớp S); trước đây gọi là "lớp phụ" |
 | angular distortion | góc biến dạng (độ lệch góc) |
 | differential settlement | lún lệch |
 | line of sight (LOS) | hướng nhìn của vệ tinh (LOS) |
