@@ -2,13 +2,13 @@
 // coloured by hazard level or by one of its ingredients (InSAR intensity, angular distortion / slope, rainfall
 // coupling); click a cell for its series in the motion direction, the rainfall of its pixel and the fitted models.
 // Method and sources: docs/en/research/rainfall-insar-hazard.md.
-import { ScatterplotLayer, SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
+import { LineLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
-import { api, type HazardCell, type HazardCellsMeta, type HazardSummary, type Workspace } from "../api";
+import { api, type BehaviourCell, type AnalysisKind, type BehaviourStatus, type BehaviourSummary, type ConsolidationCell, type ConsolidationSummary, type DecomposeSummary, type GeologySummary, type HazardCell, type HazardCellsMeta, type HazardSummary, type LineProfile, type LinesSummary, type RiskBuilding, type RiskSummary, type Workspace } from "../api";
 import { BasemapPicker } from "../components/BasemapPicker";
 import { RainBars } from "../components/RainBars";
 import { t, ts } from "../i18n";
@@ -40,7 +40,7 @@ export const DEFAULT_MATRIX = [
   [3, 3, 4, 4],
 ];
 
-export type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "groundwater" | "mode";
+export type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "groundwater" | "mode" | "behaviour" | "change" | "risk" | "lines" | "consolidation" | "up" | "east" | "soft_soil";
 interface ViewInfo {
   id: View;
   label: string;
@@ -116,6 +116,84 @@ export const VIEWS: ViewInfo[] = [
     ],
   },
   {
+    id: "behaviour",
+    label: "Kind of motion",
+    what: "How each cell moves over time, from the simplest model its series supports: stable, steady, seasonal, speeding up, slowing down, a change of rate (onset) or a jump (step).",
+    read: [
+      "Steady: a constant rate. Seasonal: an annual cycle on the trend. Speeding up or slowing down: the motion grows or fades.",
+      "Onset: the rate changes at a date (layer “Date of change”). Step: a sudden jump, an event or an unwrapping error to check.",
+      "Click a cell: its series with the model that was kept.",
+    ],
+  },
+  {
+    id: "change",
+    label: "Date of change",
+    what: "For the cells whose motion changes (onset or step): when the change happens.",
+    read: [
+      "From the first date (dark) to the last (yellow); grey: no change.",
+      "Many cells changing on the same date point to that acquisition (atmosphere, unwrapping) rather than to the ground.",
+    ],
+  },
+  {
+    id: "risk",
+    label: "Risk to buildings",
+    what: "Every building of the area: its hazard (from its own InSAR points, else from its cell) crossed with the consequence (floor area and a vulnerability proxy).",
+    read: [
+      "Red buildings first: a high hazard where the consequence is high.",
+      "Building heights are rarely in open data: without one, the floor area assumes the median number of floors of the area.",
+      "A screening map, not a structural assessment.",
+    ],
+  },
+  {
+    id: "lines",
+    label: "Infrastructure lines",
+    what: "Dykes, railways and main roads from OpenStreetMap, with the differential settlement along them: between stations 100 m apart, the angular distortion it would cause in 10 years.",
+    read: [
+      "Purple: beyond the damage limits (1/500, 1/300, 1/150). Green: below. Grey: too few InSAR points along the line.",
+      "Click a line: its profile of vertical rate along the chainage.",
+      "Dykes often carry few persistent scatterers (grass and trees on the slopes): grey stretches are common there.",
+    ],
+  },
+  {
+    id: "consolidation",
+    label: "Remaining settlement",
+    what: "For the cells that settle towards an end (consolidation of soft soil under a new load): the settlement still to come after the last date.",
+    read: [
+      "Only the cells where a fading curve fits much better than a straight line are coloured.",
+      "Click a cell: its settlement, the curve projected ahead until it levels off and the Asaoka construction.",
+      "A year of data sees only the start of most consolidation: read the values as estimates that firm up with longer series.",
+    ],
+  },
+  {
+    id: "up",
+    label: "Vertical motion",
+    what: "The vertical motion, separated from the east-west motion with a product that sees the area from the other side (ascending and descending).",
+    read: [
+      "Red: sinking; blue: rising, relative to the median of the area seen by both products.",
+      "One geometry gives only its line of sight: its vertical projection takes any east-west motion for vertical.",
+      "Hover a cell: the vertical and east-west motion with their uncertainty, and what each product alone would say.",
+    ],
+  },
+  {
+    id: "east",
+    label: "East-west motion",
+    what: "The horizontal motion along east-west, from the same decomposition. The north-south motion is assumed zero: polar orbits hardly see it.",
+    read: [
+      "Green: towards the east; purple: towards the west.",
+      "Around a subsidence bowl the ground also moves sideways, towards the centre; on slopes it moves downhill.",
+      "Values within twice their uncertainty are not significant.",
+    ],
+  },
+  {
+    id: "soft_soil",
+    label: "Soft-soil thickness",
+    what: "The thickness of the compressible layer under each cell, from a map or boreholes of the project, or else from an open global grid.",
+    read: [
+      "Thicker soft soil sinks more for the same drop of the water table, and consolidates more slowly.",
+      "The open grid (Pelletier et al. 2016) is the depth to bedrock capped at 50 m: in a delta it hardly varies. Set a map or boreholes in the project for a real layer.",
+    ],
+  },
+  {
     id: "mode",
     label: "Mode",
     what: "Which process each cell is assessed for, from the terrain slope.",
@@ -128,7 +206,55 @@ const VIEW_GROUPS: [string, View[]][] = [
   ["Zoning", ["hazard"]],
   ["Components", ["intensity", "secondary", "rate", "mode"]],
   ["Water drivers", ["coupling", "lag", "groundwater"]],
+  ["Kinds of motion and risk", ["behaviour", "change", "risk"]],
+  ["Infrastructure and consolidation", ["lines", "consolidation"]],
+  ["Two geometries and soft soil", ["up", "east", "soft_soil"]],
 ];
+
+/** Soft-soil thickness of the cells (same order as the cells). */
+export interface Geology {
+  buf: Float32Array; // thickness m, implied c_v m²/yr
+  min: number;
+  max: number;
+}
+export const SOIL_RGB: RGB[] = [[255, 247, 188], [254, 196, 79], [236, 112, 20], [153, 52, 4], [80, 30, 10]];
+// east-west motion: purple towards the west, green towards the east (PRGn)
+export const EAST_RGB: RGB[] = [[118, 42, 131], [153, 112, 171], [194, 165, 207], [127, 139, 160], [166, 219, 160], [90, 174, 97], [27, 120, 55]];
+export const MOTION_BREAKS = RATE_BREAKS;
+
+/** Remaining settlement of the consolidating cells (same order as the cells). */
+export interface Consolidation {
+  buf: Float32Array; // remaining mm, years to 90 %
+  max: number;
+}
+export const CONS_RGB: RGB[] = [[254, 224, 139], [253, 174, 97], [244, 109, 67], [215, 48, 39], [165, 0, 38]];
+// β classes of the lines: below 1/500, then the damage limits (as the damage potential)
+export const LINE_RGB: RGB[] = [[26, 152, 80], [194, 165, 207], [153, 112, 171], [118, 42, 131]];
+
+// kinds of motion (geoeyes behaviour), in the order of geoeyes.ml.behaviour.CLASSES
+export const BEH_CLASSES = ["stable", "steady", "seasonal", "speeding", "slowing", "onset", "step"];
+export const BEH_LABELS: Record<string, string> = {
+  stable: "Stable",
+  steady: "Steady",
+  seasonal: "Seasonal",
+  speeding: "Speeding up",
+  slowing: "Slowing down",
+  onset: "Onset (change of rate)",
+  step: "Step (jump)",
+};
+export const BEH_RGB: RGB[] = [[127, 139, 160], [67, 147, 195], [53, 183, 121], [215, 48, 39], [253, 174, 97], [214, 51, 168], [140, 120, 210]];
+const ramp = (stops: RGB[], x: number): RGB => {
+  const v = Math.min(1, Math.max(0, x)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(v));
+  const f = v - i;
+  return [0, 1, 2].map((k) => stops[i][k] + (stops[i + 1][k] - stops[i][k]) * f) as RGB;
+};
+
+/** The kinds of motion of the cells (same order as the cells): class index and change day per cell. */
+export interface Behaviour {
+  buf: Float32Array;
+  span: number; // days from the first to the last date
+}
 
 const signed = (v: number) => (v < 0 ? `−${-v}` : `${v}`);
 
@@ -148,7 +274,7 @@ export interface Cells {
   f: Record<string, number>;
 }
 
-export function cellColor(c: Cells, i: number, view: View): [number, number, number, number] {
+export function cellColor(c: Cells, i: number, view: View, b?: Behaviour, cons?: Consolidation, geo?: Geology): [number, number, number, number] {
   const F = c.meta.fields.length;
   const g = (name: string) => c.buf[i * F + c.f[name]];
   const level = g("hazard");
@@ -192,6 +318,43 @@ export function cellColor(c: Cells, i: number, view: View): [number, number, num
         col = NA_RGB;
         a = 70;
       } else col = r < 0 ? RATE_RGB[4 + Math.min(2, bin(Math.abs(r), [0.6, 0.8]))] : RATE_RGB[2 - Math.min(2, bin(Math.abs(r), [0.6, 0.8]))];
+      break;
+    }
+    case "behaviour": {
+      const k = b ? b.buf[i * 2] : -1;
+      col = k >= 0 ? BEH_RGB[k] : NA_RGB;
+      if (k <= 0) a = 110;
+      break;
+    }
+    case "change": {
+      const d = b ? b.buf[i * 2 + 1] : -1;
+      if (d < 0) {
+        col = NA_RGB;
+        a = 60;
+      } else col = ramp(LAG_RGB, d / (b!.span || 1));
+      break;
+    }
+    case "soft_soil": {
+      const h = geo ? geo.buf[i * 2] : NaN;
+      if (!Number.isFinite(h)) {
+        col = NA_RGB;
+        a = 45;
+      } else col = ramp(SOIL_RGB, (h - geo!.min) / (geo!.max - geo!.min || 1));
+      break;
+    }
+    case "risk":
+    case "lines":
+    case "up":
+    case "east":
+      col = NA_RGB; // the buildings / lines carry the colours; the cells stay as a faint background
+      a = 45;
+      break;
+    case "consolidation": {
+      const r = cons ? cons.buf[i * 2] : NaN;
+      if (!Number.isFinite(r)) {
+        col = NA_RGB;
+        a = 45;
+      } else col = ramp(CONS_RGB, r / (cons!.max || 1));
       break;
     }
     case "mode":
@@ -263,6 +426,7 @@ function Swatches({ items }: { items: { color: RGB; label: string; alpha?: numbe
 }
 
 export function Legend({ view, s }: { view: View; s: HazardSummary }) {
+  if (view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil") return null; // BehaviourLegend
   const p = s.params as Record<string, number[] | number>;
   const sb = p.subsidence_breaks as number[];
   const lb = p.landslide_breaks as number[];
@@ -376,7 +540,8 @@ export function Legend({ view, s }: { view: View; s: HazardSummary }) {
   );
 }
 
-export function CellChart({ c }: { c: HazardCell }) {
+/** The series of a cell with its models; ``compact``: the series, the line and ``model`` only (no rainfall). */
+export function CellChart({ c, model, compact = false }: { c: HazardCell; model?: (number | null)[]; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
@@ -389,13 +554,17 @@ export function CellChart({ c }: { c: HazardCell }) {
       { stroke: "#93a4bf", width: 1.2, dash: [4, 4], points: { show: false } },
     ];
     const data: (number | null)[][] = [x, c.series_mm, c.linear_mm ?? c.series_mm.map(() => null)];
-    if (c.rain_model_mm) {
+    if (c.rain_model_mm && !compact) {
       series.push({ stroke: "#f5b84b", width: 1.8, points: { show: false } });
       data.push(c.rain_model_mm);
     }
-    if (c.gw_model_mm && c.gw_coupled) {
+    if (c.gw_model_mm && c.gw_coupled && !compact) {
       series.push({ stroke: "#7ee0c3", width: 1.8, dash: [6, 3], points: { show: false } });
       data.push(c.gw_model_mm);
+    }
+    if (model) {
+      series.push({ stroke: "#d633a8", width: 2, points: { show: false } });
+      data.push(model);
     }
     const plot = new uPlot(
       {
@@ -420,7 +589,7 @@ export function CellChart({ c }: { c: HazardCell }) {
       ro.disconnect();
       plot.destroy();
     };
-  }, [c]);
+  }, [c, model, compact]);
   const rainMonths = c.rain.months.map((m, i) => ({ month: m, mm: c.rain.mm[i] }));
   return (
     <div>
@@ -432,21 +601,388 @@ export function CellChart({ c }: { c: HazardCell }) {
         <span className="flex items-center gap-1">
           <span className="w-4 border-t-2 border-dashed border-[#93a4bf]" /> {t("linear")}
         </span>
-        {c.rain_model_mm && (
+        {c.rain_model_mm && !compact && (
           <span className="flex items-center gap-1">
             <span className="h-0.5 w-4 bg-[#f5b84b]" /> {t("trend + k·CRD(t − {n} mo)", { n: c.rain_lag_months })}
           </span>
         )}
-        {c.gw_model_mm && c.gw_coupled && (
+        {c.gw_model_mm && c.gw_coupled && !compact && (
           <span className="flex items-center gap-1">
             <span className="w-4 border-t-2 border-dashed border-[#7ee0c3]" /> {t("trend + g·GWS(t − {n} mo)", { n: c.gw_lag_months ?? 0 })}
           </span>
         )}
+        {model && (
+          <span className="flex items-center gap-1">
+            <span className="h-0.5 w-4 bg-[#d633a8]" /> {t("model of the kind of motion")}
+          </span>
+        )}
+      </div>
+      {!compact && (
+        <>
+          <div className="mt-2">
+            <RainBars months={rainMonths} from={c.dates[0]} to={c.dates[c.dates.length - 1]} />
+          </div>
+          <div className="text-[11px] text-faint">{t("Monthly rainfall of the cell's pixel")} · {ts(c.rain.source).split(" (")[0]}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Swatch({ color, label }: { color: RGB; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <span className="h-3 w-3 flex-none rounded-[3px]" style={{ background: rgb(color) }} />
+      <span className="text-ink-2">{label}</span>
+    </div>
+  );
+}
+
+function BehaviourLegend({
+  view,
+  st,
+  first,
+  last,
+  onRun,
+}: {
+  view: View;
+  st: BehaviourStatus | undefined;
+  first?: string;
+  last?: string;
+  onRun: (kind: AnalysisKind) => void;
+}) {
+  const kind = KIND_OF_VIEW[view] ?? "behaviour";
+  const a = st?.[kind];
+  if (!a?.summary)
+    return (
+      <div className="mt-2 space-y-2 text-[12px] leading-snug text-muted">
+        <p className="m-0">{t(RUN_TEXT[kind][0])}</p>
+        {kind === "risk" && !st?.buildings && <p className="m-0 text-faint">{t("Tip: run the building analysis first (geoeyes buildings) so that buildings with their own InSAR points are rated from them.")}</p>}
+        <Button variant="primary" disabled={a?.running} onClick={() => onRun(kind)}>
+          {a?.running ? t("Running…") : t(RUN_TEXT[kind][1])}
+        </Button>
+        {a?.failed && <div className="text-bad">{a.log.slice(-1)[0]}</div>}
+      </div>
+    );
+  const again = (
+    <button type="button" className="mt-2 text-[11.5px] text-accent hover:underline disabled:opacity-50" disabled={a.running} onClick={() => onRun(kind)}>
+      {a.running ? t("Running…") : t("Run again")}
+    </button>
+  );
+  if (view === "behaviour") {
+    const s = (a.summary as BehaviourSummary);
+    return (
+      <div className="mt-2 space-y-[3px]">
+        {BEH_CLASSES.map((c, i) => (
+          <Swatch key={c} color={BEH_RGB[i]} label={`${t(BEH_LABELS[c])} · ${fmt.int(s.counts[c] ?? 0)}`} />
+        ))}
+        {s.warnings.map((w) => (
+          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+        ))}
+        {again}
+      </div>
+    );
+  }
+  if (view === "change") {
+    const s = (a.summary as BehaviourSummary);
+    return (
+      <div className="mt-2">
+        <div className="h-2.5 rounded-sm" style={{ background: `linear-gradient(90deg,${LAG_RGB.map((c) => rgb(c)).join(",")})` }} />
+        <div className="mt-0.5 flex justify-between font-mono text-[10.5px] text-faint">
+          <span>{first}</span>
+          <span>{last}</span>
+        </div>
+        <p className="mt-1.5 mb-0 text-[12px] text-ink-2">{t("{n} cells change (onset or step)", { n: fmt.int((s.counts.onset ?? 0) + (s.counts.step ?? 0)) })}</p>
+        {s.warnings.map((w) => (
+          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+        ))}
+        {again}
+      </div>
+    );
+  }
+  if (view === "lines") {
+    const l = a.summary as LinesSummary;
+    return (
+      <div className="mt-2 space-y-[3px]">
+        <Swatch color={LINE_RGB[3]} label={`β ≥ 1/150 · ${t("structural damage")}`} />
+        <Swatch color={LINE_RGB[2]} label={`1/300 – 1/150 · ${t("cracking")}`} />
+        <Swatch color={LINE_RGB[1]} label={`1/500 – 1/300 · ${t("beyond the safe limit")}`} />
+        <Swatch color={LINE_RGB[0]} label={`< 1/500`} />
+        <Swatch color={NA_RGB} label={t("too few InSAR points")} />
+        <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 text-[11.5px]">
+          {Object.entries(l.by_kind)
+            .filter(([, v]) => v.lines > 0)
+            .map(([k, v]) => (
+              <div key={k} className="contents">
+                <span className="text-muted">{t(LINE_KINDS[k] ?? k)}</span>
+                <span className="text-right font-mono text-ink-2">{v.km} km</span>
+                <span className="text-right font-mono text-ink-2" title={t("stations beyond 1/500")}>
+                  {v.flagged_stations}
+                </span>
+              </div>
+            ))}
+        </div>
+        {again}
+      </div>
+    );
+  }
+  if (view === "consolidation") {
+    const c = a.summary as ConsolidationSummary;
+    return (
+      <div className="mt-2">
+        <div className="h-2.5 rounded-sm" style={{ background: `linear-gradient(90deg,${CONS_RGB.map((x) => rgb(x)).join(",")})` }} />
+        <div className="mt-0.5 flex justify-between font-mono text-[10.5px] text-faint">
+          <span>0</span>
+          <span>{t("mm still to come")}</span>
+          <span>{c.remaining_mm ? fmt.num(c.remaining_mm.p90, 0) : "–"}</span>
+        </div>
+        <p className="mt-1.5 mb-0 text-[12px] text-ink-2">{t("{n} of {m} sinking cells consolidate", { n: fmt.int(c.consolidating), m: fmt.int(c.sinking_cells) })}</p>
+        {c.check.mae_curve_mm != null && (
+          <p className="mt-1 mb-0 text-[11.5px] leading-snug text-muted">
+            {t("Check on the last {n} dates: curve {a} mm, straight line {b} mm (mean error).", { n: c.check.test_epochs ?? 0, a: c.check.mae_curve_mm, b: c.check.mae_line_mm ?? "–" })}
+          </p>
+        )}
+        {again}
+      </div>
+    );
+  }
+  if (view === "up" || view === "east") return <DecomposeLegend s={a.summary as DecomposeSummary} view={view} again={again} />;
+  if (view === "soft_soil") return <GeologyLegend s={a.summary as GeologySummary} again={again} />;
+  const r = a.summary as RiskSummary;
+  return (
+    <div className="mt-2 space-y-[3px]">
+      {[4, 3, 2, 1, 0].map((k) => (
+        <Swatch key={k} color={LEVEL_RGB[k]} label={`${t(LEVELS[k])} · ${fmt.int(r.by_risk[LEVELS[k].toLowerCase()] ?? 0)}`} />
+      ))}
+      <Swatch color={NA_RGB} label={`${t("not assessed")} · ${fmt.int(r.n_buildings - r.assessed)}`} />
+      <p className="mt-1.5 mb-0 text-[11.5px] leading-snug text-muted">
+        {t("{n} buildings: hazard from their own InSAR points for {a}, from their cell for {b}.", { n: fmt.int(r.n_buildings), a: fmt.int(r.by_source.building ?? 0), b: fmt.int(r.by_source.cell ?? 0) })}
+      </p>
+      {r.warnings.map((w) => (
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+      ))}
+      {again}
+    </div>
+  );
+}
+
+const KIND_OF_VIEW: Partial<Record<View, AnalysisKind>> = {
+  behaviour: "behaviour", change: "behaviour", risk: "risk", lines: "lines", consolidation: "consolidation",
+  up: "decompose", east: "decompose", soft_soil: "geology",
+};
+// per analysis: what the run does, and its button
+const RUN_TEXT: Record<AnalysisKind, [string, string]> = {
+  behaviour: ["Not classified yet. The run fits the kinds of motion to the series of the cells of this zoning (a few seconds).", "Classify the kinds of motion"],
+  risk: ["Not assessed yet. The run reads every Overture building of the area (cached) and crosses its hazard with its consequence.", "Assess the risk to buildings"],
+  lines: ["Not profiled yet. The run reads the dykes, railways and main roads of OpenStreetMap over the product (a minute the first time) and the InSAR points along them.", "Profile the infrastructure lines"],
+  consolidation: ["Not analysed yet. The run fits a consolidation curve to the sinking cells of this zoning (a few seconds).", "Analyse the consolidation"],
+  decompose: ["Not decomposed yet. The run looks in the workspace for a product that sees this area from the other side over the same period (an ascending track for a descending one), then separates the vertical and east-west motion.", "Separate vertical and east-west"],
+  geology: ["Not read yet. The run takes the soft-soil thickness of the project (map or boreholes, else the open global grid) and compares it with the sinking of the cells.", "Read the soft-soil thickness"],
+};
+
+/** A colour bar with its true range (never clipped). */
+function RangeBar({ stops, lo, hi, mid, unit }: { stops: RGB[]; lo: string; hi: string; mid?: string; unit: string }) {
+  return (
+    <>
+      <div className="h-2.5 rounded-sm" style={{ background: `linear-gradient(90deg,${stops.map((x) => rgb(x)).join(",")})` }} />
+      <div className="mt-0.5 flex justify-between font-mono text-[10.5px] text-faint">
+        <span>{lo}</span>
+        <span>{mid ?? unit}</span>
+        <span>{hi}</span>
+      </div>
+    </>
+  );
+}
+
+function DecomposeLegend({ s, view, again }: { s: DecomposeSummary; view: "up" | "east"; again: React.ReactNode }) {
+  const st = view === "up" ? s.up_mm_yr : s.east_mm_yr;
+  return (
+    <div className="mt-2">
+      {view === "up" ? (
+        <RangeBar stops={[...RATE_RGB].reverse()} lo={`${fmt.num(st.min, 0)}`} hi={`${fmt.num(st.max, 0)}`} mid={t("mm/yr, up")} unit="" />
+      ) : (
+        <RangeBar stops={EAST_RGB} lo={`${t("west")} ${fmt.num(st.min, 0)}`} hi={`${fmt.num(st.max, 0)} ${t("east")}`} mid="mm/yr" unit="" />
+      )}
+      <p className="mt-1.5 mb-0 text-[11.5px] leading-snug text-muted">
+        {t("{n} cells of {m} m, ±{a} mm/yr vertical, ±{b} mm/yr east-west (median 1 σ).", { n: fmt.int(s.n_cells), m: s.params.cell_m, a: s.sigma_up_median, b: s.sigma_east_median })}
+      </p>
+      {view === "east" && (
+        <p className="mt-1 mb-0 text-[11.5px] leading-snug text-muted">
+          {t("Significant east-west motion (≥ {v} mm/yr and 2 σ) in {p} % of the cells.", { v: s.params.horizontal_mm_yr, p: fmt.num(100 * s.horizontal_share, 1) })}
+        </p>
+      )}
+      <div className="mt-2 space-y-1 text-[11.5px]">
+        {s.products.map((p) => (
+          <div key={p.id} className="leading-snug">
+            <span className="text-ink-2">{p.project} · {p.track}</span>{" "}
+            <span className="font-mono text-faint">l_e {p.los[0] > 0 ? "+" : ""}{p.los[0].toFixed(2)}</span>
+            <div className="text-faint">
+              {p.first} → {p.last}
+              {s.vertical_only_bias[p.id] && ` · ${t("vertical projection off by {v} mm/yr (90 %)", { v: s.vertical_only_bias[p.id].p90_abs_mm_yr })}`}
+            </div>
+          </div>
+        ))}
+      </div>
+      {s.ramps?.some((r) => r.removed) && (
+        <p className="mt-1.5 mb-0 text-[11.5px] leading-snug text-muted">
+          {t("A plane was removed from each product first (tilt over the area: {v} mm/yr).", { v: s.ramps.map((r) => r.span_mm_yr).join(" / ") })}
+        </p>
+      )}
+      {s.warnings.map((w) => (
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+      ))}
+      {again}
+    </div>
+  );
+}
+
+function GeologyLegend({ s, again }: { s: GeologySummary; again: React.ReactNode }) {
+  const cv = s.consolidation_cv;
+  return (
+    <div className="mt-2">
+      {s.thickness_m && <RangeBar stops={SOIL_RGB} lo={fmt.num(s.thickness_m.min, 0)} hi={fmt.num(s.thickness_m.max, 0)} unit="m" />}
+      <p className="mt-1.5 mb-0 text-[11.5px] leading-snug text-muted">
+        {t("Source")}: {t(s.source_label)}
+        {s.boreholes ? ` · ${t("{n} boreholes", { n: s.boreholes })}` : ""}
+      </p>
+      {s.by_class.length > 1 && (
+        <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-3 text-[11.5px]">
+          <span className="text-faint">{t("thickness, m")}</span>
+          <span className="text-right text-faint">{t("median rate")}</span>
+          <span className="text-right text-faint">{t("moving")}</span>
+          {s.by_class.map((b) => (
+            <div key={b.from_m} className="contents">
+              <span className="font-mono text-ink-2">{b.from_m} – {b.to_m}</span>
+              <span className="text-right font-mono text-ink-2">{b.median_rate_mm_yr != null ? fmt.num(b.median_rate_mm_yr, 1) : "–"}</span>
+              <span className="text-right font-mono text-ink-2">{b.moving_share != null ? `${Math.round(100 * b.moving_share)} %` : "–"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {s.spearman_rho != null && (
+        <p className="mt-1.5 mb-0 text-[11.5px] leading-snug text-muted">
+          {t("Thickness against sinking: Spearman ρ = {r} over {n} sinking cells.", { r: s.spearman_rho, n: fmt.int(s.sinking_cells) })}
+        </p>
+      )}
+      {cv.median_m2_yr != null && (
+        <p className="mt-1 mb-0 text-[11.5px] leading-snug text-muted">
+          {t("Consolidating cells: implied c_v {v} m²/yr (soft clays: 0.1–10).", { v: fmt.num(cv.median_m2_yr, 1) })}
+        </p>
+      )}
+      {s.warnings.map((w) => (
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+      ))}
+      {again}
+    </div>
+  );
+}
+
+export const LINE_KINDS: Record<string, string> = { dyke: "Dykes", railway: "Railways", embankment: "Embankments", road: "Main roads" };
+
+/** The vertical rate along a line, the stations beyond the damage limits marked. */
+export function ProfileChart({ p }: { p: LineProfile }) {
+  const W = 340;
+  const H = 150;
+  const v = p.v_vert_mm_yr.map((x) => (x == null ? NaN : x));
+  const ok = v.filter(Number.isFinite);
+  if (!ok.length) return <p className="text-[12px] text-muted">{t("too few InSAR points")}</p>;
+  const lo = Math.min(0, ...ok);
+  const hi = Math.max(0, ...ok);
+  const L = p.length_m || 1;
+  const X = (c: number) => 34 + (c / L) * (W - 42);
+  const Y = (y: number) => 8 + (1 - (y - lo) / (hi - lo || 1)) * (H - 26);
+  const d = v.map((y, i) => (Number.isFinite(y) ? `${i && Number.isFinite(v[i - 1]) ? "L" : "M"}${X(p.chainage_m[i]).toFixed(1)},${Y(y).toFixed(1)}` : "")).join("");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+      <line x1={34} x2={W - 8} y1={Y(0)} y2={Y(0)} stroke="#22324d" strokeDasharray="3 3" />
+      {p.beta.map((b, i) => (b != null && b >= 1 / 500 ? <rect key={i} x={X(p.chainage_m[i]) - 2} y={8} width={4} height={H - 26} fill={rgb(LINE_RGB[b >= 1 / 150 ? 3 : b >= 1 / 300 ? 2 : 1], 0.45)} /> : null))}
+      <path d={d} fill="none" stroke="#4cc2ff" strokeWidth="1.6" />
+      <text x={30} y={Y(hi) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
+      <text x={30} y={Y(lo) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
+      <text x={34} y={H - 4} fill="#93a4bf" fontSize="10">0</text>
+      <text x={W - 8} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="end">{(L / 1000).toFixed(1)} km</text>
+      <text x={(W + 26) / 2} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="middle">{t("vertical rate, mm/yr")}</text>
+    </svg>
+  );
+}
+
+function LinePanel({ p, onClose }: { p: LineProfile; onClose: () => void }) {
+  return (
+    <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-semibold">{p.name}</span>
+        <span className="text-[11.5px] text-muted">· {t(LINE_KINDS[p.kind] ?? p.kind)}</span>
+        <button type="button" className="ml-auto text-faint hover:text-ink" onClick={onClose} aria-label={t("Close")}>
+          ×
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
+        <Row k={t("Length")} v={`${fmt.num(p.length_m / 1000, 1)} km`} />
+        <Row k={t("Covered by InSAR")} v={`${Math.round(100 * p.covered_share)} %`} />
+        <Row k={t("Largest distortion in 10 years")} v={p.beta_max ? `1/${Math.round(1 / p.beta_max)}` : "–"} />
+        <Row k={t("Lowered in 10 years, at most")} v={p.loss_mm != null ? `${fmt.num(p.loss_mm, 0)} mm` : "–"} />
       </div>
       <div className="mt-2">
-        <RainBars months={rainMonths} from={c.dates[0]} to={c.dates[c.dates.length - 1]} />
+        <ProfileChart p={p} />
       </div>
-      <div className="text-[11px] text-faint">{t("Monthly rainfall of the cell's pixel")} · {ts(c.rain.source).split(" (")[0]}</div>
+    </div>
+  );
+}
+
+/** Settlement of a consolidating cell and its curve projected ahead (positive down). */
+export function ConsolidationChart({ c }: { c: ConsolidationCell }) {
+  const W = 340;
+  const H = 150;
+  const d0 = Date.parse(c.dates[0]);
+  const obs = c.dates.map((d, i) => [(Date.parse(d) - d0) / (365.2425 * 86400000), c.settlement_mm[i]] as [number, number | null]);
+  // the projection up to about five time constants past the last date (where the curve is flat), at most 5 years
+  const tEnd = obs[obs.length - 1][0] + Math.max(1, 5 * (c.tau_yr ?? 1));
+  const cur = (c.curve_t_yr ?? []).map((x, i) => [x, c.curve_mm![i]] as [number, number]).filter(([x]) => x <= tEnd);
+  const ys = [...obs.map((o) => o[1]).filter((y): y is number => y != null), ...cur.map((x) => x[1]), 0];
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  const tmax = Math.max(obs[obs.length - 1][0], cur.length ? cur[cur.length - 1][0] : 0);
+  const X = (x: number) => 34 + (x / (tmax || 1)) * (W - 42);
+  const Y = (y: number) => 8 + ((y - lo) / (hi - lo || 1)) * (H - 26); // settlement drawn downwards
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+      <line x1={X(obs[obs.length - 1][0])} x2={X(obs[obs.length - 1][0])} y1={8} y2={H - 18} stroke="#22324d" strokeDasharray="3 3" />
+      {cur.length > 0 && <path d={cur.map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join("")} fill="none" stroke="#f46d43" strokeWidth="2" />}
+      {obs.map(([x, y], i) => (y == null ? null : <circle key={i} cx={X(x)} cy={Y(y)} r={2.6} fill="#4cc2ff" />))}
+      <text x={30} y={Y(lo) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
+      <text x={30} y={Y(hi) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
+      <text x={34} y={H - 4} fill="#93a4bf" fontSize="10">{c.dates[0].slice(0, 7)}</text>
+      <text x={W - 8} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="end">+{tmax.toFixed(1)} {t("yr")}</text>
+      <text x={(W + 26) / 2} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="middle">{t("settlement, mm (down)")}</text>
+    </svg>
+  );
+}
+
+function RiskPanel({ b, onClose }: { b: RiskBuilding; onClose: () => void }) {
+  const lv = b.risk;
+  const cls = (k: number) => ["", t("low"), t("medium"), t("high")][k] ?? "–";
+  return (
+    <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
+      <div className="flex items-center gap-2">
+        <span className="h-3 w-3 rounded-[3px]" style={{ background: rgb(lv >= 0 ? LEVEL_RGB[lv] : NA_RGB) }} />
+        <span className="text-[13px] font-semibold">{lv >= 0 ? t("{level} risk", { level: t(LEVELS[lv]) }) : t("Not assessed")}</span>
+        <span className="text-[11.5px] text-muted">· {t("building")}</span>
+        <button type="button" className="ml-auto text-faint hover:text-ink" onClick={onClose} aria-label={t("Close")}>
+          ×
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
+        <Row k={t("Hazard")} v={b.hazard >= 0 ? t(LEVELS[b.hazard]) : "–"} />
+        <Row k={t("Hazard from")} v={b.source === "building" ? t("its own InSAR points ({n})", { n: b.points }) : b.source === "cell" ? t("its analysis cell") : "–"} />
+        {b.v_vert_mm_yr != null && <Row k={t("Vertical rate")} v={`${fmt.vel(b.v_vert_mm_yr)} mm/yr`} />}
+        {b.beta_10yr != null && <Row k={t("Tilt in 10 years (β)")} v={`1/${Math.round(1 / b.beta_10yr)}`} />}
+        <Row k={t("Footprint")} v={`${fmt.int(Math.round(b.area_m2))} m²`} />
+        <Row k={t("Floors")} v={b.height_known ? `${b.floors} (${fmt.num(b.height_m)} m)` : `${b.floors} (${t("assumed")})`} />
+        <Row k={t("Exposure")} v={`E${b.exposure} · ${cls(b.exposure)}`} title={t("gross floor area: footprint × floors")} />
+        <Row k={t("Vulnerability")} v={`V${b.vulnerability} · ${cls(b.vulnerability)}`} title={t("proxy from height and length: no structural type in open data")} />
+        <Row k={t("Consequence")} v={`C${b.consequence}`} />
+      </div>
+      <div className="mt-2 font-mono text-[10.5px] break-all text-faint">{b.id}</div>
     </div>
   );
 }
@@ -460,7 +996,7 @@ function Row({ k, v, title }: { k: string; v: string; title?: string }) {
   );
 }
 
-function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
+function CellPanel({ c, beh, cons, onClose }: { c: HazardCell; beh?: BehaviourCell; cons?: ConsolidationCell; onClose: () => void }) {
   const frac = (x: number | null) => (x == null || x <= 0 ? "–" : `1/${Math.round(1 / x)}`);
   const lv = c.hazard;
   return (
@@ -527,8 +1063,39 @@ function CellPanel({ c, onClose }: { c: HazardCell; onClose: () => void }) {
           )}
         </div>
       )}
+      {beh && (
+        <div className="mt-2 rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[1px] text-muted">
+            {t("KIND OF MOTION")}
+            <span className="ml-auto flex items-center gap-1.5 text-[12px] font-normal tracking-normal text-ink-2">
+              <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: rgb(BEH_RGB[Math.max(0, BEH_CLASSES.indexOf(beh.class))]) }} />
+              {t(BEH_LABELS[beh.class] ?? beh.class)}
+            </span>
+          </div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
+            {beh.change_date && <Row k={t("Date of change")} v={beh.change_date} />}
+            {beh.rate_before_mm_yr != null && <Row k={t("Rate before → after")} v={`${fmt.vel(beh.rate_before_mm_yr)} → ${fmt.vel(beh.rate_after_mm_yr)} mm/yr`} />}
+            {beh.acc_mm_yr2 != null && <Row k={t("Acceleration")} v={`${fmt.vel(beh.acc_mm_yr2)} mm/yr²`} />}
+            {beh.seasonal_amp_mm != null && <Row k={t("Seasonal amplitude")} v={`${fmt.num(beh.seasonal_amp_mm)} mm`} />}
+            {beh.jump_mm != null && <Row k={t("Jump")} v={`${fmt.vel(beh.jump_mm)} mm`} />}
+            {beh.delta_bic != null && beh.delta_bic > 0 && <Row k={t("Evidence (ΔBIC)")} v={fmt.num(beh.delta_bic)} title={t("how much better than a straight line the kept model fits (≥ 6: strong)")} />}
+          </div>
+        </div>
+      )}
+      {cons?.consolidating && (
+        <div className="mt-2 rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+          <div className="text-[11px] font-semibold tracking-[1px] text-muted">{t("CONSOLIDATION")}</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
+            <Row k={t("Settled so far")} v={`${fmt.num(cons.settled_mm, 0)} mm`} />
+            <Row k={t("Still to come")} v={`${fmt.num(cons.remaining_mm, 0)} mm`} />
+            <Row k={t("Final settlement")} v={`${fmt.num(cons.final_mm, 0)} mm`} />
+            <Row k={t("90 % reached in")} v={`${fmt.num(cons.t90_from_now_yr, 1)} ${t("yr")}`} />
+          </div>
+          <ConsolidationChart c={cons} />
+        </div>
+      )}
       <div className="mt-2">
-        <CellChart c={c} />
+        <CellChart c={c} model={beh?.fit_mm} />
       </div>
     </div>
   );
@@ -555,14 +1122,21 @@ const PARAMS: { key: string; label: string; options: (number | string)[]; unit?:
   { key: "groundwater", label: "Groundwater", options: ["auto", "gldas", "off"] },
 ];
 
-export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace | undefined; project?: string; product?: string; cell?: number }) {
+export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Workspace | undefined; project?: string; product?: string; cell?: number; layer?: string }) {
   const { go, layers } = useApp();
   const qc = useQueryClient();
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const overlay = useRef<MapboxOverlay | null>(null);
   const [base, setBase] = useState<Base>("dark");
-  const [view, setView] = useState<View>("hazard");
+  const asView = (v?: string): View => (VIEWS.some((x) => x.id === v) ? (v as View) : "hazard");
+  const [view, setViewState] = useState<View>(asView(layer));
+  useEffect(() => setViewState(asView(layer)), [layer]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the layer is part of the link (#/hazard/<project>/<product>/<layer>): the Principles page opens the one it explains
+  const setView = (v: View) => {
+    setViewState(v);
+    if (project && product) window.history.replaceState(null, "", href({ page: "hazard", name: project, product, view: v === "hazard" ? undefined : v }));
+  };
   const [sel, setSel] = useState<number | null>(null);
   const [params, setParams] = useState<Record<string, number | string>>({});
   const [busy, setBusy] = useState("");
@@ -616,6 +1190,149 @@ export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace |
     queryFn: () => api.hazardCell(project!, product!, sel!),
     enabled: !!s && sel != null,
   });
+  // kinds of motion and risk to buildings (geoeyes behaviour / risk)
+  const [selB, setSelB] = useState<number | null>(null);
+  const behStatus = useQuery({
+    queryKey: ["behaviour", project, product],
+    queryFn: () => api.behaviour(project!, product!),
+    enabled: !!project && !!product,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      return d && Object.values(d).some((x) => typeof x === "object" && x?.running) ? 2000 : false;
+    },
+  });
+  const behSummary = behStatus.data?.behaviour.summary ?? null;
+  const riskSummary = behStatus.data?.risk.summary ?? null;
+  const behCells = useQuery({
+    queryKey: ["behaviour-cells", project, product, behSummary?.created],
+    queryFn: async (): Promise<Behaviour & { first: string; last: string }> => {
+      const { meta, buf } = await api.behaviourCells(project!, product!);
+      return { buf, span: (Date.parse(meta.last_date) - Date.parse(meta.first_date)) / 86400000, first: meta.first_date, last: meta.last_date };
+    },
+    enabled: !!behSummary && !!s,
+    staleTime: Infinity,
+  });
+  const behCell = useQuery({
+    queryKey: ["behaviour-cell", project, product, behSummary?.created, sel],
+    queryFn: () => api.behaviourCell(project!, product!, sel!),
+    enabled: !!behSummary && sel != null,
+  });
+  const riskData = useQuery({
+    queryKey: ["risk-buildings", project, product, riskSummary?.created],
+    queryFn: async () => {
+      const { meta, view: dv } = await api.riskBuildings(project!, product!);
+      const n = meta.n;
+      const pos = new Float32Array(n * 2);
+      const col = new Uint8Array(n * 4);
+      const rad = new Float32Array(n);
+      const risk = new Int8Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = i * meta.record;
+        pos[i * 2] = meta.origin[0] + dv.getFloat32(o, true);
+        pos[i * 2 + 1] = meta.origin[1] + dv.getFloat32(o + 4, true);
+        const r = dv.getUint8(o + 8) - 1;
+        risk[i] = r;
+        const c = r >= 0 ? LEVEL_RGB[r] : NA_RGB;
+        col.set([c[0], c[1], c[2], r >= 0 ? 235 : 120], i * 4);
+        rad[i] = dv.getUint8(o + 11) / 2;
+      }
+      return { n, pos, col, rad, risk };
+    },
+    enabled: !!riskSummary && view === "risk",
+    staleTime: Infinity,
+  });
+  const building = useQuery({
+    queryKey: ["risk-building", project, product, riskSummary?.created, selB],
+    queryFn: () => api.riskBuilding(project!, product!, selB!),
+    enabled: !!riskSummary && selB != null,
+  });
+  const linesSummary = behStatus.data?.lines.summary ?? null;
+  const consSummary = behStatus.data?.consolidation.summary ?? null;
+  const [selLine, setSelLine] = useState<number | null>(null);
+  const linesData = useQuery({
+    queryKey: ["line-segments", project, product, linesSummary?.created],
+    queryFn: async () => {
+      const { meta, buf } = await api.lineSegments(project!, product!);
+      const n = meta.n;
+      const src = new Float32Array(n * 2);
+      const dst = new Float32Array(n * 2);
+      const col = new Uint8Array(n * 4);
+      const wid = new Float32Array(n);
+      const line = new Int32Array(n);
+      for (let i = 0; i < n; i++) {
+        const o = i * 6;
+        src.set([buf[o], buf[o + 1]], i * 2);
+        dst.set([buf[o + 2], buf[o + 3]], i * 2);
+        const k = buf[o + 4];
+        const c = k >= 0 ? LINE_RGB[k] : NA_RGB;
+        col.set([c[0], c[1], c[2], k >= 0 ? 255 : 150], i * 4);
+        wid[i] = k >= 1 ? 5 : k === 0 ? 3 : 2;
+        line[i] = buf[o + 5];
+      }
+      return { n, src, dst, col, wid, line };
+    },
+    enabled: !!linesSummary && view === "lines",
+    staleTime: Infinity,
+  });
+  const lineProfile = useQuery({
+    queryKey: ["line-profile", project, product, linesSummary?.created, selLine],
+    queryFn: () => api.lineProfile(project!, product!, selLine!),
+    enabled: !!linesSummary && selLine != null,
+  });
+  const consCells = useQuery({
+    queryKey: ["consolidation-cells", project, product, consSummary?.created],
+    queryFn: async (): Promise<Consolidation> => {
+      const { meta, buf } = await api.consolidationCells(project!, product!);
+      return { buf, max: meta.summary.remaining_mm?.p90 ?? 1 };
+    },
+    enabled: !!consSummary && !!s,
+    staleTime: Infinity,
+  });
+  const consCell = useQuery({
+    queryKey: ["consolidation-cell", project, product, consSummary?.created, sel],
+    queryFn: () => api.consolidationCell(project!, product!, sel!),
+    enabled: !!consSummary && sel != null,
+  });
+  const decSummary = behStatus.data?.decompose.summary ?? null;
+  const geoSummary = behStatus.data?.geology.summary ?? null;
+  const decData = useQuery({
+    queryKey: ["decompose-cells", project, product, decSummary?.created],
+    queryFn: async () => {
+      const { meta, buf } = await api.decomposeCells(project!, product!);
+      const F = meta.fields.length;
+      const f = Object.fromEntries(meta.fields.map((n, i) => [n, i]));
+      const hx = meta.dlon / 2;
+      const hy = meta.dlat / 2;
+      const polys = Array.from({ length: meta.n }, (_, i) => {
+        const x = buf[i * F];
+        const y = buf[i * F + 1];
+        return { i, ring: [[x - hx, y - hy], [x + hx, y - hy], [x + hx, y + hy], [x - hx, y + hy]] };
+      });
+      return { meta, buf, F, f, polys };
+    },
+    enabled: !!decSummary && (view === "up" || view === "east"),
+    staleTime: Infinity,
+  });
+  const geoCells = useQuery({
+    queryKey: ["geology-cells", project, product, geoSummary?.created],
+    queryFn: async (): Promise<Geology> => {
+      const { meta, buf } = await api.geologyCells(project!, product!);
+      const th = meta.summary.thickness_m;
+      return { buf, min: th?.min ?? 0, max: th?.max ?? 1 };
+    },
+    enabled: !!geoSummary && view === "soft_soil",
+    staleTime: Infinity,
+  });
+  const runAnalysis = async (kind: AnalysisKind) => {
+    if (!project || !product) return;
+    try {
+      await api.analysisRun(project, product, kind);
+      await qc.invalidateQueries({ queryKey: ["behaviour", project, product] });
+    } catch (e) {
+      setBusy(ts((e as Error).message));
+    }
+  };
+
   useEffect(() => {
     if (s) setParams(Object.fromEntries(PARAMS.map((p) => [p.key, s.params[p.key] as number | string])));
     setRefBox(s && Array.isArray(s.params.reference_bbox) ? (s.params.reference_bbox as number[]).join(", ") : "");
@@ -714,19 +1431,121 @@ export function Hazard({ ws, project, product, cell: linked }: { ws: Workspace |
               }),
             ]
           : []),
+        ...(view === "lines" && linesData.data
+          ? [
+              new LineLayer({
+                id: "infrastructure-lines",
+                data: {
+                  length: linesData.data.n,
+                  attributes: {
+                    getSourcePosition: { value: linesData.data.src, size: 2 },
+                    getTargetPosition: { value: linesData.data.dst, size: 2 },
+                    getColor: { value: linesData.data.col, size: 4, normalized: true },
+                    getWidth: { value: linesData.data.wid, size: 1 },
+                  },
+                },
+                widthUnits: "pixels",
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 255, 255, 200],
+                onClick: (info: { index: number }) => {
+                  if (info.index >= 0) {
+                    setSelLine(linesData.data!.line[info.index]);
+                    setSel(null);
+                    setSelB(null);
+                  }
+                },
+              }),
+            ]
+          : []),
+        ...((view === "up" || view === "east") && decData.data
+          ? [
+              new SolidPolygonLayer<{ i: number; ring: number[][] }>({
+                id: "decompose-cells",
+                data: decData.data.polys,
+                getPolygon: (d) => d.ring as never,
+                getFillColor: (d) => {
+                  const D = decData.data!;
+                  const v = D.buf[d.i * D.F + D.f[view]];
+                  // the same classes as the rate: red sinking, blue rising; green east, purple west
+                  return [...(view === "up" ? RATE_RGB[bin(-v, MOTION_BREAKS)] : EAST_RGB[bin(v, MOTION_BREAKS)]), 225] as never;
+                },
+                updateTriggers: { getFillColor: [view] },
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 255, 255, 120],
+              }),
+            ]
+          : []),
+        ...(view === "risk" && riskData.data
+          ? [
+              new ScatterplotLayer({
+                id: "risk-buildings",
+                data: {
+                  length: riskData.data.n,
+                  attributes: {
+                    getPosition: { value: riskData.data.pos, size: 2 },
+                    getFillColor: { value: riskData.data.col, size: 4, normalized: true },
+                    getRadius: { value: riskData.data.rad, size: 1 },
+                  },
+                },
+                radiusUnits: "meters",
+                radiusMinPixels: 1.2,
+                pickable: true,
+                onClick: (info: { index: number }) => {
+                  if (info.index >= 0) {
+                    setSelB(info.index);
+                    setSel(null);
+                  }
+                },
+              }),
+            ]
+          : []),
         new SolidPolygonLayer<{ i: number; ring: number[][] }>({
           id: `hazard-${view}`,
           data: polys,
           getPolygon: (d) => d.ring as never,
-          getFillColor: (d) => (d.i === sel ? [255, 255, 255, 255] : cellColor(c, d.i, view)),
-          updateTriggers: { getFillColor: [view, sel] },
+          getFillColor: (d) => (d.i === sel ? [255, 255, 255, 255] : cellColor(c, d.i, view, behCells.data, consCells.data, geoCells.data)),
+          updateTriggers: { getFillColor: [view, sel, behCells.data, consCells.data, geoCells.data] },
           pickable: true,
           autoHighlight: true,
           highlightColor: [255, 255, 255, 120],
-          onClick: (info) => info.object && setSel(info.object.i),
+          onClick: (info) => {
+            if (info.object) {
+              setSel(info.object.i);
+              setSelB(null);
+              setSelLine(null);
+            }
+          },
         }),
       ].reverse() as never,
-      getTooltip: ({ object, layer }: { object?: { i: number } & Partial<(typeof stations)[number]>; layer?: { id: string } | null }) => {
+      getTooltip: ({ object, layer, index }: { object?: { i: number } & Partial<(typeof stations)[number]>; layer?: { id: string } | null; index: number }) => {
+        if (layer?.id === "decompose-cells" && decData.data && object) {
+          const D = decData.data;
+          const g = (n: string) => D.buf[object.i * D.F + D.f[n]];
+          const prods = D.meta.summary.products;
+          return {
+            text: [
+              `${t("vertical")} ${fmt.vel(g("up"))} ± ${g("sigma_up").toFixed(1)} mm/yr`,
+              `${t("east-west")} ${fmt.vel(g("east"))} ± ${g("sigma_east").toFixed(1)} mm/yr`,
+              ...prods.map((p, k) => `${t("{track} alone", { track: p.track })}: ${fmt.vel(g(`vert_only_${k}`))} mm/yr`),
+            ].join("\n"),
+            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+          };
+        }
+        if (layer?.id === "infrastructure-lines" && linesData.data && index >= 0) {
+          return {
+            text: t("Click for the profile along the line"),
+            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+          };
+        }
+        if (layer?.id === "risk-buildings" && riskData.data && index >= 0) {
+          const r = riskData.data.risk[index];
+          return {
+            text: r >= 0 ? t("{level} risk", { level: t(LEVELS[r]) }) : t("not assessed"),
+            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+          };
+        }
         if (!object) return null;
         if (layer?.id === "gnss-stations") {
           const st = object as (typeof stations)[number];
@@ -741,13 +1560,19 @@ ${ts(st.reason ?? "")}`}`,
         const F = c.meta.fields.length;
         const g = (n: string) => c.buf[object.i * F + c.f[n]];
         const lv = g("hazard");
+        const h = view === "soft_soil" && geoCells.data ? geoCells.data.buf[object.i * 2] : NaN;
+        if (Number.isFinite(h))
+          return {
+            text: `${t("soft soil")} ${h.toFixed(0)} m\n${fmt.vel(g("rate_mm_yr"))} mm/yr`,
+            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+          };
         return {
           text: `${lv >= 0 ? t(LEVELS[lv]) : t("not assessed")} · I${g("intensity")} S${Math.max(0, g("secondary"))}\n${fmt.vel(g("rate_mm_yr"))} mm/yr${g("rain_coupled") > 0 ? ` · ${t("rain r {r}, lag {n} mo", { r: g("rain_r").toFixed(2), n: g("rain_lag_months") })}` : ""}`,
           style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
         };
       },
     });
-  }, [cells.data, polys, view, sel, stations]);
+  }, [cells.data, polys, view, sel, stations, behCells.data, riskData.data, linesData.data, consCells.data, decData.data, geoCells.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
     if (!project || !product) return;
@@ -983,10 +1808,15 @@ ${ts(st.reason ?? "")}`}`,
               ))}
             </select>
             <Legend view={view} s={s} />
+            {(view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil") && (
+              <BehaviourLegend view={view} st={behStatus.data} first={behCells.data?.first} last={behCells.data?.last} onRun={runAnalysis} />
+            )}
             <About view={view} />
             {cells.isLoading && <div className="mt-2 text-[12px] text-[#7cd2ff]">{t("Loading cells…")}</div>}
           </Fold>
-          {sel != null && cell.data && <CellPanel c={cell.data} onClose={() => setSel(null)} />}
+          {sel != null && cell.data && <CellPanel c={cell.data} beh={behCell.data} cons={consCell.data} onClose={() => setSel(null)} />}
+          {selLine != null && lineProfile.data && <LinePanel p={lineProfile.data} onClose={() => setSelLine(null)} />}
+          {selB != null && building.data && <RiskPanel b={building.data} onClose={() => setSelB(null)} />}
           {sel != null && cell.isLoading && <div className="rounded-xl border border-line-2 bg-panel/95 p-3 text-[12px] text-muted">{t("Loading cell…")}</div>}
           {sel == null && (
             <div className="rounded-xl border border-line-2 bg-panel/95 p-3 text-[12px] text-muted">{t("Click a cell for its series, rainfall and the reasons of its level.")}</div>

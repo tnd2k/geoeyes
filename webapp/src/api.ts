@@ -120,6 +120,181 @@ export interface HazardSummary {
   warnings: string[];
 }
 
+export interface BehaviourSummary {
+  classes: string[];
+  counts: Record<string, number>;
+  not_assessed: number;
+  dates: string[];
+  changes_by_month: Record<string, number>;
+  shared_change_dates: string[];
+  warnings: string[];
+  created: string;
+  hazard_created?: string;
+}
+
+export interface RiskSummary {
+  levels: string[];
+  n_buildings: number;
+  assessed: number;
+  by_source: Record<string, number>;
+  by_risk: Record<string, number>;
+  footprint_km2_by_risk: Record<string, number>;
+  height_known_share: number;
+  median_floors_assumed: number;
+  consequence_matrix: number[][];
+  risk_matrix: number[][];
+  params: Record<string, unknown>;
+  warnings: string[];
+  created: string;
+}
+
+export interface AnalysisStatus<S> {
+  summary: S | null;
+  running: boolean;
+  failed: boolean;
+  log: string[];
+}
+
+export interface LinesSummary {
+  n_lines: number;
+  n_stations: number;
+  by_kind: Record<string, { lines: number; km: number; covered_share: number | null; flagged_stations: number }>;
+  hotspots: { line: number; kind: string; name: string; beta_max: number; v_min_mm_yr: number; flagged: number }[];
+  params: { step_m: number; buffer_m: number; span_m: number; horizon_yr: number };
+  created: string;
+}
+
+export interface ConsolidationSummary {
+  sinking_cells: number;
+  consolidating: number;
+  remaining_mm: { median: number; p90: number; max: number } | null;
+  tau_yr_median: number | null;
+  check: { cells?: number; train_epochs?: number; test_epochs?: number; mae_curve_mm?: number; mae_line_mm?: number; curve_better_share?: number };
+  created: string;
+}
+
+export interface DecomposeProduct {
+  id: string;
+  project: string;
+  track: string;
+  sensor: string;
+  first: string;
+  last: string;
+  los: [number, number, number];
+  overlap_days: number | null;
+  overlap_share: number | null;
+}
+
+type Stats = { min: number; p02: number; median: number; p98: number; max: number };
+
+export interface DecomposeSummary {
+  products: DecomposeProduct[];
+  n_cells: number;
+  up_mm_yr: Stats;
+  east_mm_yr: Stats;
+  sigma_up_median: number;
+  sigma_east_median: number;
+  horizontal_share: number;
+  vertical_only_bias: Record<string, { median_mm_yr: number; p90_abs_mm_yr: number }>;
+  ramps?: { id: string; mm_yr_per_km: [number, number]; span_mm_yr: number; removed: boolean }[];
+  params: { cell_m: number; horizontal_mm_yr: number };
+  warnings: string[];
+  created: string;
+}
+
+export interface GeologySummary {
+  source: "raster" | "boreholes" | "open";
+  source_label: string;
+  boreholes: number | null;
+  cells: number;
+  covered: number;
+  thickness_m: { min: number; median: number; max: number } | null;
+  spearman_rho: number | null;
+  sinking_cells: number;
+  by_class: { from_m: number; to_m: number; cells: number; median_rate_mm_yr: number | null; moving_share: number | null }[];
+  consolidation_cv: { cells?: number; median_m2_yr?: number; p10_m2_yr?: number; p90_m2_yr?: number; within_range_share?: number; range_m2_yr?: [number, number] };
+  params: { moving_mm_yr: number; drainage: string };
+  warnings: string[];
+  created: string;
+}
+
+export type AnalysisKind = "behaviour" | "risk" | "lines" | "consolidation" | "decompose" | "geology";
+
+export interface BehaviourStatus {
+  behaviour: AnalysisStatus<BehaviourSummary>;
+  risk: AnalysisStatus<RiskSummary>;
+  lines: AnalysisStatus<LinesSummary>;
+  consolidation: AnalysisStatus<ConsolidationSummary>;
+  decompose: AnalysisStatus<DecomposeSummary>;
+  geology: AnalysisStatus<GeologySummary>;
+  buildings: boolean;
+}
+
+export interface LineProfile {
+  line: number;
+  kind: string;
+  name: string;
+  length_m: number;
+  covered_share: number;
+  beta_max: number | null;
+  loss_mm: number | null;
+  chainage_m: number[];
+  v_vert_mm_yr: (number | null)[];
+  n_points: number[];
+  beta: (number | null)[];
+  horizon_yr: number;
+}
+
+export interface ConsolidationCell {
+  cell: number;
+  consolidating: boolean;
+  dates: string[];
+  settlement_mm: (number | null)[];
+  tau_yr: number | null;
+  settled_mm: number | null;
+  final_mm: number | null;
+  remaining_mm: number | null;
+  t90_from_now_yr: number | null;
+  delta_bic: number | null;
+  curve_t_yr?: number[];
+  curve_mm?: number[];
+  asaoka: { prev: number[]; next: number[]; b0: number | null; b1: number | null; final: number | null; step_days?: number };
+}
+
+export interface BehaviourCell {
+  cell: number;
+  class: string;
+  change_date: string | null;
+  rate_mm_yr: number | null;
+  rate_before_mm_yr: number | null;
+  rate_after_mm_yr: number | null;
+  acc_mm_yr2: number | null;
+  seasonal_amp_mm: number | null;
+  jump_mm: number | null;
+  delta_bic: number | null;
+  fit_mm: (number | null)[];
+  dates: string[];
+}
+
+export interface RiskBuilding {
+  id: string;
+  lon: number;
+  lat: number;
+  area_m2: number;
+  height_m: number | null;
+  floors: number;
+  height_known: boolean;
+  source: "building" | "cell" | "none";
+  points: number;
+  v_vert_mm_yr: number | null;
+  beta_10yr: number | null;
+  hazard: number;
+  exposure: number;
+  vulnerability: number;
+  consequence: number;
+  risk: number;
+}
+
 export interface LearnParams {
   first: string;
   second: string;
@@ -203,6 +378,44 @@ export interface LearnSeries {
   vel_mm_yr: number;
   vel_product_mm_yr: number | null;
   vel_std_mm_yr: number | null;
+}
+
+export interface LearnIonoDate {
+  date: string;
+  local_hour: number | null;
+  esd_lines: number;
+  iono_mm_per_km: [number, number] | null;
+  iono_se_mm_per_km: [number, number] | null;
+  iono_cells: number | null;
+  seam_rad: Record<string, number> | null;
+  seam_consistency: Record<string, number> | null;
+  anchor: string | null;
+}
+
+export interface LearnIonosphere {
+  stack_id: string;
+  track: string;
+  pass_direction?: string;
+  reference_date: string;
+  lon: number;
+  lat: number;
+  wavelength_m: number;
+  mm_per_rad: number;
+  ionosphere: string;
+  ionosphere_model: string | null;
+  ionosphere_smooth_m: number | null;
+  subswath: string | null;
+  seams: { col: number; subswath: string }[];
+  shape: [number, number];
+  size_km: [number, number];
+  has_field: boolean;
+  dates: LearnIonoDate[];
+}
+
+export interface LearnIonoField {
+  date: string;
+  shape: [number, number];
+  mm: number[];
 }
 
 export interface GroundwaterSummary {
@@ -820,6 +1033,52 @@ export const api = {
     request<LearnPoints>(`${P(name)}/learn/${stack}/points?${new URLSearchParams(Object.entries(p).map(([k, v]) => [k, String(v)])).toString()}`),
   learnSeries: (name: string, pid: string, uid: string) =>
     request<LearnSeries>(`${P(name)}/learn/series/${encodeURIComponent(pid)}/${encodeURIComponent(uid)}`),
+  learnIonosphere: (name: string, stack: string) => request<LearnIonosphere>(`${P(name)}/learn/${stack}/ionosphere`),
+  learnIonoField: (name: string, stack: string, date: string) =>
+    request<LearnIonoField>(`${P(name)}/learn/${stack}/ionosphere?date=${encodeURIComponent(date)}`),
+  behaviour: (name: string, pid: string) => request<BehaviourStatus>(`${P(name)}/products/${pid}/behaviour`),
+  analysisRun: (name: string, pid: string, kind: AnalysisKind) =>
+    request<{ pid: number }>(`${P(name)}/products/${pid}/analysis/${kind}`, json({ params: {} })),
+  behaviourCells: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; classes: string[]; first_date: string; last_date: string; hazard_created?: string }>(`${P(name)}/products/${pid}/behaviour/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/behaviour/cells.bin`);
+    if (!r.ok) throw new Error(`behaviour: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  behaviourCell: (name: string, pid: string, i: number) => request<BehaviourCell>(`${P(name)}/products/${pid}/behaviour/cells/${i}`),
+  riskBuildings: async (name: string, pid: string) => {
+    const meta = await request<{ origin: [number, number]; n: number; record: number; sources: string[]; warnings: string[] }>(`${P(name)}/products/${pid}/risk/buildings`);
+    const r = await fetch(`${P(name)}/products/${pid}/risk/buildings.bin`);
+    if (!r.ok) throw new Error(`risk: ${r.statusText}`);
+    return { meta, view: new DataView(await r.arrayBuffer()) };
+  },
+  lineSegments: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; kinds: Record<string, string> }>(`${P(name)}/products/${pid}/lines/segments`);
+    const r = await fetch(`${P(name)}/products/${pid}/lines/segments.bin`);
+    if (!r.ok) throw new Error(`lines: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  lineProfile: (name: string, pid: string, line: number) => request<LineProfile>(`${P(name)}/products/${pid}/lines/${line}`),
+  consolidationCells: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; summary: ConsolidationSummary }>(`${P(name)}/products/${pid}/consolidation/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/consolidation/cells.bin`);
+    if (!r.ok) throw new Error(`consolidation: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  decomposeCells: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; fields: string[]; dlon: number; dlat: number; summary: DecomposeSummary }>(`${P(name)}/products/${pid}/decompose/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/decompose/cells.bin`);
+    if (!r.ok) throw new Error(`decompose: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  geologyCells: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; summary: GeologySummary }>(`${P(name)}/products/${pid}/geology/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/geology/cells.bin`);
+    if (!r.ok) throw new Error(`geology: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
+  consolidationCell: (name: string, pid: string, i: number) => request<ConsolidationCell>(`${P(name)}/products/${pid}/consolidation/cells/${i}`),
+  riskBuilding: (name: string, pid: string, i: number) => request<RiskBuilding>(`${P(name)}/products/${pid}/risk/buildings/${i}`),
   hazardCell: (name: string, pid: string, i: number) => request<HazardCell>(`${P(name)}/products/${pid}/hazard/cells/${i}`),
   hazardFile: (name: string, pid: string, file: string) => `${P(name)}/products/${pid}/hazard/files/${file}`,
   monitor: (name: string) => request<Monitoring>(`${P(name)}/monitor`),

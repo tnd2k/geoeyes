@@ -434,7 +434,8 @@ steps are needed before the map can support decisions.
 - **Method:**
   - cross the hazard with buildings, networks and population: risk = hazard × exposure × vulnerability (Fell et al.
     2008);
-  - see Fernández-Torres et al. (2020, 2022) for the subsidence-risk index of Mexico City.
+  - see Fernández-Torres et al. (2020, 2022) for the subsidence-risk index of Mexico City;
+  - a first version for buildings is implemented: [behaviour-and-risk.md](behaviour-and-risk.md) §3.
 - **Output:** risk zoning at planning scale.
 
 ## 7. First results on the GeoEyes projects

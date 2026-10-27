@@ -1,6 +1,7 @@
 // Messages written by the server (geoeyes.hazard, geoeyes.validation.gnss, the controller): exact texts and
 // patterns ($1, $2 ... keep the values of the English message).
 export const SERVER: Record<string, string> = {
+  "no building analysis: hazards from the cells only": "chưa có phân tích công trình: nguy cơ chỉ lấy từ các ô",
   "scene mean": "trung bình toàn cảnh",
   "rainfall: the hazard analysis": "lượng mưa: lấy từ phân tích nguy cơ",
   "IRLS (GeoEyes, weights = coherence²)": "IRLS (GeoEyes, trọng số = độ kết hợp²)",
@@ -28,6 +29,10 @@ export const SERVER: Record<string, string> = {
 };
 
 export const SERVER_PATTERNS: [RegExp, string][] = [
+  [/^(\d+) cells change on (\S+): a change shared by so many cells points to that acquisition \(atmosphere, unwrapping\) rather than to the ground; check it before reading them as onsets$/,
+    "$1 ô cùng thay đổi vào ngày $2: một thay đổi chung cho nhiều ô như vậy thường do lần chụp đó (khí quyển, giải chập pha) chứ không phải mặt đất; hãy kiểm tra trước khi coi là khởi phát"],
+  [/^heights known for (\d+)% of the buildings: the others count ([\d.]+) floors$/,
+    "chỉ biết chiều cao của $1% công trình: các công trình còn lại được tính $2 tầng"],
   [/^rainfall coupling not assessed: ([\d.]+) months \/ (\d+) epochs \(needs ([\d.]+) months and (\d+) epochs\)$/,
     "chưa đánh giá liên hệ mưa – biến dạng: $1 tháng / $2 lần chụp (cần $3 tháng và $4 lần chụp)"],
   [/^too few moving \((\d+)\) or stable \((\d+)\) cells at ([\d.]+) mm\/yr to train a model: the rates here span (\S+) … (\S+) mm\/yr \(P5–P95, reference: ([^)]*)\); label_rate = ([\d.-]+) labels 10 % of the cells as moving, but that is below the measurement noise \(2σ ≈ ([\d.]+) mm\/yr\): the labels would be mostly noise, and this area may simply be too stable for a susceptibility model$/,
@@ -58,4 +63,10 @@ export const SERVER_PATTERNS: [RegExp, string][] = [
   [/^(\d+) segments re-joined \(jumps or equipment changes: (.*)\)$/, "đã nối lại $1 đoạn (bước nhảy hoặc thay thiết bị: $2)"],
   [/^(\d+) days in segments shorter than (\d+) days dropped$/, "đã bỏ $1 ngày thuộc các đoạn ngắn hơn $2 ngày"],
   [/^(\d+) new acquisition\(s\) on ASF$/, "$1 ảnh mới trên ASF"],
+  [/^(.+): no common period with (.+); constant rates are assumed$/, "$1: không có thời gian chung với $2; giả định vận tốc không đổi"],
+  [/^(.+): only (\d+) common days$/, "$1: chỉ có $2 ngày chung"],
+  [/^thickness from the open global grid \(depth to bedrock, capped at 50 m\), not the soft layer: set \[postprocess\.geology\] raster or boreholes for a real map$/, "bề dày lấy từ lưới toàn cầu mở (chiều sâu tới đá gốc, giới hạn 50 m), không phải lớp đất yếu: khai báo [postprocess.geology] raster hoặc boreholes để có bản đồ thật"],
+  [/^(\d+) % of the cells at the 50 m cap: the grid cannot tell them apart$/, "$1 % số ô chạm giới hạn 50 m: lưới không phân biệt được chúng"],
+  [/^(.+): its velocities tilt by ([\d.]+) mm\/yr over the common area, the other product's much less: likely a ramp, read as east-west motion \(deramp = plane\)$/,
+    "$1: vận tốc nghiêng $2 mm/năm trên vùng chung, sản phẩm kia ít hơn nhiều: nhiều khả năng là mặt nghiêng (ramp), sẽ bị đọc thành chuyển dịch đông–tây (deramp = plane)"],
 ];

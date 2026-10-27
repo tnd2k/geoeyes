@@ -152,7 +152,7 @@ function Shell() {
           {route.page === "compose" && <Compose ws={ws.data} />}
           {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
           {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
-          {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} />}
+          {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} layer={route.view} />}
         </main>
       </div>
     </div>

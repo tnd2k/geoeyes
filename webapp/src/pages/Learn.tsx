@@ -11,6 +11,10 @@ import { api, type LearnPairMeta, type LearnParams, type LearnSeries, type Learn
 import { t, ts } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
+import { BehaviourChapter } from "./LearnBehaviour";
+import { GeometryChapter } from "./LearnGeometry";
+import { IonosphereChapter } from "./LearnIonosphere";
+import { LinesChapter } from "./LearnLines";
 import { HazardChapter } from "./LearnHazard";
 
 type RGB = [number, number, number];
@@ -679,9 +683,16 @@ function sizeFor(s: LearnStack, km: number) {
   return { rows, cols, looks_az: Math.max(1, Math.round(target / az)), looks_rg: Math.max(1, Math.round(target / gr)) };
 }
 
-/** The Principles page: chapter 1 (one pair, below) or chapter 2 (hazard zoning, pages/LearnHazard.tsx). */
-export function Learn({ chapter, ...rest }: { ws: Workspace | undefined; project?: string; stack?: string; step?: number; chapter?: "hazard" }) {
-  return chapter === "hazard" ? <HazardChapter ws={rest.ws} step={rest.step} /> : <PairChapter {...rest} />;
+/** The Principles page: chapter 1 (one pair, below), 2 (hazard zoning, pages/LearnHazard.tsx), 3 (kinds of motion
+ * and risk, pages/LearnBehaviour.tsx), 4 (infrastructure lines and consolidation, pages/LearnLines.tsx), 5 (two
+ * geometries and soft soil, pages/LearnGeometry.tsx), 6 (ionosphere and subswath seams, pages/LearnIonosphere.tsx). */
+export function Learn({ chapter, ...rest }: { ws: Workspace | undefined; project?: string; stack?: string; step?: number; chapter?: "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere" }) {
+  if (chapter === "hazard") return <HazardChapter ws={rest.ws} step={rest.step} />;
+  if (chapter === "behaviour") return <BehaviourChapter ws={rest.ws} step={rest.step} />;
+  if (chapter === "lines") return <LinesChapter ws={rest.ws} step={rest.step} />;
+  if (chapter === "geometry") return <GeometryChapter ws={rest.ws} step={rest.step} />;
+  if (chapter === "ionosphere") return <IonosphereChapter ws={rest.ws} step={rest.step} />;
+  return <PairChapter {...rest} />;
 }
 
 function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; project?: string; stack?: string; step?: number }) {

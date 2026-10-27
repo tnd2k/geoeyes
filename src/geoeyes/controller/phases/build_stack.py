@@ -291,7 +291,9 @@ def _build(ctx, t, dem, aoi, out, prev, keep):
             ids = [i for i in ids if any(i.endswith(sw) or f"_{sw}" in i for sw in ctx.track.subswaths)]
         orbits = PoeorbProvider(ctx.workspace.cache_dir("orbits"), token=load_settings().earthdata_token or None)
         return build_s1_stack(t["scenes"], ids, t["reference"], dem, out, aoi=aoi, track_id=ctx.track_id,
-                              orbits=orbits, overwrite=True, previous=prev, reuse_dates=keep)
+                              orbits=orbits, overwrite=True, previous=prev, reuse_dates=keep,
+                              ionosphere=ctx.cfg.stack.ionosphere, ionosphere_model=ctx.cfg.stack.ionosphere_model,
+                              ionosphere_smooth_m=ctx.cfg.stack.ionosphere_smooth_m)
     from geoeyes.processing.stack.native.stripmap import Scene, build_stripmap_stack
     scenes = {}
     for d, p in t["scenes"].items():

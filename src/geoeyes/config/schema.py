@@ -145,6 +145,13 @@ class StackSection(_Section):
     # native: new scenes are coregistered and appended, the unchanged dates copied from the previous build;
     # a new reference (master), AOI, DEM or subswath set always coregisters every date again
     incremental: bool = True
+    # Sentinel-1 native: "split_spectrum" estimates the ionospheric phase of every secondary by range
+    # split-spectrum and removes it (geoeyes.processing.stack.native.iono; dusk passes near the equatorial anomaly)
+    ionosphere: Literal["none", "split_spectrum"] = "none"
+    # the ionosphere is estimated over the whole bursts: a plane around the AOI with Gaussian weights of
+    # ionosphere_smooth_m (default), a quadratic surface or a plane over the bursts, or a Gaussian surface
+    ionosphere_model: Literal["local", "quadratic", "plane", "smooth"] = "local"
+    ionosphere_smooth_m: float = Field(10000.0, gt=0)
     byteswap: int = 1
     options: dict[str, Any] = {}                          # engine/sensor-specific extras
 
@@ -244,6 +251,18 @@ class PostprocessSection(_Section):
     # AI (geoeyes susceptibility / geoeyes forecast): see geoeyes.ml and docs/en/research/ai-*.md
     susceptibility: dict[str, Any] = {}
     forecast: dict[str, Any] = {}
+    # kinds of motion of the hazard cells, risk to buildings: geoeyes.ml.behaviour / geoeyes.ml.risk and
+    # docs/en/research/behaviour-and-risk.md
+    behaviour: dict[str, Any] = {}
+    risk: dict[str, Any] = {}
+    # linear infrastructure and consolidation: geoeyes.ml.lines / geoeyes.ml.consolidation and
+    # docs/en/research/lines-and-consolidation.md
+    lines: dict[str, Any] = {}
+    consolidation: dict[str, Any] = {}
+    # vertical and east-west motion from two geometries, soft-soil thickness: geoeyes.ml.decompose /
+    # geoeyes.ml.geology and docs/en/research/two-geometries-and-soft-soil.md
+    decompose: dict[str, Any] = {}
+    geology: dict[str, Any] = {}
 
 
 class ValidationSection(_Section):

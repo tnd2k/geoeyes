@@ -122,7 +122,7 @@ def evaluate(x: pd.DataFrame, y: np.ndarray, blocks: np.ndarray, params: Suscept
 
 
 def run(product: Path, out: Path, params: SusceptibilityParams, *, hazard_dir: Path, dem_source: str,
-        dem_cache: Path, overture_cache: Path, progress=None) -> dict:
+        dem_cache: Path, overture_cache: Path, geology: dict | None = None, progress=None) -> dict:
     """Layers, labels, models and the susceptibility map of a product into ``out``."""
     say = progress or (lambda m: log.info("%s", m))
     hz_file = hazard_dir / "hazard.json"
@@ -134,7 +134,10 @@ def run(product: Path, out: Path, params: SusceptibilityParams, *, hazard_dir: P
     say(f"grid of {len(grid)} cells ({grid.cell_m:g} m) over the product extent")
 
     layers_file = out / "layers.parquet"
-    stamp = {"bounds": [round(v, 6) for v in grid.bounds], "cell_m": grid.cell_m, "lat0": round(grid.lat0, 8)}
+    stamp = {"bounds": [round(v, 6) for v in grid.bounds], "cell_m": grid.cell_m, "lat0": round(grid.lat0, 8),
+             # a new soft-soil source rebuilds the layers
+             "geology": [geology["params"].raster, geology["params"].boreholes, geology["params"].open_fallback]
+             if geology else None}
     if layers_file.exists() and (out / "layers.json").exists() and \
             json.loads((out / "layers.json").read_text(encoding="utf-8")).get("grid") == stamp:
         table = pd.read_parquet(layers_file)
@@ -142,7 +145,8 @@ def run(product: Path, out: Path, params: SusceptibilityParams, *, hazard_dir: P
         say("layers: reused")
     else:
         table, warnings = build_layers(grid, dem_source=dem_source, dem_cache=dem_cache,
-                                       overture_cache=overture_cache, hazard_dir=hazard_dir, progress=say)
+                                       overture_cache=overture_cache, hazard_dir=hazard_dir, geology=geology,
+                                       progress=say)
         out.mkdir(parents=True, exist_ok=True)
         table.to_parquet(layers_file, index=False)
         atomic_write_json(out / "layers.json", {"grid": stamp, "warnings": warnings})

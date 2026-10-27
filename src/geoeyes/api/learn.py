@@ -64,3 +64,9 @@ def points(project: ProjectLayout, stack_id: str, query: dict) -> dict:
 
 def series(project: ProjectLayout, product_id: str, uid: str) -> dict:
     return point_series(project.root, product_id, uid)
+
+
+def ionosphere(project: ProjectLayout, stack_id: str, date: str | None = None) -> dict:
+    from geoeyes.learn import ionosphere as iono
+    p = _stack(project, stack_id)
+    return iono.field(p, date) if date else iono.summary(p)

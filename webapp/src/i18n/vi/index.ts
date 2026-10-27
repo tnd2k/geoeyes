@@ -7,9 +7,10 @@ import { APP } from "./app";
 import { EXPLORER } from "./explorer";
 import { HAZARD } from "./hazard";
 import { LEARN } from "./learn";
+import { LEARN_IONOSPHERE } from "./learnIonosphere";
 import { PROJECT } from "./project";
 import { SERVER, SERVER_PATTERNS } from "./server";
 import { WORKSPACE } from "./workspace";
 
-export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...SERVER };
+export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...LEARN_IONOSPHERE, ...SERVER };
 export const VI_PATTERNS: [RegExp, string][] = SERVER_PATTERNS;

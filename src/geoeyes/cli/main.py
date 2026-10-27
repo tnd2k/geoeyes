@@ -219,7 +219,10 @@ def _cmd_ml(kind: str):
         if not ids:
             print("no product yet: run the project first (geoeyes run)", file=sys.stderr)
             return 1
-        fn = {"susceptibility": ml.run_susceptibility, "forecast": ml.run_forecast, "buildings": ml.run_buildings}[kind]
+        fn = {"susceptibility": ml.run_susceptibility, "forecast": ml.run_forecast, "buildings": ml.run_buildings,
+              "behaviour": ml.run_behaviour, "risk": ml.run_risk, "lines": ml.run_lines,
+              "consolidation": ml.run_consolidation, "decompose": ml.run_decompose,
+              "geology": ml.run_geology}[kind]
         for pid in ids:
             s = fn(cfg, project, ws, pid, _overrides(args.set), progress=lambda msg: print(msg, flush=True))
             print(f"{pid}: {kind} done ({s.get('chosen')}) -> {project.analysis(kind, pid)}")
@@ -325,7 +328,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="override a [validation.gnss] parameter, e.g. --set radius_m=200 (repeatable)")
     for kind, help_ in (("susceptibility", "AI: ground-motion susceptibility from thematic layers (needs hazard)"),
                         ("forecast", "AI: deformation forecast of the cells, backtested against baselines"),
-                        ("buildings", "InSAR velocity and tilt of every building (Overture footprints)")):
+                        ("buildings", "InSAR velocity and tilt of every building (Overture footprints)"),
+                        ("behaviour", "kind of motion of every hazard cell and the date of a change (needs hazard)"),
+                        ("risk", "risk to every building: hazard x consequence (needs hazard; buildings if run)"),
+                        ("lines", "InSAR profiles along dykes, railways and main roads (OpenStreetMap)"),
+                        ("consolidation", "final and remaining settlement of the consolidating cells (needs hazard)"),
+                        ("decompose", "vertical and east-west motion with a product seen from another direction"),
+                        ("geology", "soft-soil thickness of the cells against their subsidence (needs hazard)")):
         ml = add(kind, _cmd_ml(kind), selection=False, help_=help_)
         ml.add_argument("--product", help="product id (default: the latest product of each track)")
         ml.add_argument("--track", action="append", help="track id (repeatable)")

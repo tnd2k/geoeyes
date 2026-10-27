@@ -457,7 +457,8 @@ lại phải hoàn thành trước khi bản đồ có thể làm căn cứ ra q
 - **Phương pháp:**
   - chồng xếp bản đồ nguy cơ với công trình, mạng lưới hạ tầng và dân cư: rủi ro = nguy cơ × mức độ phơi nhiễm × tính
     dễ tổn thương (Fell et al. 2008);
-  - tham khảo chỉ số rủi ro sụt lún của Mexico City trong Fernández-Torres et al. (2020, 2022).
+  - tham khảo chỉ số rủi ro sụt lún của Mexico City trong Fernández-Torres et al. (2020, 2022);
+  - phiên bản đầu tiên cho công trình đã được triển khai: [behaviour-and-risk.md](behaviour-and-risk.md) §3.
 - **Đầu ra:** phân vùng rủi ro ở quy mô quy hoạch.
 
 ## 7. Kết quả đầu tiên trên các dự án GeoEyes

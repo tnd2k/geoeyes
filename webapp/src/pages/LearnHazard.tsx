@@ -9,15 +9,15 @@ import { ChapterNav } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Cells, type RGB, type View } from "./Hazard";
+import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Behaviour, type Cells, type Consolidation, type Geology, type RGB, type View } from "./Hazard";
 
 // ------------------------------------------------------------------ figures
-type MapKind = View | "points" | "slope";
+export type MapKind = View | "points" | "slope";
 
-const VIRIDIS: RGB[] = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+export const VIRIDIS: RGB[] = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
 const SLOPE: RGB[] = [[26, 152, 80], [145, 207, 96], [254, 224, 139], [252, 141, 89], [215, 48, 39]];
 
-function ramp(stops: RGB[], x: number): RGB {
+export function ramp(stops: RGB[], x: number): RGB {
   const v = Math.min(1, Math.max(0, x)) * (stops.length - 1);
   const i = Math.min(stops.length - 2, Math.floor(v));
   const f = v - i;
@@ -25,7 +25,7 @@ function ramp(stops: RGB[], x: number): RGB {
 }
 
 /** The cells of the zoning on a canvas, as squares on a local metric grid (no base map). */
-function CellMap({ c, kind }: { c: Cells; kind: MapKind }) {
+export function CellMap({ c, kind, b, cons, soil }: { c: Cells; kind: MapKind; b?: Behaviour; cons?: Consolidation; soil?: Geology }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const F = c.meta.fields.length;
   const g = (i: number, name: string) => c.buf[i * F + c.f[name]];
@@ -64,14 +64,14 @@ function CellMap({ c, kind }: { c: Cells; kind: MapKind }) {
         const v = g(i, "slope_deg");
         col = Number.isFinite(v) ? ramp(SLOPE, v / 30) : [75, 90, 115];
       } else {
-        const [r, gg, b, al] = cellColor(c, i, kind);
-        col = [r, gg, b];
+        const [r, gg, bb, al] = cellColor(c, i, kind, b, cons, soil);
+        col = [r, gg, bb];
         a = al / 255;
       }
       ctx.fillStyle = rgb(col, a);
       ctx.fillRect(Math.floor((g(i, "dlon") * kx - geo.x0) * s), Math.floor(H - (g(i, "dlat") * 110_540 - geo.y0 + cell) * s), px, px);
     }
-  }, [c, kind, geo, Wd, H, s, cell]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [c, kind, b, cons, soil, geo, Wd, H, s, cell]); // eslint-disable-line react-hooks/exhaustive-deps
   const km = Math.max(1, Math.round(span / 5000));
   return (
     <div className="relative w-full max-w-[620px] overflow-hidden rounded-lg border border-line">
@@ -84,7 +84,7 @@ function CellMap({ c, kind }: { c: Cells; kind: MapKind }) {
 }
 
 /** A histogram of ``values`` with vertical threshold lines. */
-function Histogram({
+export function Histogram({
   values,
   lo,
   hi,
@@ -147,7 +147,7 @@ function Histogram({
   );
 }
 
-function ColorBar({ stops, lo, hi, unit }: { stops: RGB[]; lo: string; hi: string; unit: string }) {
+export function ColorBar({ stops, lo, hi, unit }: { stops: RGB[]; lo: string; hi: string; unit: string }) {
   return (
     <div className="mt-1 max-w-[360px]">
       <div className="h-2 rounded-sm" style={{ background: `linear-gradient(90deg,${stops.map((c) => rgb(c)).join(",")})` }} />
@@ -519,7 +519,7 @@ const STEPS: Step[] = [
 ];
 
 // ------------------------------------------------------------------ page
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-6">
       <h2 className="m-0 border-b border-line pb-1.5 text-[16px] font-semibold text-ink">{t(title)}</h2>

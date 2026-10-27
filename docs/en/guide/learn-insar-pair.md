@@ -1,6 +1,6 @@
 # Learning path: one interferometric pair, step by step
 
-The **Principles** page of the web app has two chapters:
+The **Principles** page of the web app has five chapters:
 
 - **Chapter 1 · One interferometric pair** (this guide) takes a newcomer from two single SLC scenes to a velocity.
   It uses one pair of an existing stack and a small area (1–5 km), and shows what every processing step does to
@@ -10,6 +10,18 @@ The **Principles** page of the web app has two chapters:
   damage potential, hazard matrix, rainfall coupling and groundwater coupling. Method and sources:
   [rainfall-insar-hazard.md](../research/rainfall-insar-hazard.md) and
   [groundwater-insar.md](../research/groundwater-insar.md).
+- **Chapter 3 · Kinds of motion and risk** (`#/learn-behaviour/<step>`) explains, in seven steps, the kinds of
+  motion of the cells (seven models chosen by BIC, the date of a change, the dates shared by many cells) and the
+  risk to buildings (hazard × exposure × vulnerability). Method and sources:
+  [behaviour-and-risk.md](../research/behaviour-and-risk.md).
+- **Chapter 4 · Infrastructure and consolidation** (`#/learn-lines/<step>`) explains, in six steps, the InSAR
+  profiles along dykes, railways and main roads (stations, angular distortion β, the lines that bend) and the
+  consolidation settlement still to come (the exponential curve, the Asaoka construction, the forecast check).
+  Method and sources: [lines-and-consolidation.md](../research/lines-and-consolidation.md).
+- **Chapter 5 · Two geometries and soft soil** (`#/learn-geometry/<step>`) explains, in six steps, why one line of
+  sight cannot tell sinking from sideways motion, the decomposition into vertical and east-west with an ascending
+  and a descending product, the error of a single geometry, and the soft-soil thickness against the subsidence and
+  the consolidation. Method and sources: [two-geometries-and-soft-soil.md](../research/two-geometries-and-soft-soil.md).
 
 - **Before unwrapping**, it follows the steps of the old `flat_earth_gui`:
   - raw interferogram;

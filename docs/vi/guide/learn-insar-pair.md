@@ -1,6 +1,6 @@
 # Lộ trình học: một cặp giao thoa, từng bước một
 
-Trang **Nguyên lý** của ứng dụng web có hai chương:
+Trang **Nguyên lý** của ứng dụng web có năm chương:
 
 - **Chương 1 · Một cặp giao thoa** (hướng dẫn này) dẫn người mới từ hai cảnh SLC đơn lẻ đến vận tốc. Chương dùng một
   cặp ảnh của một chồng ảnh có sẵn và một vùng nhỏ (1–5 km), rồi cho thấy mỗi bước xử lý làm gì với dữ liệu.
@@ -9,6 +9,18 @@ Trang **Nguyên lý** của ứng dụng web có hai chương:
   trận nguy cơ, liên hệ với mưa và liên hệ với nước ngầm. Phương pháp và nguồn:
   [rainfall-insar-hazard.md](../research/rainfall-insar-hazard.md) và
   [groundwater-insar.md](../research/groundwater-insar.md).
+- **Chương 3 · Kiểu chuyển dịch và rủi ro** (`#/learn-behaviour/<bước>`) giải thích qua bảy bước các kiểu chuyển dịch
+  của ô (bảy mô hình chọn theo BIC, thời điểm thay đổi, các ngày thay đổi chung cho nhiều ô) và rủi ro công trình
+  (nguy cơ × mức phơi nhiễm × mức dễ tổn thương). Phương pháp và nguồn:
+  [behaviour-and-risk.md](../research/behaviour-and-risk.md).
+- **Chương 4 · Hạ tầng tuyến và cố kết** (`#/learn-lines/<bước>`) giải thích qua sáu bước trắc dọc InSAR theo đê,
+  đường sắt và đường chính (trạm, góc biến dạng β, các tuyến bị uốn) và độ lún cố kết còn lại (đường cong hàm mũ,
+  biểu đồ Asaoka, kiểm chứng bằng dự báo). Phương pháp và nguồn:
+  [lines-and-consolidation.md](../research/lines-and-consolidation.md).
+- **Chương 5 · Hai hình học và đất yếu** (`#/learn-geometry/<bước>`) giải thích qua sáu bước vì sao một hướng nhìn
+  không phân biệt được lún với dịch ngang, cách tách thành phần thẳng đứng và đông–tây bằng một sản phẩm quỹ đạo lên
+  và một sản phẩm quỹ đạo xuống, sai số của một hình học đơn lẻ, và bề dày đất yếu so với tốc độ lún và cố kết.
+  Phương pháp và nguồn: [two-geometries-and-soft-soil.md](../research/two-geometries-and-soft-soil.md).
 
 - **Trước khi giải chập pha**, trang đi theo các bước của công cụ cũ `flat_earth_gui`:
   - giao thoa đồ thô;

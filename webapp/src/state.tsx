@@ -6,9 +6,9 @@ export type Route =
   | { page: "explorer" }
   | { page: "new" }
   | { page: "compose" }
-  | { page: "hazard"; name?: string; product?: string; cell?: number }
+  | { page: "hazard"; name?: string; product?: string; cell?: number; view?: string }
   | { page: "ai"; name?: string; product?: string; tab?: string }
-  | { page: "learn"; name?: string; stack?: string; step?: number; chapter?: "hazard" }
+  | { page: "learn"; name?: string; stack?: string; step?: number; chapter?: "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere" }
   | { page: "project"; name: string; tab?: string };
 
 function parse(hash: string): Route {
@@ -16,11 +16,18 @@ function parse(hash: string): Route {
   if (parts[0] === "explorer") return { page: "explorer" };
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "compose") return { page: "compose" };
-  if (parts[0] === "learn-hazard") return { page: "learn", chapter: "hazard", step: parts[1] ? Number(parts[1]) : undefined };
+  if (["learn-hazard", "learn-behaviour", "learn-lines", "learn-geometry", "learn-ionosphere"].includes(parts[0]))
+    return { page: "learn", chapter: parts[0].slice(6) as "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere", step: parts[1] ? Number(parts[1]) : undefined };
   if (parts[0] === "learn")
     return { page: "learn", name: parts[1] || undefined, stack: parts[2] || undefined, step: parts[3] ? Number(parts[3]) : undefined };
   if (parts[0] === "ai") return { page: "ai", name: parts[1] || undefined, product: parts[2] || undefined, tab: parts[3] || undefined };
-  if (parts[0] === "hazard") return { page: "hazard", name: parts[1] || undefined, product: parts[2] || undefined, cell: parts[3] ? Number(parts[3]) : undefined };
+  if (parts[0] === "hazard") {
+    // #/hazard/<project>/<product>[/<layer>][/<cell>]
+    const rest = parts.slice(3).filter(Boolean);
+    const num = rest.find((p) => /^\d+$/.test(p));
+    const view = rest.find((p) => !/^\d+$/.test(p));
+    return { page: "hazard", name: parts[1] || undefined, product: parts[2] || undefined, cell: num != null ? Number(num) : undefined, view };
+  }
   if (parts[0] === "project" && parts[1]) return { page: "project", name: parts[1], tab: parts[2] };
   return { page: "overview" };
 }
@@ -29,7 +36,7 @@ export function href(r: Route): string {
   if (r.page === "explorer") return "#/explorer";
   if (r.page === "new") return "#/new";
   if (r.page === "compose") return "#/compose";
-  if (r.page === "learn" && r.chapter === "hazard") return `#/learn-hazard${r.step != null ? `/${r.step}` : ""}`;
+  if (r.page === "learn" && r.chapter) return `#/learn-${r.chapter}${r.step != null ? `/${r.step}` : ""}`;
   if (r.page === "learn")
     return r.name
       ? `#/learn/${encodeURIComponent(r.name)}${r.stack ? `/${encodeURIComponent(r.stack)}${r.step != null ? `/${r.step}` : ""}` : ""}`
@@ -38,7 +45,7 @@ export function href(r: Route): string {
     return r.name && r.product ? `#/ai/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.tab ? `/${r.tab}` : ""}` : "#/ai";
   if (r.page === "hazard")
     return r.name && r.product
-      ? `#/hazard/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.cell != null ? `/${r.cell}` : ""}`
+      ? `#/hazard/${encodeURIComponent(r.name)}/${encodeURIComponent(r.product)}${r.view ? `/${r.view}` : ""}${r.cell != null ? `/${r.cell}` : ""}`
       : "#/hazard";
   if (r.page === "project") return `#/project/${encodeURIComponent(r.name)}${r.tab ? `/${r.tab}` : ""}`;
   return "#/";

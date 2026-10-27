@@ -71,6 +71,7 @@ class BurstMetadata:
     orbit: StateVectors           # annotation orbit (replace with precise POEORB when available)
     grid: GeolocationGrid
     incidence_mid_deg: float
+    range_bandwidth: float = 0.0  # processed range bandwidth (Hz), 0 = unknown
 
     # ------------------------------------------------------------------ derived geometry
     @property
@@ -231,6 +232,10 @@ def read_metadata(xml_path: str | Path, subswath: str, polarization: str, burst_
         height=np.array([float(p.findtext("height")) for p in sel]),
         incidence_deg=np.array([float(p.findtext("incidenceAngle")) for p in sel]))
 
+    bandwidth = 0.0
+    for sp in ann.findall("imageAnnotation/processingInformation/swathProcParamsList/swathProcParams"):
+        if (sp.findtext("swath") or "").upper() == subswath.upper():
+            bandwidth = float(sp.findtext("rangeProcessing/processingBandwidth") or 0.0)
     header = ann.find("adsHeader")
     return BurstMetadata(
         slc_name=slc_name or Path(xml_path).stem.rsplit("_", 1)[0],
@@ -243,7 +248,7 @@ def read_metadata(xml_path: str | Path, subswath: str, polarization: str, burst_
         range_pixel_spacing=_f(ii, "rangePixelSpacing"), azimuth_pixel_spacing=_f(ii, "azimuthPixelSpacing"),
         lines=lines, samples=samples, sensing_start=start, first_valid_sample=fvs, last_valid_sample=lvs,
         doppler=_nearest(dcs, mid), fm_rate=_nearest(fms, mid), orbit=orbit, grid=grid,
-        incidence_mid_deg=_f(ii, "incidenceAngleMidSwath"))
+        incidence_mid_deg=_f(ii, "incidenceAngleMidSwath"), range_bandwidth=bandwidth)
 
 
 def read_slc(tiff_path: str | Path, window: tuple[int, int, int, int] | None = None) -> np.ndarray:

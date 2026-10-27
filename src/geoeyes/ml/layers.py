@@ -11,6 +11,8 @@ extent, with or without InSAR points. Each layer is a column:
                                                         Overture Maps buildings
 * soil          ``soil_clay``  (g/kg, 0–5 cm)            SoilGrids 2.0
 * climate       ``rain_annual_mm``                      the rainfall climatology of the hazard analysis
+* geology       ``soft_soil_m``                          soft-soil thickness (``geoeyes.ancillary.geology``: project
+                                                        raster, boreholes, or the open grid of Pelletier et al. 2016)
 
 A layer that cannot be read is left empty (NaN) and named in the warnings: the models skip empty columns.
 """
@@ -42,6 +44,7 @@ LAYERS = {   # column -> (group, label, unit) — the web app shows them as them
     "bld_count": ("buildings", "Buildings per cell", "count"), "bld_cover": ("buildings", "Roof cover", "fraction"),
     "bld_height_m": ("buildings", "Building height", "m"), "soil_clay": ("soil", "Clay content (0–5 cm)", "g/kg"),
     "rain_annual_mm": ("climate", "Annual rainfall", "mm"),
+    "soft_soil_m": ("geology", "Soft-soil thickness", "m"),
 }
 
 
@@ -175,8 +178,17 @@ def rainfall_layer(grid: Grid, hazard_dir: Path | None) -> dict[str, np.ndarray]
     return {"rain_annual_mm": ann[r, c].astype(np.float32)}
 
 
+def geology_layer(grid: Grid, geology: dict | None) -> dict[str, np.ndarray]:
+    """``geology``: the keyword arguments of ``geoeyes.ancillary.geology.thickness`` (params, project_dir, cache,
+    token); None leaves the layer empty."""
+    if geology is None:
+        return {"soft_soil_m": np.full(len(grid), np.nan, np.float32)}
+    from geoeyes.ancillary.geology import thickness
+    return {"soft_soil_m": thickness(grid.lon, grid.lat, **geology)["thickness_m"].astype(np.float32)}
+
+
 def build_layers(grid: Grid, *, dem_source: str, dem_cache: Path, overture_cache: Path, hazard_dir: Path | None,
-                 progress=None) -> tuple[pd.DataFrame, list[str]]:
+                 geology: dict | None = None, progress=None) -> tuple[pd.DataFrame, list[str]]:
     """Every layer on the grid; returns the table and the warnings (layers that could not be read)."""
     say = progress or (lambda m: log.info("%s", m))
     table = pd.DataFrame({"kx": grid.kx, "ky": grid.ky, "lon": grid.lon, "lat": grid.lat})
@@ -185,7 +197,8 @@ def build_layers(grid: Grid, *, dem_source: str, dem_cache: Path, overture_cache
              ("land cover (ESA WorldCover)", lambda: worldcover(grid)),
              ("buildings (Overture Maps)", lambda: building_layers(grid, overture_cache, progress=say)),
              ("soil clay (SoilGrids)", lambda: soil_clay(grid)),
-             ("rainfall climatology", lambda: rainfall_layer(grid, hazard_dir))]
+             ("rainfall climatology", lambda: rainfall_layer(grid, hazard_dir)),
+             ("soft-soil thickness", lambda: geology_layer(grid, geology))]
     for name, fn in steps:
         say(f"layer: {name}")
         try:

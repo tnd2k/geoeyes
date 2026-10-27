@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from geoeyes.api import ai, compare, gnss, hazard, jobs, learn, monitor, points, service, settings
+from geoeyes.api import ai, behaviour, compare, gnss, hazard, jobs, learn, monitor, points, service, settings
 from geoeyes.config.loader import load
 from geoeyes.core.errors import ConfigError, GeoEyesError, LockedError
 from geoeyes.workspace import WorkspaceLayout
@@ -287,6 +287,13 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from None
 
+    @app.get("/api/projects/{name}/learn/{stack_id}/ionosphere")
+    def learn_ionosphere(name: str, stack_id: str, date: str | None = None):
+        try:
+            return learn.ionosphere(project(name), stack_id, date)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from None
+
     @app.get("/api/projects/{name}/learn/series/{pid}/{uid}")
     def learn_series(name: str, pid: str, uid: str):
         product(name, pid)
@@ -364,6 +371,107 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def ai_forecast_cell(name: str, pid: str, i: int):
         try:
             return ai.forecast_cell(project(name), pid, i)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    # ------------------------------------------------------------ kinds of motion and risk to buildings
+    @app.get("/api/projects/{name}/products/{pid}/behaviour")
+    def behaviour_status(name: str, pid: str):
+        product(name, pid)
+        return behaviour.status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/analysis/{kind}")
+    def behaviour_start(name: str, pid: str, kind: str, body: dict = Body(default={})):
+        """Run ``geoeyes behaviour`` / ``geoeyes risk`` on the product in the background."""
+        from geoeyes.ml.behaviour import BehaviourParams
+        from geoeyes.ml.risk import RiskParams
+        product(name, pid)
+        from geoeyes.ancillary.geology import GeologyParams
+        from geoeyes.ml.consolidation import ConsolidationParams
+        from geoeyes.ml.decompose import DecomposeParams
+        from geoeyes.ml.lines import LinesParams
+        classes = {"behaviour": BehaviourParams, "risk": RiskParams, "lines": LinesParams,
+                   "consolidation": ConsolidationParams, "decompose": DecomposeParams, "geology": GeologyParams}
+        if kind not in classes:
+            raise HTTPException(404, f"{kind}: {' | '.join(classes)}")
+        overrides = dict(body.get("params") or {})
+        cls = classes[kind]
+        cls.from_dict({**dict(getattr(load(project(name).config).postprocess, kind)), **overrides})     # validate
+        return behaviour.start(ws, name, kind, pid, overrides)
+
+    @app.get("/api/projects/{name}/products/{pid}/behaviour/cells")
+    def behaviour_cells_meta(name: str, pid: str):
+        return _bin(behaviour.behaviour_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/behaviour/cells.bin")
+    def behaviour_cells(name: str, pid: str):
+        return _bin(behaviour.behaviour_cells, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/behaviour/cells/{i}")
+    def behaviour_cell(name: str, pid: str, i: int):
+        try:
+            return behaviour.behaviour_cell(project(name), pid, i)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/risk/buildings")
+    def risk_buildings_meta(name: str, pid: str):
+        return _bin(behaviour.risk_buildings, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/risk/buildings.bin")
+    def risk_buildings(name: str, pid: str):
+        return _bin(behaviour.risk_buildings, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/risk/buildings/{i}")
+    def risk_building(name: str, pid: str, i: int):
+        try:
+            return behaviour.risk_building(project(name), pid, i)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/lines/segments")
+    def line_segments_meta(name: str, pid: str):
+        return _bin(behaviour.line_segments, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/lines/segments.bin")
+    def line_segments(name: str, pid: str):
+        return _bin(behaviour.line_segments, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/lines/{line}")
+    def line_profile(name: str, pid: str, line: int):
+        try:
+            return behaviour.line_profile(project(name), pid, line)
+        except (FileNotFoundError, IndexError) as exc:
+            raise HTTPException(404, str(exc)) from None
+
+    @app.get("/api/projects/{name}/products/{pid}/decompose/cells")
+    def decompose_cells_meta(name: str, pid: str):
+        return _bin(behaviour.decompose_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/decompose/cells.bin")
+    def decompose_cells(name: str, pid: str):
+        return _bin(behaviour.decompose_cells, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/geology/cells")
+    def geology_cells_meta(name: str, pid: str):
+        return _bin(behaviour.geology_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/geology/cells.bin")
+    def geology_cells(name: str, pid: str):
+        return _bin(behaviour.geology_cells, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/consolidation/cells")
+    def consolidation_cells_meta(name: str, pid: str):
+        return _bin(behaviour.consolidation_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/consolidation/cells.bin")
+    def consolidation_cells(name: str, pid: str):
+        return _bin(behaviour.consolidation_cells, name, pid, False)
+
+    @app.get("/api/projects/{name}/products/{pid}/consolidation/cells/{i}")
+    def consolidation_cell(name: str, pid: str, i: int):
+        try:
+            return behaviour.consolidation_cell(project(name), pid, i)
         except (FileNotFoundError, IndexError) as exc:
             raise HTTPException(404, str(exc)) from None
 

@@ -6,8 +6,13 @@
 | Rainfall and InSAR hazard zoning · Mưa và InSAR trong phân vùng nguy cơ | [en/research/rainfall-insar-hazard.md](en/research/rainfall-insar-hazard.md) | [vi/research/rainfall-insar-hazard.md](vi/research/rainfall-insar-hazard.md) |
 | GNSS validation and calibration · Kiểm định và hiệu chỉnh bằng GNSS | [en/research/gnss-insar-calibration.md](en/research/gnss-insar-calibration.md) | [vi/research/gnss-insar-calibration.md](vi/research/gnss-insar-calibration.md) |
 | Groundwater and InSAR · Nước ngầm và InSAR | [en/research/groundwater-insar.md](en/research/groundwater-insar.md) | [vi/research/groundwater-insar.md](vi/research/groundwater-insar.md) |
+| Kinds of motion and risk to buildings · Kiểu chuyển dịch và rủi ro công trình | [en/research/behaviour-and-risk.md](en/research/behaviour-and-risk.md) | [vi/research/behaviour-and-risk.md](vi/research/behaviour-and-risk.md) |
+| Infrastructure lines and consolidation · Hạ tầng tuyến và lún cố kết | [en/research/lines-and-consolidation.md](en/research/lines-and-consolidation.md) | [vi/research/lines-and-consolidation.md](vi/research/lines-and-consolidation.md) |
+| Two geometries and soft soil · Hai hình học và đất yếu | [en/research/two-geometries-and-soft-soil.md](en/research/two-geometries-and-soft-soil.md) | [vi/research/two-geometries-and-soft-soil.md](vi/research/two-geometries-and-soft-soil.md) |
+| Paper ideas · Ý tưởng viết báo | – | [vi/research/paper-ideas.md](vi/research/paper-ideas.md) |
 | Projects and data · Dự án và dữ liệu | [en/guide/projects-and-data.md](en/guide/projects-and-data.md) | [vi/guide/projects-and-data.md](vi/guide/projects-and-data.md) |
 | Learning path: one pair, step by step · Lộ trình học: một cặp ảnh từng bước | [en/guide/learn-insar-pair.md](en/guide/learn-insar-pair.md) | [vi/guide/learn-insar-pair.md](vi/guide/learn-insar-pair.md) |
+| Ionosphere: recognise and correct · Tầng điện ly: nhận diện và xử lý | [en/guide/ionosphere.md](en/guide/ionosphere.md) | [vi/guide/ionosphere.md](vi/guide/ionosphere.md) |
 | Architecture · Kiến trúc | [en/architecture/ARCHITECTURE.md](en/architecture/ARCHITECTURE.md) | [vi/architecture/ARCHITECTURE.md](vi/architecture/ARCHITECTURE.md) |
 | Decisions (ADR) · Quyết định kiến trúc | [en/architecture/decisions.md](en/architecture/decisions.md) | [vi/architecture/decisions.md](vi/architecture/decisions.md) |
 | Migration map · Bảng chuyển đổi | [en/architecture/migration-map.md](en/architecture/migration-map.md) | [vi/architecture/migration-map.md](vi/architecture/migration-map.md) |

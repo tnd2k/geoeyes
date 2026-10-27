@@ -31,7 +31,7 @@ from geoeyes.io.stack import StackStore
 LAYERS = ("amp1", "amp2", "raw", "flat", "after_flat", "dem", "topo", "diff", "coh", "diff_kept", "filt", "unw", "disp",
           "res_diff", "res_filt", "lat", "lon", "filt_ex", "unw_ex")
 MAX_PIXELS = 4_000_000            # full-resolution crop read at most (two SLCs + geometry)
-MAX_GRID = 700                    # multilooked side at most
+MAX_GRID = 1600                   # multilooked side at most: a 5 km crop of Sentinel-1 at 1 × 1 look (≈ 360 × 1360)
 
 
 @dataclass(frozen=True)

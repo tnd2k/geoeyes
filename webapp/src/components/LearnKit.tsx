@@ -7,6 +7,10 @@ import { href } from "../state";
 export const CHAPTERS = [
   { id: "pair", title: "One interferometric pair", sub: "From two single scenes to a velocity" },
   { id: "hazard", title: "Hazard zoning", sub: "From InSAR cells to a hazard map, with rainfall and groundwater" },
+  { id: "behaviour", title: "Kinds of motion and risk", sub: "How each place moves, and what it means for the buildings" },
+  { id: "lines", title: "Infrastructure and consolidation", sub: "Profiles along dykes, railways and roads; settlement still to come" },
+  { id: "geometry", title: "Two geometries and soft soil", sub: "Vertical and east-west motion; the soft layer that sinks" },
+  { id: "ionosphere", title: "Ionosphere", sub: "Recognise its ramps, remove them by split-spectrum, and the subswath seams" },
 ] as const;
 export type ChapterId = (typeof CHAPTERS)[number]["id"];
 
@@ -21,7 +25,7 @@ export function ChapterNav({ current, steps, step, onStep, children }: { current
           return (
             <li key={c.id}>
               <a
-                href={c.id === "hazard" ? href({ page: "learn", chapter: "hazard", step: 0 }) : href({ page: "learn" })}
+                href={c.id === "pair" ? href({ page: "learn" }) : href({ page: "learn", chapter: c.id, step: 0 })}
                 className={`block rounded-lg border px-2.5 py-2 no-underline ${on ? "border-line-2 bg-raised" : "border-transparent hover:bg-raised/60"}`}
               >
                 <span className={`text-[12.5px] font-semibold ${on ? "text-ink" : "text-muted"}`}>

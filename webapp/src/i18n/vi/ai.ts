@@ -83,6 +83,7 @@ export const AI: Record<string, string> = {
   "land cover": "lớp phủ mặt đất",
   buildings: "công trình",
   soil: "thổ nhưỡng",
+  geology: "địa chất",
   climate: "khí hậu",
   Elevation: "Độ cao",
   Slope: "Độ dốc",
