@@ -120,6 +120,55 @@ def meta(folder: Path) -> dict:
     return json.loads((folder / "meta.json").read_text(encoding="utf-8"))
 
 
+HEX_SIZES = (125, 250, 500, 1000, 2000, 4000)   # m, centre to vertex: the map's hexagons when zoomed out
+
+
+def hexbins(folder: Path, size_m: int) -> bytes:
+    """The points binned in flat-top hexagons of ``size_m`` (centre to vertex), in a local metric frame at the
+    product's origin: float32 x 4 per hexagon (lon - lon0, lat - lat0, median velocity mm/yr, count). Cached next to
+    the layer (``hex_<size>.bin``), rebuilt with it."""
+    if size_m not in HEX_SIZES:
+        raise ValueError(f"hexagon size {size_m} m (one of {HEX_SIZES})")
+    out = folder / f"hex_{size_m}.bin"
+    src = folder / "meta.json"
+    if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+        return out.read_bytes()
+    with _lock(f"{folder.name}/hex{size_m}"):
+        if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+            return out.read_bytes()
+        attrs = _arrays(str(folder))[0]
+        lon0, lat0 = meta(folder)["origin"]
+        ok = np.isfinite(attrs["vel"])
+        lon, lat, vel = attrs["lon"][ok], attrs["lat"][ok], attrs["vel"][ok].astype(np.float64)
+        kx = 111_320.0 * np.cos(np.radians(lat0))
+        x, y = (lon - lon0) * kx, (lat - lat0) * 110_574.0
+        # axial coordinates of flat-top hexagons, rounded in cube coordinates
+        q = (2.0 / 3.0) * x / size_m
+        r = (-x / 3.0 + np.sqrt(3.0) / 3.0 * y) / size_m
+        cx, cz = q, r
+        cy = -cx - cz
+        rx, ry, rz = np.round(cx), np.round(cy), np.round(cz)
+        dx, dy, dz = np.abs(rx - cx), np.abs(ry - cy), np.abs(rz - cz)
+        fix_x = (dx > dy) & (dx > dz)
+        fix_z = ~fix_x & (dy <= dz)
+        rx = np.where(fix_x, -ry - rz, rx)
+        rz = np.where(fix_z, -rx - ry, rz)
+        key = rx.astype(np.int64) * 1_000_003 + rz.astype(np.int64)
+        order = np.lexsort((vel, key))
+        key, vel, rx, rz = key[order], vel[order], rx[order], rz[order]
+        starts = np.flatnonzero(np.r_[True, key[1:] != key[:-1]])
+        counts = np.diff(np.r_[starts, key.size])
+        med = (vel[starts + (counts - 1) // 2] + vel[starts + counts // 2]) / 2.0     # sorted within each bin
+        hq, hr = rx[starts], rz[starts]
+        hx = size_m * 1.5 * hq
+        hy = size_m * np.sqrt(3.0) * (hr + hq / 2.0)
+        rec = np.column_stack([hx / kx, hy / 110_574.0, med, counts]).astype(np.float32)
+        tmp = out.with_suffix(".tmp")
+        rec.tofile(tmp)
+        tmp.replace(out)
+        return out.read_bytes()
+
+
 TILED_ABOVE = 2_500_000          # points: above, the map reads the product as vector tiles (PMTiles)
 
 
@@ -186,6 +235,89 @@ def area(folder: Path, ring: list[list[float]]) -> dict:
     if scn is not None:
         out["mean_scn_mm"] = [_num(x) for x in np.nanmean(np.asarray(scn[rows], dtype=np.float64), axis=0)]
     return out
+
+
+DISP_SCALE = 10.0                # displacement frames: int16 in 0.1 mm (±3.2 m)
+
+
+def disp_meta(folder: Path) -> dict:
+    """Dates and classes of the cumulative displacement over all points and dates (full range, Pretty Breaks)."""
+    f = folder / "disp.json"
+    if f.exists() and f.stat().st_mtime >= (folder / "ts.npy").stat().st_mtime:
+        return json.loads(f.read_text(encoding="utf-8"))
+    _, ts, _ = _arrays(str(folder))
+    a = np.asarray(ts, dtype=np.float32)
+    v = a[np.isfinite(a)]
+    out = {"dates": meta(folder)["dates"], "scale": DISP_SCALE, "min": float(v.min()), "max": float(v.max()),
+           "classes": classes(v)}
+    f.write_text(json.dumps(out), encoding="utf-8")
+    return out
+
+
+def disp_frame(folder: Path, k: int) -> bytes:
+    """Cumulative displacement of every point (product order) at date ``k``: int16 in 1/DISP_SCALE mm, NaN = −32768."""
+    _, ts, _ = _arrays(str(folder))
+    if not 0 <= k < ts.shape[1]:
+        raise IndexError(f"date {k} out of range (0..{ts.shape[1] - 1})")
+    col = np.asarray(ts[:, k], dtype=np.float32) * DISP_SCALE
+    out = np.where(np.isfinite(col), np.clip(np.round(col), -32767, 32767), -32768).astype("<i2")
+    return out.tobytes()
+
+
+def profile(folder: Path, line: list[list[float]], half_width_m: float, max_points: int = 20_000) -> dict:
+    """Points within ``half_width_m`` of a polyline ``[[lon, lat], ...]``: distance along it, signed offset (left +),
+    velocity, height; with the median velocity in bins along the line."""
+    attrs, _, _ = _arrays(str(folder))
+    lon, lat = attrs["lon"], attrs["lat"]
+    ln = np.asarray(line, dtype=np.float64)
+    lat0 = np.radians(ln[:, 1].mean())
+    kx, ky = 111_320.0 * np.cos(lat0), 110_540.0
+    pad_x, pad_y = half_width_m / kx, half_width_m / ky
+    box = ((lon >= ln[:, 0].min() - pad_x) & (lon <= ln[:, 0].max() + pad_x)
+           & (lat >= ln[:, 1].min() - pad_y) & (lat <= ln[:, 1].max() + pad_y))
+    cand = np.flatnonzero(box)
+    px, py = (lon[cand] - ln[0, 0]) * kx, (lat[cand] - ln[0, 1]) * ky
+    vx, vy = (ln[:, 0] - ln[0, 0]) * kx, (ln[:, 1] - ln[0, 1]) * ky
+    best = np.full(cand.size, np.inf)
+    along = np.zeros(cand.size)
+    side = np.zeros(cand.size)
+    beyond = np.zeros(cand.size, bool)                  # past either end of the line: not in the profile
+    start = 0.0
+    nseg = len(ln) - 1
+    for i, ((ax, ay), (bx, by)) in enumerate(zip(zip(vx[:-1], vy[:-1], strict=True), zip(vx[1:], vy[1:], strict=True),
+                                                 strict=True)):
+        dx, dy = bx - ax, by - ay
+        seg = float(np.hypot(dx, dy))
+        if seg == 0:
+            continue
+        raw = ((px - ax) * dx + (py - ay) * dy) / seg ** 2
+        t = np.clip(raw, 0, 1)
+        cx, cy = ax + t * dx, ay + t * dy
+        dist = np.hypot(px - cx, py - cy)
+        sign = np.sign(dx * (py - ay) - dy * (px - ax))
+        better = dist < best
+        best[better], along[better], side[better] = dist[better], start + t[better] * seg, sign[better] * dist[better]
+        beyond[better] = ((raw < 0) & (i == 0) | (raw > 1) & (i == nseg - 1))[better]
+        start += seg
+    keep = (best <= half_width_m) & ~beyond
+    idx, along, side = cand[keep], along[keep], side[keep]
+    n = int(idx.size)
+    if n > max_points:
+        pick = np.sort(np.random.default_rng(0).choice(n, max_points, replace=False))
+        idx, along, side = idx[pick], along[pick], side[pick]
+    vel = attrs["vel"][idx].astype(np.float64)
+    bin_m = max(20.0, start / 100)
+    edges = np.arange(0, start + bin_m, bin_m)
+    b = np.clip(np.digitize(along, edges) - 1, 0, len(edges) - 1)
+    med = [[round(float(edges[k] + bin_m / 2), 1), round(float(np.median(vel[b == k])), 2), int((b == k).sum())]
+           for k in range(len(edges)) if (b == k).any()]
+    h = attrs.get("height_m")
+    return {"n": n, "shown": int(idx.size), "length_m": round(start, 1), "half_width_m": half_width_m,
+            "bin_m": round(bin_m, 1), "index": idx.astype(int).tolist(),
+            "dist_m": np.round(along, 1).tolist(), "offset_m": np.round(side, 1).tolist(),
+            "vel": np.round(vel, 2).tolist(),
+            "vel_std": [_num(x) for x in attrs["vel_std_mm_yr"][idx]] if "vel_std_mm_yr" in attrs else None,
+            "height_m": [_num(x) for x in h[idx]] if h is not None else None, "median": med}
 
 
 def _num(x) -> float | None:

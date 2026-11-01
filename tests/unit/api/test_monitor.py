@@ -83,3 +83,24 @@ def test_alert_rules_saved_and_evaluated(ws, tmp_path):
         res = monitor.evaluate(p, tmp_path / "prod", cache)
     assert res[0]["triggered"] and res[0]["n"] == 8 and res[0]["worst"] == -30.0
     assert not res[1]["triggered"] and res[1]["n"] == 0
+
+
+def test_latest_date_deviation_alert(ws, tmp_path):
+    import json
+    from unittest.mock import patch
+    p = ws.project("alpha")
+    rules = monitor.save_rules(p, [{"name": "sudden sinking", "kind": "deviation_below", "threshold": -10,
+                                    "min_points": 5}])
+    folder = tmp_path / "cache" / "prod"
+    folder.mkdir(parents=True)
+    dates = [f"2025-{m:02d}-01" for m in range(1, 10)]
+    t = np.array([(np.datetime64(d) - np.datetime64(dates[0])).astype(int) / 365.25 for d in dates])
+    ts = np.tile(-20.0 * t, (50, 1)).astype(np.float32)                 # -20 mm/yr everywhere
+    ts[:6, -1] -= 15.0                                                   # six points drop 15 mm on the last date
+    np.savez(folder / "attrs.npz", lon=np.linspace(0, 1, 50), lat=np.zeros(50), vel=np.full(50, -20.0, np.float32))
+    np.save(folder / "ts.npy", ts)
+    (folder / "meta.json").write_text(json.dumps({"dates": dates}))
+    with patch("geoeyes.api.points.ensure", return_value=folder):
+        res = monitor.evaluate(p, tmp_path / "prod", tmp_path / "cache", rules)
+    assert res[0]["triggered"] and res[0]["n"] == 6 and abs(res[0]["worst"] + 15.0) < 0.5
+    assert res[0]["date"] == dates[-1]

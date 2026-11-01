@@ -56,8 +56,13 @@ SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "A
                   "stack": "Stack", "selection": "Point selection", "phase_linking": "Phase linking",
                   "atmosphere": "Atmosphere", "export": "Export", "report": "Report",
                   "ps": "Point engine (StaMPS parameters)"}
-SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "gacos"], ("stack", "dem"): ["srtm-1", "copernicus-30"],
-               ("network", "reference"): ["auto"]}
+SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
+               ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],
+               ("ps", "max_topo_err"): ["auto"], ("ps", "unwrap_time_win"): ["auto"]}
+# [ps] keys that take a number or "auto" (set from the data when the engine runs)
+PS_AUTO = {"max_topo_err": "Largest DEM error searched (m), or auto = median height of ambiguity / 4",
+           "unwrap_time_win": "Time window of the space-time unwrapping (days), or auto = a quarter of the data "
+                              "span (at least 4 sampling intervals, 60-730)"}
 
 
 def _schema() -> dict:
@@ -100,7 +105,9 @@ def _kind(schema: dict, prop: dict) -> dict:
     return {"kind": "string", "nullable": nullable}
 
 
-def _ps_kind(v: Any) -> dict | None:
+def _ps_kind(v: Any, key: str = "") -> dict | None:
+    if key in PS_AUTO:
+        return {"kind": "string", "nullable": False}
     if isinstance(v, bool):
         return {"kind": "bool", "nullable": False}
     if isinstance(v, int):
@@ -130,6 +137,43 @@ def _get(cfg, section: str, key: str) -> Any:
     return getattr(getattr(cfg, section), key)
 
 
+def _safe(v: Any) -> Any:
+    """JSON for the browser: infinite numbers as text."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return str(v)
+    if isinstance(v, (list, tuple)):
+        return [_safe(x) for x in v]
+    return v
+
+
+def _close(a: Any, b: Any) -> bool:
+    try:
+        return math.isclose(float(a), float(b))
+    except (TypeError, ValueError):
+        return False
+
+
+def _used(project: ProjectLayout) -> dict[str, list[dict]]:
+    """Per [ps] key, the value each track's last ps run used, when it differs from the configured one or was set
+    from the data ("auto")."""
+    import json
+
+    from geoeyes.report.methods import effective_ps
+    out: dict[str, list[dict]] = {}
+    for f in sorted((project.root / "ps_runs").glob("*/params.json")):
+        try:
+            snap = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if "table" not in snap:                                  # ps_lite
+            continue
+        eff, resolved = effective_ps(snap), snap.get("resolved") or {}
+        for k, v in eff.items():
+            out.setdefault(k, []).append({"track": f.parent.name, "value": _json(_safe(v)),
+                                          "auto": k in resolved})
+    return out
+
+
 def _base(raw: dict) -> ProjectConfig:
     """The configuration a project would have with only its name, method and tracks (preset + defaults)."""
     return load_dict({k: raw[k] for k in ("schema", "project", "tracks") if k in raw})
@@ -143,18 +187,26 @@ def describe(project: ProjectLayout) -> dict:
     cfg = load(project.config)
     base = _base(raw)
     schema = _schema()
-    rows = list(FIELDS) + [("ps", k, "") for k, v in DEFAULTS.items() if _ps_kind(v)]
+    rows = list(FIELDS) + [("ps", k, PS_AUTO.get(k, "")) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
+    used = _used(project)
     sections: dict[str, list] = {}
     for section, key, help_ in rows:
         if section == "ps":
-            kind = _ps_kind(DEFAULTS[key])
+            kind = _ps_kind(DEFAULTS[key], key)
         else:
             sec = _resolve(schema, schema["properties"][section])
             kind = _kind(schema, sec["properties"][key])
+        value = _json(_safe(_get(cfg, section, key)))
+        runs = []
+        if section == "ps":
+            for u in used.get(key, []):
+                auto = u["auto"] or str(value).lower() == "auto"
+                if auto or (str(u["value"]) != str(value) and not _close(u["value"], value)):
+                    runs.append({**u, "auto": auto})
         sections.setdefault(section, []).append({
             "key": key, "help": help_, **kind, "suggest": SUGGESTIONS.get((section, key)),
-            "value": _json(_get(cfg, section, key)), "default": _json(_get(base, section, key)),
-            "own": key in (raw.get(section) or {})})
+            "value": value, "default": _json(_safe(_get(base, section, key))),
+            "own": key in (raw.get(section) or {}), "used": runs or None})
     return {"sections": [{"name": s, "title": SECTION_TITLES.get(s, s), "fields": f} for s, f in sections.items()],
             "toml": text, "tracks": raw.get("tracks", [])}
 
@@ -203,6 +255,11 @@ def apply(project: ProjectLayout, changes: dict[str, Any]) -> dict:
             if section in doc and key in doc[section]:
                 del doc[section][key]
             continue
+        if section == "ps" and key in PS_AUTO and isinstance(value, str) and value.strip().lower() != "auto":
+            try:
+                value = float(value)
+            except ValueError:
+                raise ConfigError(f"[ps] {key}: a number or \"auto\", not {value!r}") from None
         if section not in doc:
             doc.add(tomlkit.nl())
             doc[section] = tomlkit.table()
@@ -247,6 +304,8 @@ def create(ws: WorkspaceLayout, spec: dict) -> str:
         acq["max_per_month"] = int(spec["max_per_month"])
     if spec.get("archive"):
         acq["archive"] = str(spec["archive"])
+    if spec.get("opendata"):
+        acq["opendata"] = str(spec["opendata"])
     if acq:
         doc["acquire"] = acq
     if spec.get("atmosphere") and spec["atmosphere"] != "none":

@@ -7,13 +7,29 @@ The front end is built from ``webapp/`` into ``geoeyes/api/static``.
 from __future__ import annotations
 
 import hmac
+import json
+import time
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from geoeyes.api import ai, behaviour, compare, gnss, hazard, jobs, learn, monitor, points, service, settings
+from geoeyes.api import (
+    ai,
+    atmosphere,
+    behaviour,
+    compare,
+    gnss,
+    hazard,
+    jobs,
+    learn,
+    monitor,
+    opendata,
+    points,
+    service,
+    settings,
+)
 from geoeyes.config.loader import load
 from geoeyes.core.errors import ConfigError, GeoEyesError, LockedError
 from geoeyes.workspace import WorkspaceLayout
@@ -122,15 +138,21 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return settings.save_toml(project(name), str(body.get("toml", "")))
 
     @app.get("/api/projects/{name}/plan")
-    def plan(name: str, force: str = ""):
+    def plan(name: str, force: str = "", skip: str = ""):
         project(name)
-        return {"steps": service.plan(ws, name, [f for f in force.split(",") if f])}
+        return {"steps": service.plan(ws, name, [f for f in force.split(",") if f], [s for s in skip.split(",") if s])}
 
     @app.post("/api/projects/{name}/run")
     def run(name: str, body: dict = Body(default={})):
         project(name)
         return service.start_run(ws, name, tracks=body.get("tracks"), force=body.get("force"),
-                                 only=body.get("only"))
+                                 only=body.get("only"), from_=body.get("from"), skip=body.get("skip"),
+                                 ps_from=body.get("ps_from"), ps_to=body.get("ps_to"))
+
+    @app.get("/api/projects/{name}/ps-steps")
+    def ps_steps(name: str):
+        project(name)
+        return service.ps_steps(ws, name)
 
     @app.post("/api/projects/{name}/stop")
     def stop(name: str):
@@ -168,6 +190,7 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         tiles = points.pmtiles_path(d, project(name).export(pid), web_cache, build=False)
         m["tiles"] = {"available": tiles is not None, "recommended": m["n"] > points.TILED_ABOVE,
                       **(_tile_zooms(tiles) if tiles else {})}
+        m["hex_sizes"] = list(points.HEX_SIZES)
         return m
 
     def _tile_zooms(path: Path) -> dict:
@@ -202,6 +225,16 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return FileResponse(f, media_type="application/octet-stream",
                             headers={"Cache-Control": "private, max-age=86400"})
 
+    @app.get("/api/projects/{name}/products/{pid}/layer/hex.bin")
+    def layer_hex(name: str, pid: str, size: int = 500):
+        """The points binned in hexagons (``size`` m, centre to vertex): float32 x 4 (dlon, dlat, median, count)."""
+        try:
+            data = points.hexbins(points.ensure(product(name, pid), web_cache), size)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
     @app.get("/api/projects/{name}/products/{pid}/layer/points/{i}")
     def layer_point(name: str, pid: str, i: int):
         try:
@@ -215,6 +248,96 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         if len(ring) < 3:
             raise HTTPException(400, "ring: at least 3 [lon, lat] vertices")
         return points.area(points.ensure(product(name, pid), web_cache), ring)
+
+    @app.get("/api/projects/{name}/products/{pid}/layer/disp")
+    def layer_disp(name: str, pid: str):
+        """Dates and classes of the cumulative displacement (time animation of the map)."""
+        return points.disp_meta(points.ensure(product(name, pid), web_cache))
+
+    @app.get("/api/projects/{name}/products/{pid}/layer/disp/{k}.bin")
+    def layer_disp_frame(name: str, pid: str, k: int):
+        try:
+            data = points.disp_frame(points.ensure(product(name, pid), web_cache), k)
+        except IndexError as exc:
+            raise HTTPException(404, str(exc)) from None
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.post("/api/projects/{name}/products/{pid}/layer/profile")
+    def layer_profile(name: str, pid: str, body: dict = Body(...)):
+        line = body.get("line") or []
+        if len(line) < 2:
+            raise HTTPException(400, "line: at least 2 [lon, lat] vertices")
+        w = float(body.get("half_width_m", 50))
+        if not 1 <= w <= 2000:
+            raise HTTPException(400, "half_width_m: 1 … 2000")
+        return points.profile(points.ensure(product(name, pid), web_cache), line, w)
+
+    # flood layer: the results are cached on disk (keyed by the inventory and the product), and the browser may keep
+    # them a few minutes: a page reload neither recomputes nor waits
+    def _floods_sig() -> str:
+        from geoeyes.ancillary.flood_reports import folder
+        files = sorted(folder(ws).glob("*.geojson"))
+        return ";".join(f"{f.name}:{f.stat().st_mtime_ns}" for f in files)
+
+    def _cached_json(path: Path, sig: str, compute, max_age_s: float | None = None):
+        try:
+            js = json.loads(path.read_text(encoding="utf-8"))
+            fresh = max_age_s is None or time.time() - path.stat().st_mtime < max_age_s
+            if js.get("_sig") == sig and fresh:
+                return js["data"]
+        except (OSError, ValueError, KeyError):
+            pass
+        data = compute()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"_sig": sig, "data": data}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+        return data
+
+    def _json(data, max_age_s: int) -> JSONResponse:
+        return JSONResponse(data, headers={"Cache-Control": f"private, max-age={max_age_s}"})
+
+    @app.get("/api/floods")
+    def floods():
+        """Reported flood locations of the workspace inventory (``geoeyes floods``), every region."""
+        from geoeyes.ancillary.flood_reports import collection
+        return _json(collection(ws), 60)
+
+    def _product_floods(name: str, pid: str, radius: float) -> dict:
+        from geoeyes.ancillary.flood_reports import collection, near_product
+        r = min(max(radius, 20.0), 1000.0)
+        folder_ = points.ensure(product(name, pid), web_cache)
+        sig = f"{_floods_sig()}|{(folder_ / 'meta.json').stat().st_mtime_ns}"
+
+        def compute():
+            attrs = points._arrays(str(folder_))[0]
+            return near_product(collection(ws), attrs["lon"], attrs["lat"], attrs["vel"], radius_m=r)
+        return _cached_json(folder_ / f"floods_r{int(r)}.json", sig, compute)
+
+    @app.get("/api/floods/outlook")
+    def floods_outlook(project: str | None = None, product: str | None = None, radius: float = 100.0):
+        """Next 24 hours at every reported location: forecast rain, tide, score; with a product, its subsidence.
+        Kept 30 minutes (the forecasts are hourly)."""
+        import hashlib
+
+        from geoeyes.ancillary.flood_outlook import outlook
+        from geoeyes.ancillary.flood_reports import collection
+        key = hashlib.sha1(f"{project}|{product}|{radius}".encode()).hexdigest()[:12]
+
+        def compute():
+            stats = _product_floods(project, product, radius) if project and product else None
+            try:
+                return outlook(collection(ws), stats)
+            except OSError as exc:
+                raise GeoEyesError(f"weather forecast unreachable: {exc}") from exc
+        data = _cached_json(ws.cache_dir("floods") / f"outlook_{key}.json", _floods_sig(), compute, max_age_s=1800)
+        return _json(data, 300)
+
+    @app.get("/api/projects/{name}/products/{pid}/floods")
+    def product_floods(name: str, pid: str, radius: float = 100.0):
+        """Per reported flood location: the product's velocity within ``radius`` m against the ring around it."""
+        return _json(_product_floods(name, pid, radius), 300)
 
     @app.get("/api/projects/{name}/products/{pid}/rainfall")
     def product_rainfall(name: str, pid: str):
@@ -510,6 +633,31 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         GnssParams.from_dict({**dict(load(project(name).config).validation.gnss), **overrides})       # validate
         return gnss.start(ws, name, pid, overrides)
 
+    # ------------------------------------------------------------ weather models (tropospheric correction)
+    @app.get("/api/projects/{name}/products/{pid}/atmosphere")
+    def atmosphere_status(name: str, pid: str):
+        product(name, pid)
+        return atmosphere.status(project(name), pid)
+
+    @app.post("/api/projects/{name}/products/{pid}/atmosphere")
+    def atmosphere_start(name: str, pid: str, body: dict = Body(default={})):
+        """Run ``geoeyes atmosphere`` on the product in the background (``params``: models, max_points, grid)."""
+        from geoeyes.validation.atmosphere import DEFAULTS
+        product(name, pid)
+        overrides = dict(body.get("params") or {})
+        unknown = set(overrides) - set(DEFAULTS)
+        if unknown:
+            raise HTTPException(400, f"unknown parameter(s) {sorted(unknown)}: {sorted(DEFAULTS)}")
+        return atmosphere.start(ws, name, pid, overrides)
+
+    @app.get("/api/projects/{name}/products/{pid}/atmosphere/grid")
+    def atmosphere_grid_meta(name: str, pid: str, layer: str = "obs", k: int = 0):
+        return _bin(lambda pr, p: atmosphere.grid(pr, p, layer, k), name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/atmosphere/grid.bin")
+    def atmosphere_grid(name: str, pid: str, layer: str = "obs", k: int = 0):
+        return _bin(lambda pr, p: atmosphere.grid(pr, p, layer, k), name, pid, False)
+
     @app.get("/api/projects/{name}/products/{pid}/gnss/stations/{site}")
     def gnss_station(name: str, pid: str, site: str):
         try:
@@ -524,7 +672,9 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     @app.get("/api/projects/{name}/exports/{pid}/{rel:path}")
     def export_file(name: str, pid: str, rel: str):
         f = _inside(project(name).export(pid), rel)
-        return FileResponse(f, filename=f.name)
+        # the 3D Tiles viewer page reads its tileset and tiles from here: shown, not downloaded
+        inline = f.suffix.lower() in (".html", ".json", ".pnts")
+        return FileResponse(f, filename=f.name, content_disposition_type="inline" if inline else "attachment")
 
     def _pair(a: str, b: str, cell: float, align: bool):
         fa, fb = [str(points.ensure(product(*_split(x)), web_cache)) for x in (a, b)]
@@ -556,6 +706,35 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def catalog_build():
         from geoeyes.catalog import build_catalog
         return build_catalog(ws)
+
+    # ------------------------------------------------------------ open-data hub
+    @app.get("/api/opendata/sources")
+    def opendata_sources():
+        return opendata.sources(ws)
+
+    @app.get("/api/opendata/sync")
+    def opendata_sync_state():
+        return opendata.sync_state()
+
+    @app.post("/api/opendata/sync")
+    def opendata_sync(body: dict = Body(default={})):
+        return opendata.start_sync(ws, body.get("sources"))
+
+    @app.get("/api/opendata/scenes")
+    def opendata_scenes(bbox: str = "", start: str = "", end: str = "", source: str = "", mode: str = ""):
+        try:
+            return opendata.scenes(ws, bbox=bbox, start=start, end=end, source=source, mode=mode)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.get("/api/opendata/stacks")
+    def opendata_stacks(bbox: str = "", start: str = "", end: str = "", source: str = "", mode: str = "",
+                        min_scenes: int = 3, supported: bool = False):
+        try:
+            return opendata.stacks(ws, bbox=bbox, start=start, end=end, source=source, mode=mode,
+                                   min_scenes=min_scenes, supported=supported)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
 
     # ------------------------------------------------------------ monitoring
     def _alerts(name: str) -> list[dict]:
