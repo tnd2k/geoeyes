@@ -76,7 +76,8 @@ def _los_inset(ax, heading: float | None, look_side: str):
 
 
 def velocity_map(pts, out: Path, *, reference=None, heading=None, look_side="right", column="vel_los_mm_yr",
-                 label="LOS velocity (mm/yr), + toward the satellite") -> Path:
+                 label="LOS velocity (mm/yr), + toward the satellite", marks=()) -> Path:
+    """``marks``: (lon, lat, text) labels drawn over the points (the hot spots of the assessment)."""
     plt = _plt()
     v = pts[column].to_numpy(float)
     lon, lat = pts["lon"].to_numpy(float), pts["lat"].to_numpy(float)
@@ -108,6 +109,10 @@ def velocity_map(pts, out: Path, *, reference=None, heading=None, look_side="rig
         ax.scatter([reference["lon"]], [reference["lat"]], marker="*", s=110, color="#ffffff", edgecolors=INK,
                    linewidths=0.8, zorder=6, label="reference area")
         ax.legend(loc="upper left", fontsize=7)
+    for x, y, text in marks:
+        ax.annotate(text, (x, y), xytext=(6, 6), textcoords="offset points", fontsize=7.5, fontweight="bold",
+                    color=INK, zorder=7, bbox={"boxstyle": "round,pad=0.2", "fc": SURFACE, "ec": INK, "lw": 0.6},
+                    arrowprops={"arrowstyle": "-", "color": INK, "lw": 0.6})
     _scalebar(ax, lat0)
     _los_inset(ax, heading, look_side)
     cb = fig.colorbar(sc, ax=ax, shrink=0.8, pad=0.02, ticks=bounds, spacing="uniform")
@@ -219,5 +224,80 @@ def clusters(groups: list[dict], out: Path) -> Path | None:
     ax.legend(fontsize=7, loc="best")
     fig.autofmt_xdate()
     fig.savefig(out)
+    plt.close(fig)
+    return out
+
+
+def hotspot_series(h: dict, out: Path, unit: str = "vertical") -> Path:
+    """Median series of a hot spot (band: interquartile range of its points) with the rate of each half of the
+    period, the reading behind its trend."""
+    plt = _plt()
+    from datetime import date
+    d = [date.fromisoformat(x) for x in h["dates"]]
+    m = np.array(h["median_mm"], float)
+    lo, hi = (np.array(x, float) for x in h["iqr_mm"])
+    c = RED if h["kind"] == "sinking" else BLUE
+    fig, ax = plt.subplots(figsize=(3.3, 1.75))
+    tr = h.get("trend") or {}
+    out_d = np.isin(h["dates"], tr.get("outliers", []))
+    ax.fill_between(d, lo, hi, color=c, alpha=0.15, linewidth=0)
+    ax.plot(d, m, color=c, lw=1.2, alpha=0.5)
+    ax.plot([x for x, o in zip(d, out_d, strict=True) if not o], m[~out_d], ls="", color=c, marker="o", ms=2.6)
+    if out_d.any():                                    # dates left out of the trend: hollow
+        ax.plot([x for x, o in zip(d, out_d, strict=True) if o], m[out_d], ls="", marker="o", ms=3.2,
+                mfc=SURFACE, mec=c, mew=1)
+    if "rate_first_mm_yr" in tr:                       # the two half-period rates, through the median
+        t = np.array([(x - d[0]).days for x in d], float) / 365.25
+        mid = t[0] + (t[-1] - t[0]) / 2
+        for sel, key in ((t <= mid, "rate_first_mm_yr"), (t >= mid, "rate_second_mm_yr")):
+            ok = sel & np.isfinite(m) & ~out_d
+            if ok.sum() >= 2:
+                b = float(np.mean(m[ok] - tr[key] * t[ok]))
+                ax.plot([d[i] for i in np.flatnonzero(ok)], b + tr[key] * t[ok], color=INK, lw=0.9, ls="--")
+    ax.axhline(0, color=AXIS, lw=0.8)
+    ax.set_ylabel(f"{'Vertical' if unit == 'vertical' else 'LOS'} motion (mm)", fontsize=7)
+    ax.tick_params(labelsize=6.5)
+    fig.autofmt_xdate()
+    fig.savefig(out)
+    plt.close(fig)
+    return out
+
+
+HAZARD_COLOURS = ["#d9ead3", "#f6dc7d", "#f2a65a", "#d9483b", "#7a1c1c"]
+
+
+def hazard_map(cells, out: Path, *, cell_m: float, marks=()) -> Path:
+    """Hazard level of every cell of the zoning (very low to very high), the hot spots labelled."""
+    plt = _plt()
+    from matplotlib.lines import Line2D
+
+    from geoeyes.report.assess import LEVELS
+    lon, lat, lv = cells["lon"].to_numpy(float), cells["lat"].to_numpy(float), cells["hazard"].to_numpy(int)
+    lat0 = float(np.nanmean(lat))
+    aspect = 1 / np.cos(np.radians(lat0))
+    w, hgt = np.ptp(lon) / aspect, np.ptp(lat)
+    fig, ax = plt.subplots(figsize=(6.3, min(max(6.3 * hgt / max(w, 1e-9), 2.6), 6.0)))
+    # squares about one cell wide at the figure scale
+    size = float(np.clip((cell_m / (max(w, 1e-9) * 111_320)) * 6.3 * 72, 0.3, 40)) ** 2
+    if (lv < 0).any():
+        ax.scatter(lon[lv < 0], lat[lv < 0], s=size, marker="s", color=GRID, linewidths=0, rasterized=True)
+    for k in range(len(LEVELS)):
+        sel = lv == k
+        if sel.any():
+            ax.scatter(lon[sel], lat[sel], s=size, marker="s", color=HAZARD_COLOURS[k], linewidths=0,
+                       rasterized=True, zorder=2 + k)
+    for x, y, text in marks:
+        ax.annotate(text, (x, y), xytext=(6, 6), textcoords="offset points", fontsize=7.5, fontweight="bold",
+                    color=INK, zorder=9, bbox={"boxstyle": "round,pad=0.2", "fc": SURFACE, "ec": INK, "lw": 0.6},
+                    arrowprops={"arrowstyle": "-", "color": INK, "lw": 0.6})
+    ax.set_aspect(aspect)
+    ax.grid(False)
+    ax.tick_params(labelsize=7)
+    handles = [Line2D([], [], marker="s", ls="", ms=7, color=c, label=n) for n, c in zip(LEVELS, HAZARD_COLOURS,
+                                                                                        strict=True)]
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.01, 1), fontsize=7, title="Hazard level",
+              title_fontsize=7.5, alignment="left")
+    _scalebar(ax, lat0)
+    fig.savefig(out, dpi=200)
     plt.close(fig)
     return out

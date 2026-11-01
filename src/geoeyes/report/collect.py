@@ -3,7 +3,8 @@
 Sources, all written by the pipeline: the product (manifest, STAC item, points, time series), the PS run it
 came from (manifest, params, state for the per-interferogram quality), the stack (dates, baselines, sensor
 attributes; optional — a stack may be deleted after the product exists), the project configuration and the
-run records (phase durations). Nothing is recomputed except summary statistics.
+run records (phase durations). Nothing is recomputed except summary statistics; the assessment part (hot spots,
+impacts read from the analyses of the product, indicators) is made by ``report.assess``.
 """
 from __future__ import annotations
 
@@ -111,18 +112,37 @@ def _stats(pts) -> dict[str, Any]:
     return out
 
 
-def _clusters(pts, ts) -> list[dict]:
-    """Representative time series: mean ± std of the fastest-moving 0.5 % in each direction and of stable
-    high-coherence points (|v| in the lowest 10 %), with their centroid."""
+CLUSTER_SERIES = 5000                     # series read per group: the mean ± std of a sample
+
+
+def _cluster_groups(pts) -> list[tuple[str, np.ndarray]]:
+    """The fastest-moving 0.5 % in each direction and stable high-coherence points (|v| in the lowest 10 %)."""
     v = pts["vel_los_mm_yr"].to_numpy(float)
     tc = pts["temporal_coherence"].to_numpy(float)
     lo, hi = np.nanpercentile(v, [0.5, 99.5])
     stable = (np.abs(v) <= np.nanpercentile(np.abs(v), 10)) & (tc >= np.nanpercentile(tc, 50))
-    groups = [("fastest motion away from the satellite", v <= lo), ("fastest motion toward the satellite", v >= hi),
-              ("stable points", stable)]
+    return [("fastest motion away from the satellite", v <= lo), ("fastest motion toward the satellite", v >= hi),
+            ("stable points", stable)]
+
+
+def _cluster_sample(pts) -> np.ndarray:
+    """Point uids whose series the clusters need: at most ``CLUSTER_SERIES`` per group."""
+    rng = np.random.default_rng(0)
+    uid = pts["point_uid"].to_numpy()
+    out = []
+    for _, m in _cluster_groups(pts):
+        i = np.flatnonzero(m)
+        out.append(uid[i if i.size <= CLUSTER_SERIES else rng.choice(i, CLUSTER_SERIES, replace=False)])
+    return np.concatenate(out)
+
+
+def _clusters(pts, ts) -> list[dict]:
+    """Representative time series: mean ± std of the fastest-moving 0.5 % in each direction and of stable
+    high-coherence points, with their centroid. ``ts`` may hold a sample of each group (``_cluster_sample``)."""
+    v = pts["vel_los_mm_yr"].to_numpy(float)
     wide = ts.pivot(index="point_uid", columns="date", values="disp_mm")
     out = []
-    for label, m in groups:
+    for label, m in _cluster_groups(pts):
         uid = pts.loc[m, "point_uid"]
         sub = wide.reindex(uid).to_numpy(float)
         if not len(uid):
@@ -136,33 +156,42 @@ def _clusters(pts, ts) -> list[dict]:
 
 
 def confidence(n_dates: int, span_days: float, used_frac: float, stats: dict) -> dict[str, Any]:
-    """High / medium / low with the reasons (simple, stated rules; not a calibrated uncertainty)."""
-    issues, notes = [], []
+    """High / medium / low with the reasons (simple, stated rules; not a calibrated uncertainty); ``plain``: the
+    same reasons in plain words, the issues first."""
+    issues, notes, plain, plain_notes = [], [], [], []
     if n_dates < 10:
         issues.append(f"only {n_dates} acquisitions")
+        plain.append(f"only {n_dates} radar images were used; about 20 are needed for a firm yearly rate")
     elif n_dates < 20:
         notes.append(f"{n_dates} acquisitions: enough for a mean velocity, few for non-linear motion")
+        plain_notes.append(f"{n_dates} radar images: enough for an average rate, few to see the rate change")
     if span_days < 180:
         issues.append(f"time span {span_days:.0f} days: the velocity extrapolates a short series to a year "
                       "and seasonal motion cannot be separated")
+        plain.append(f"the images cover only {span_days:.0f} days: the yearly rate is projected from a short period")
     elif span_days < 365:
         notes.append(f"time span {span_days:.0f} days (< 1 year): seasonal motion is not separated")
+        plain_notes.append("less than a year of images: seasonal swings are not separated from lasting motion")
     if used_frac < 0.8:
         issues.append(f"{used_frac:.0%} of the interferograms used (the others failed the noise test)")
+        plain.append(f"{1 - used_frac:.0%} of the images were too noisy and left out")
     vs = (stats.get("vel_std") or {}).get("p50")
     spread = (stats["vel"]["p98"] - stats["vel"]["p02"]) / 2
     if vs is not None and spread > 0 and vs > 0.3 * spread:
         issues.append(f"median velocity uncertainty {vs:.1f} mm/yr is large against the signal "
                       f"(P2–P98 half-range {spread:.1f} mm/yr)")
+        plain.append("the measurement error is large compared with the motion seen")
     med = stats["vel"]["p50"]
     if spread > 0 and abs(med) > 0.5 * spread:
         issues.append(f"median velocity {med:+.1f} mm/yr is far from zero: most points move relative to the "
                       "reference area, which may itself be moving")
+        plain.append("most points move against the reference area, which may itself be moving")
     tc = (stats.get("tcoh") or {}).get("p50")
     if tc is not None and tc < 0.5:
         issues.append(f"median temporal coherence {tc:.2f}")
+        plain.append("the radar signal is noisy over much of the area")
     level = "high" if not issues else "medium" if len(issues) == 1 else "low"
-    return {"level": level, "issues": issues, "notes": notes}
+    return {"level": level, "issues": issues, "notes": notes, "plain": plain + plain_notes}
 
 
 def findings(stats: dict, clusters: list[dict], span_days: float) -> list[str]:
@@ -187,7 +216,7 @@ def findings(stats: dict, clusters: list[dict], span_days: float) -> list[str]:
 def collect(product: str | Path) -> dict[str, Any]:
     from geoeyes.config.loader import load
     from geoeyes.io.points import read_points, read_timeseries
-    from geoeyes.report import methods
+    from geoeyes.report import assess, methods, qc
     product = Path(product)
     pm = Manifest.read(product)
     item = read_json(product / "item.json")
@@ -202,9 +231,11 @@ def collect(product: str | Path) -> dict[str, Any]:
     track = props.get("geoeyes:track", "")
 
     pts = read_points(product / "points.parquet")
-    ts = read_timeseries(product / "timeseries.parquet")
+    # series of the points shown only (a full read of a million points is gigabytes)
+    ts = read_timeseries(product / "timeseries.parquet", _cluster_sample(pts))
     stats = _stats(pts)
     clusters = _clusters(pts, ts)
+    del ts
     rows = _per_date(ps_dir, psm, stack)
     d0, d1 = date.fromisoformat(props["geoeyes:first_date"]), date.fromisoformat(props["geoeyes:last_date"])
     span = (d1 - d0).days
@@ -239,8 +270,19 @@ def collect(product: str | Path) -> dict[str, Any]:
         "files": [{"path": f.path, "sha256": f.sha256, "bytes": f.bytes} for f in pm.outputs],
         "inputs": [{"kind": i.kind, "uri": i.uri, "sha256": i.sha256} for i in pm.inputs],
     }
+    data["qc"] = qc.checks(product, pts, stack, ps_dir)
+    data["qc_summary"] = qc.summary(data["qc"])
     data["findings"] = findings(stats, clusters, span)
+    if data["qc_summary"]["review"]:
+        data["findings"].append(f"{data['qc_summary']['review']} quality check(s) to look at again (section B.4.1): "
+                                + "; ".join(r["check"] for r in data["qc"] if r["status"] == "review") + ".")
     data["method"] = methods.describe(cfg, psm, params, a)
     data["limitations"] = methods.limitations(data)
     data["references"] = methods.references(data["method"])
+
+    def wide_of(uids):
+        t = read_timeseries(product / "timeseries.parquet", uids)
+        return t.pivot(index="point_uid", columns="date", values="disp_mm")
+    data["assessment"] = assess.assess(data, pts, product, wide_of)
+    data["indicators"] = assess.indicators(data, data["assessment"])
     return data
