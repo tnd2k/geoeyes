@@ -106,3 +106,12 @@ def test_queued_request_is_kept_for_the_next_run(tmp_path):
     got = cerra.download_all(tmp_path, [k], max_wait_min=0, poll_s=0, client=client)
     assert len(client.submitted) == 1 and got[k].read_bytes() == b"GRIB"
     assert cerra._load_pending(tmp_path) == {}
+
+
+def test_gdal_option_is_set_in_the_block_and_restored():
+    from osgeo import gdal
+    gdal.SetConfigOption("GRIB_NORMALIZE_UNITS", "YES")
+    with cerra.gdal_option("GRIB_NORMALIZE_UNITS", "NO"):
+        assert gdal.GetConfigOption("GRIB_NORMALIZE_UNITS") == "NO"
+    assert gdal.GetConfigOption("GRIB_NORMALIZE_UNITS") == "YES"
+    gdal.SetConfigOption("GRIB_NORMALIZE_UNITS", None)
