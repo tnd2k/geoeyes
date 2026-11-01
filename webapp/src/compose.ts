@@ -2,6 +2,7 @@
 // print size for the export (PNG, or a one-page PDF holding the image).
 import type { LayerMeta } from "./api";
 import { t as tr } from "./i18n";
+import type { LegendSpec } from "./legend";
 
 export interface Paper {
   id: string;
@@ -84,6 +85,7 @@ const THEMES = {
 export interface SheetData {
   legend: Pick<LayerMeta, "classes" | "vel_min" | "vel_max"> | null;
   legendTitle: string;
+  spec?: LegendSpec | null;          // the map's subject is a thematic layer: its legend instead of the velocity one
   meta: [string, string][];
   credits: string;
   metresPerUnit: number | null;      // ground metres per sheet unit across the map (scale bar)
@@ -125,7 +127,7 @@ function decimals(classes: { lo: number; hi: number }[]): number {
 export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o: Options, d: SheetData, mapImage: CanvasImageSource | null) {
   const t = THEMES[o.theme];
   const font = (px: number, weight = 400, mono = false) =>
-    `${weight} ${px * s}px ${mono ? "'JetBrains Mono', Consolas, monospace" : "Inter, 'Segoe UI', system-ui, sans-serif"}`;
+    `${weight} ${px * s}px ${mono ? "'JetBrains Mono Variable', Consolas, monospace" : "'Lexend Variable', 'Segoe UI', system-ui, sans-serif"}`;
   ctx.save();
   ctx.fillStyle = t.bg;
   ctx.fillRect(0, 0, L.W * s, L.H * s);
@@ -288,7 +290,107 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
   }
 
   // ---------------------------------------------------------------- legend and metadata
+  // a thematic legend (LegendSpec): laid out once to measure it (draw false), then drawn
+  const wrap = (text: string, w: number, px: number, weight = 400): string[] => {
+    ctx.font = font(px, weight);
+    const out: string[] = [];
+    let line = "";
+    for (const word of text.split(" ")) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(next).width > w * s) {
+        out.push(line);
+        line = word;
+      } else line = next;
+    }
+    if (line) out.push(line);
+    return out;
+  };
+  const drawSpec = (sp: LegendSpec, x: number, y: number, w: number, draw: boolean): number => {
+    const lines = (text: string, px: number, color: string, gap: number, weight = 400) => {
+      for (const l of wrap(text, w, px, weight)) {
+        y += gap;
+        if (draw) {
+          ctx.fillStyle = color;
+          ctx.font = font(px, weight);
+          ctx.fillText(l, x * s, y * s);
+        }
+      }
+    };
+    lines(sp.title, 12.5, t.ink, 16, 700);
+    if (sp.head) lines(sp.head, 9.5, t.muted, 13);
+    if (sp.text) lines(sp.text, 9.5, t.muted, 13);
+    y += 6;
+    for (const it of sp.items ?? []) {
+      const ls = wrap(it.label, w - 18, 10);
+      if (draw) {
+        ctx.globalAlpha = it.alpha ?? 1;
+        ctx.fillStyle = `rgb(${it.rgb.join(",")})`;
+        ctx.fillRect(x * s, (y + 2) * s, 10 * s, 10 * s);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = t.ink;
+        ctx.font = font(10);
+        ls.forEach((l, i) => ctx.fillText(l, (x + 18) * s, (y + 11 + i * 12) * s));
+      }
+      y += Math.max(15, ls.length * 12 + 3);
+    }
+    if (sp.ramp) {
+      if (draw) {
+        const g = ctx.createLinearGradient(x * s, 0, (x + w) * s, 0);
+        sp.ramp.stops.forEach((c, i) => g.addColorStop(i / Math.max(1, sp.ramp!.stops.length - 1), `rgb(${c.join(",")})`));
+        ctx.fillStyle = g;
+        ctx.fillRect(x * s, (y + 2) * s, w * s, 10 * s);
+        ctx.font = font(9.5, 400, true);
+        ctx.fillStyle = t.ink;
+        ctx.fillText(sp.ramp.lo, x * s, (y + 25) * s);
+        ctx.textAlign = "right";
+        ctx.fillText(sp.ramp.hi, (x + w) * s, (y + 25) * s);
+        ctx.textAlign = "center";
+        ctx.fillStyle = t.muted;
+        ctx.font = font(9);
+        ctx.fillText(sp.ramp.unit, (x + w / 2) * s, (y + 25) * s, (w * 0.6) * s);
+        ctx.textAlign = "left";
+      }
+      y += 32;
+    }
+    if (sp.matrix) {
+      // intensity (rows I3..I0) × damage potential (columns S0..S3) -> level, as on the page
+      const c = 15;
+      if (draw) {
+        ctx.font = font(8.5, 600, true);
+        ctx.textAlign = "center";
+        [3, 2, 1, 0].forEach((i, r) => {
+          ctx.fillStyle = t.muted;
+          ctx.fillText(`I${i}`, (x + 8) * s, (y + r * (c + 2) + 11) * s);
+          sp.matrix![i].forEach((lv, k) => {
+            ctx.fillStyle = `rgb(${(sp.matrixRgb?.[lv] ?? [128, 128, 128]).join(",")})`;
+            ctx.fillRect((x + 18 + k * (c + 2)) * s, (y + r * (c + 2)) * s, c * s, c * s);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(String(lv), (x + 18 + k * (c + 2) + c / 2) * s, (y + r * (c + 2) + 11) * s);
+          });
+        });
+        ctx.fillStyle = t.muted;
+        [0, 1, 2, 3].forEach((k) => ctx.fillText(`S${k}`, (x + 18 + k * (c + 2) + c / 2) * s, (y + 4 * (c + 2) + 9) * s));
+        ctx.textAlign = "left";
+        ctx.font = font(8.5);
+        ctx.fillText(tr("intensity × damage potential"), x * s, (y + 4 * (c + 2) + 22) * s, w * s);
+      }
+      y += 4 * (c + 2) + 28;
+    }
+    for (const n of sp.notes ?? []) lines(n, 9, t.muted, 12);
+    return y + 8;
+  };
+  const specHeight = (sp: LegendSpec, w: number) => drawSpec(sp, 0, 0, w, false);
+
   const drawLegend = (x: number, y: number, w: number, boxed: boolean): number => {
+    if (d.spec) {
+      if (boxed) {
+        const h = specHeight(d.spec, w - 20) + 6;
+        ctx.fillStyle = t.box;
+        ctx.fillRect(x * s, y * s, w * s, h * s);
+        return drawSpec(d.spec, x + 10, y + 2, w - 20, true) + 4;
+      }
+      return drawSpec(d.spec, x, y, w, true) + 10;
+    }
     if (!d.legend) return y;
     const cls = [...d.legend.classes].reverse();
     const row = 15;
@@ -341,7 +443,10 @@ export function drawSheet(ctx: CanvasRenderingContext2D, s: number, L: Layout, o
       yy += 30;
     }
   };
-  if (o.legend === "inside") drawLegend(m.x + 14, m.y + m.h - (d.legend ? 44 + d.legend.classes.length * 15 + 30 : 0) - 14, 190, true);
+  if (o.legend === "inside") {
+    const h = d.spec ? specHeight(d.spec, 210 - 20) + 6 : d.legend ? 44 + d.legend.classes.length * 15 + 30 : 0;
+    drawLegend(m.x + 14, m.y + m.h - h - 14, d.spec ? 210 : 190, true);
+  }
   if (L.panel) {
     const p = L.panel;
     if (p.w > p.h) {                                     // panel under the map (portrait)

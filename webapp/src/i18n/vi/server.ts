@@ -4,7 +4,7 @@ export const SERVER: Record<string, string> = {
   "no building analysis: hazards from the cells only": "chưa có phân tích công trình: nguy cơ chỉ lấy từ các ô",
   "scene mean": "trung bình toàn cảnh",
   "rainfall: the hazard analysis": "lượng mưa: lấy từ phân tích nguy cơ",
-  "IRLS (GeoEyes, weights = coherence²)": "IRLS (GeoEyes, trọng số = độ kết hợp²)",
+  "IRLS (GeoEyes, weights = coherence²)": "IRLS (GeoEyes, trọng số = độ nhất quán²)",
   "no NGL station inside the product over its period": "không có trạm NGL nào trong vùng và thời gian của sản phẩm",
   "no NGL station could be compared (see the reasons per station)": "không so sánh được trạm NGL nào (xem lý do từng trạm)",
   "excluded in [validation.gnss]": "bị loại trong [validation.gnss]",

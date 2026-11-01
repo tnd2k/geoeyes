@@ -6,6 +6,7 @@ export type Route =
   | { page: "explorer" }
   | { page: "new" }
   | { page: "compose" }
+  | { page: "opendata" }
   | { page: "hazard"; name?: string; product?: string; cell?: number; view?: string }
   | { page: "ai"; name?: string; product?: string; tab?: string }
   | { page: "learn"; name?: string; stack?: string; step?: number; chapter?: "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere" }
@@ -16,6 +17,7 @@ function parse(hash: string): Route {
   if (parts[0] === "explorer") return { page: "explorer" };
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "compose") return { page: "compose" };
+  if (parts[0] === "opendata") return { page: "opendata" };
   if (["learn-hazard", "learn-behaviour", "learn-lines", "learn-geometry", "learn-ionosphere"].includes(parts[0]))
     return { page: "learn", chapter: parts[0].slice(6) as "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere", step: parts[1] ? Number(parts[1]) : undefined };
   if (parts[0] === "learn")
@@ -36,6 +38,7 @@ export function href(r: Route): string {
   if (r.page === "explorer") return "#/explorer";
   if (r.page === "new") return "#/new";
   if (r.page === "compose") return "#/compose";
+  if (r.page === "opendata") return "#/opendata";
   if (r.page === "learn" && r.chapter) return `#/learn-${r.chapter}${r.step != null ? `/${r.step}` : ""}`;
   if (r.page === "learn")
     return r.name

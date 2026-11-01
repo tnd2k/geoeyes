@@ -4,12 +4,13 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type HazardCell, type Workspace } from "../api";
-import { ChapterNav } from "../components/LearnKit";
+import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t, ts } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
 import { BEH_CLASSES, BEH_LABELS, BEH_RGB, CellChart, LEVEL_RGB, LEVELS, NA_RGB, rgb, type Behaviour, type Cells } from "./Hazard";
-import { CellMap, Section } from "./LearnHazard";
+import { CellMap } from "./LearnHazard";
+import { themeColor } from "../theme";
 
 // ------------------------------------------------------------------ figures
 /** The seven kinds of motion as small multiples (sinking drawn downwards). */
@@ -36,7 +37,7 @@ function ShapesFigure() {
         return (
           <div key={c} className="rounded-lg border border-line bg-panel p-2">
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-              <line x1={8} x2={W - 8} y1={14} y2={14} stroke="#22324d" strokeDasharray="3 3" />
+              <line x1={8} x2={W - 8} y1={14} y2={14} stroke="var(--c-line-2)" strokeDasharray="3 3" />
               <path d={pts} fill="none" stroke={rgb(BEH_RGB[i])} strokeWidth="2.5" />
             </svg>
             <div className="mt-1 flex items-center gap-1.5 text-[12px] text-ink-2">
@@ -79,21 +80,21 @@ function ChangesChart({ byMonth, shared }: { byMonth: Record<string, number>; sh
   const bw = (W - 40) / months.length;
   return (
     <svg viewBox={`0 0 ${W} ${H + 24}`} className="w-full">
-      <line x1={30} x2={W - 10} y1={H} y2={H} stroke="#22324d" />
+      <line x1={30} x2={W - 10} y1={H} y2={H} stroke="var(--c-line-2)" />
       {months.map((m, i) => {
         const h = (byMonth[m] / max) * (H - 16);
         return (
           <g key={m}>
-            <rect x={30 + i * bw + 1} y={H - h} width={Math.max(2, bw - 2)} height={h} fill={sharedMonths.has(m) ? "#f5b84b" : "#d633a8"} />
+            <rect x={30 + i * bw + 1} y={H - h} width={Math.max(2, bw - 2)} height={h} fill={sharedMonths.has(m) ? "var(--c-warn)" : "#d633a8"} />
             {(months.length <= 14 || i % Math.ceil(months.length / 12) === 0) && (
-              <text x={30 + (i + 0.5) * bw} y={H + 14} fill="#93a4bf" fontSize="10.5" textAnchor="middle">
+              <text x={30 + (i + 0.5) * bw} y={H + 14} fill="var(--c-muted)" fontSize="10.5" textAnchor="middle">
                 {m}
               </text>
             )}
           </g>
         );
       })}
-      <text x={26} y={14} fill="#93a4bf" fontSize="11" textAnchor="end">
+      <text x={26} y={14} fill="var(--c-muted)" fontSize="11" textAnchor="end">
         {max}
       </text>
     </svg>
@@ -116,7 +117,7 @@ function Grid({ title, rows, cols, cells, color }: { title: string; rows: string
           <div key={r} className="contents">
             <span className="pr-1 text-right text-[11px] text-muted">{r}</span>
             {cells[i].map((v, j) => (
-              <span key={j} className="flex h-7 items-center justify-center rounded-[4px] font-mono text-[12px] font-semibold text-[#0b1220]" style={{ background: color(v) }}>
+              <span key={j} className="flex h-7 items-center justify-center rounded-[4px] font-mono text-[12px] font-semibold text-on-accent" style={{ background: color(v) }}>
                 {v}
               </span>
             ))}
@@ -150,7 +151,7 @@ function BuildingMap({ data }: { data: { n: number; pos: Float32Array; risk: Int
     el.width = W;
     el.height = H;
     const ctx = el.getContext("2d")!;
-    ctx.fillStyle = "#0b1220";
+    ctx.fillStyle = themeColor("bg");
     ctx.fillRect(0, 0, W, H);
     // the lower levels first, so that the high ones stay visible on top
     for (const lv of [-1, 0, 1, 2, 3, 4]) {
@@ -301,7 +302,7 @@ const STEPS: Step[] = [
           <>
             <ChangesChart byMonth={d.behSummary?.changes_by_month ?? {}} shared={d.behSummary?.shared_change_dates ?? []} />
             {(d.behSummary?.warnings ?? []).map((w) => (
-              <p key={w} className="mt-1 mb-0 text-[12px] leading-snug text-[#f5d08b]">
+              <p key={w} className="mt-1 mb-0 text-[12px] leading-snug text-warn-ink">
                 {ts(w)}
               </p>
             ))}
@@ -534,30 +535,14 @@ export function BehaviourChapter({ ws, step }: { ws: Workspace | undefined; step
     <div className="flex h-full min-h-0">
       <ChapterNav current="behaviour" steps={STEPS.map((s) => s.title)} step={k} onStep={go} />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[1180px] px-6 py-5">
-          <div className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</div>
-          <h1 className="m-0 mt-1 text-[26px] font-bold tracking-tight">{t(S.title)}</h1>
-          <p className="mt-1.5 max-w-[860px] text-[15px] leading-relaxed text-ink-2">{t(S.goal)}</p>
-          <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <Section title="Principle">
-                <div className="flex max-w-[860px] flex-col gap-3 text-[14px] leading-relaxed text-ink-2">
-                  {S.what.map((w) => (
-                    <p key={w} className="mt-0 mb-0">
-                      {t(w)}
-                    </p>
-                  ))}
-                </div>
-                {S.formula && (
-                  <div className="mt-4 max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-              {S.figures.length > 0 && (
-                <Section title="Illustrated on real data">
+        <Lesson
+          chapter={3}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          idea={S.what}
+          figures={S.figures.length > 0 ? <>
                   {!data ? (
                     <p className="text-[13px] text-muted">{t("No product of the workspace has a hazard zoning yet: run one on the Thematic analysis page, then come back.")}</p>
                   ) : missing ? (
@@ -587,39 +572,24 @@ export function BehaviourChapter({ ws, step }: { ws: Workspace | undefined; step
                       })}
                     </div>
                   )}
-                </Section>
-              )}
-              <Section title="What to look for">
-                <div className="max-w-[860px] rounded-lg border border-[#2b4a73] bg-[#0f1d33] px-4 py-3">
-                  <ul className="m-0 list-disc space-y-1 pl-4 text-[13.5px] leading-relaxed text-ink-2">
-                    {S.look.map((w) => (
-                      <li key={w}>{t(w)}</li>
-                    ))}
-                  </ul>
-                  {S.layer && sel && (
+                </> : undefined}
+          formula={S.formula}
+          look={S.look}
+          lookExtra={<>{S.layer && sel && (
                     <a href={href({ page: "hazard", name: sel.project, product: sel.product, view: S.layer })} className="mt-3 inline-block no-underline">
                       <Button>{t("Open the Thematic analysis")}</Button>
                     </a>
-                  )}
-                </div>
-              </Section>
-              <div className="mt-6 text-[12px] text-faint">
+                  )}</>}
+          doc={<>
                 {t("Full method, sources and research plan:")} docs/{lang()}/research/behaviour-and-risk.md
-              </div>
-              <nav className="mt-4 mb-8 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {k > 0 ? t(STEPS[k - 1].title) : t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {k < STEPS.length - 1 ? t(STEPS[k + 1].title) : t("Next")} →
-                </Button>
-              </nav>
-            </div>
-            <aside className="mt-6 space-y-3 xl:sticky xl:top-4 xl:self-start">
+              </>}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={<>
               <div className="rounded-xl border border-line bg-panel p-3">
                 <div className="text-[10.5px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Data of the illustrations")}</div>
                 {ready.length ? (
-                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                     {ready.map((p) => (
                       <option key={p.product} value={p.product}>
                         {p.label}
@@ -643,9 +613,8 @@ export function BehaviourChapter({ ws, step }: { ws: Workspace | undefined; step
                   </div>
                 </div>
               )}
-            </aside>
-          </div>
-        </article>
+            </>}
+        />
       </div>
     </div>
   );

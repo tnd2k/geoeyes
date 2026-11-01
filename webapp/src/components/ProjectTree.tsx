@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 import { api, type Folder, type FolderTree, type ProjectSummary, type Workspace } from "../api";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
-import { fmt, StatusDot } from "../ui";
+import { ask, fmt, StatusDot } from "../ui";
 
 const OPEN_KEY = "geoeyes.tree.open";
 
@@ -44,7 +44,7 @@ function Chevron({ open }: { open: boolean }) {
 
 function FolderIcon({ open }: { open: boolean }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" className="flex-none text-[#7f93b3]" aria-hidden>
+    <svg width="15" height="15" viewBox="0 0 16 16" className="flex-none text-muted" aria-hidden>
       {open ? (
         <path d="M1.5 4.5v8h11l2-5.5H4L2.5 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
       ) : (
@@ -152,7 +152,7 @@ function Row({
       onDrop={dropTarget ? (e) => (setOver(false), dropTarget.onDrop(e)) : undefined}
       style={{ paddingLeft: 8 + depth * 14 }}
       className={`group flex h-8 cursor-pointer items-center gap-2 rounded-md pr-2 text-[13px] select-none ${
-        active ? "bg-raised text-ink" : "text-ink-2 hover:bg-[#131f35]"
+        active ? "bg-raised text-ink" : "text-ink-2 hover:bg-panel-3"
       } ${over ? "ring-1 ring-accent" : ""} ${className}`}
     >
       {children}
@@ -192,16 +192,16 @@ function DeleteFolder({ path, folder, running, busy, error, onCancel, onConfirm 
         {names.length > 0 && (
           <div className="mt-3 space-y-2 text-[13px]">
             <label className="flex cursor-pointer gap-2 rounded-lg border border-line p-2.5 hover:bg-raised">
-              <input type="radio" className="mt-0.5 accent-[#4cc2ff]" checked={keep} onChange={() => setKeep(true)} />
+              <input type="radio" className="mt-0.5 accent-accent" checked={keep} onChange={() => setKeep(true)} />
               <span>
                 <span className="font-medium">{t("Delete the folder only")}</span>
                 <span className="block text-[12px] text-muted">{t("Its projects and subfolders move to the parent folder. Nothing is deleted on disk.")}</span>
               </span>
             </label>
             <label className="flex cursor-pointer gap-2 rounded-lg border border-line p-2.5 hover:bg-raised">
-              <input type="radio" className="mt-0.5 accent-[#ff8a8a]" checked={!keep} onChange={() => setKeep(false)} />
+              <input type="radio" className="mt-0.5 accent-bad" checked={!keep} onChange={() => setKeep(false)} />
               <span>
-                <span className="font-medium text-[#ffb3b3]">{t("Delete the folder and its projects")}</span>
+                <span className="font-medium text-bad-ink">{t("Delete the folder and its projects")}</span>
                 <span className="block text-[12px] text-muted">{t("The project folders move to the workspace trash (trash/), from where they can be restored by moving them back.")}</span>
               </span>
             </label>
@@ -215,7 +215,7 @@ function DeleteFolder({ path, folder, running, busy, error, onCancel, onConfirm 
                     autoFocus
                     value={typed}
                     onChange={(e) => setTyped(e.target.value)}
-                    className="mt-1 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 font-mono text-[13px] text-ink focus:border-accent focus:outline-none"
+                    className="mt-1 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 font-mono text-[13px] text-ink focus:border-accent focus:outline-none"
                   />
                 </label>
               </div>
@@ -231,7 +231,7 @@ function DeleteFolder({ path, folder, running, busy, error, onCancel, onConfirm 
             type="button"
             disabled={!ok || busy}
             onClick={() => onConfirm(keep || names.length === 0)}
-            className="h-9 rounded-lg border border-[#5c2424] bg-[#2a1414] px-3.5 text-[13px] text-[#ffb3b3] hover:bg-[#3a1a1a] disabled:opacity-50"
+            className="h-9 rounded-lg border border-bad-line bg-bad-bg px-3.5 text-[13px] text-bad-ink hover:bg-bad-bg disabled:opacity-50"
           >
             {busy ? t("Deleting…") : t("Delete")}
           </button>
@@ -340,7 +340,7 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
           </span>
           <StatusDot status={p.status} />
           <span className="truncate font-mono text-[12.5px]">{p.name}</span>
-          {p.status === "running" && <span className="ml-auto text-[11px] text-[#7cd2ff]">{t("running")}</span>}
+          {p.status === "running" && <span className="ml-auto text-[11px] text-accent-ink">{t("running")}</span>}
           {p.status === "failed" && <span className="ml-auto text-[11px] text-bad">{t("failed")}</span>}
         </Row>
         {isOpen &&
@@ -411,9 +411,9 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
                             className="h-1.5 w-2.5 rounded-sm"
                             style={{
                               background:
-                                { done: "#3ecf8e", running: "#7cd2ff", failed: "#ff8a8a", interrupted: "#f5b84b" }[
+                                { done: "var(--c-good)", running: "var(--c-accent-ink)", failed: "var(--c-bad)", interrupted: "var(--c-warn)" }[
                                   tr.phases[ph]?.status ?? ""
-                                ] ?? "#22324d",
+                                ] ?? "var(--c-line-2)",
                             }}
                           />
                         ))}
@@ -500,7 +500,7 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
           onChange={(e) => setQ(e.target.value)}
           placeholder={t("Filter projects…")}
           aria-label={t("Filter projects")}
-          className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+          className="h-8 w-full rounded-md border border-line-2 bg-sunken px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
         />
       </div>
       <div role="tree" className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
@@ -569,9 +569,9 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
               label: t("Move to the trash…"),
               danger: true,
               disabled: menu.project.status === "running",
-              on: () => {
+              on: async () => {
                 const name = menu.project!.name;
-                if (confirm(t("Move the project “{name}” to the workspace trash (trash/)? It can be restored by moving its folder back.", { name })))
+                if (await ask(t("Move the project “{name}” to the workspace trash (trash/)? It can be restored by moving its folder back.", { name }), { danger: true }))
                   trash.mutate([name], { onError: (e) => alert(ts((e as Error).message)) });
               },
             },
@@ -584,7 +584,7 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
               role="menuitem"
               disabled={it.disabled}
               onClick={() => (setMenu(null), it.on())}
-              className={`block w-full px-3 py-1.5 text-left hover:bg-raised disabled:opacity-50 ${it.danger ? "text-[#ffb3b3] hover:text-[#ffd0d0]" : "text-ink-2 hover:text-ink"}`}
+              className={`block w-full px-3 py-1.5 text-left hover:bg-raised disabled:opacity-50 ${it.danger ? "text-bad-ink hover:text-bad-ink" : "text-ink-2 hover:text-ink"}`}
             >
               {it.label}
             </button>

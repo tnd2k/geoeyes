@@ -4,11 +4,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AsfPreview, type AsfTrack, type Folder, type Workspace } from "../api";
+import { BasemapPicker } from "../components/BasemapPicker";
 import { t, ts } from "../i18n";
+import { baseSource, DEFAULT_BASE, switchBase, type Base } from "../map";
 import { useApp } from "../state";
 import { Button, Panel } from "../ui";
 
-const field = "h-9 w-full rounded-md border border-line-2 bg-[#0a1322] px-2.5 text-[13px] text-ink focus:border-accent focus:outline-none";
+const field = "h-9 w-full rounded-md border border-line-2 bg-sunken px-2.5 text-[13px] text-ink focus:border-accent focus:outline-none";
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function folderPaths(list: Folder[], prefix = ""): string[] {
@@ -72,6 +74,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const corner = useRef<maplibregl.LngLat | null>(null);
+  const [base, setBase] = useState<Base>(DEFAULT_BASE);
   const s1 = sensor === "sentinel1";
   const folders = useMemo(() => folderPaths(ws?.tree.folders ?? []), [ws]);
   const exists = !!ws?.projects[name];
@@ -85,19 +88,14 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
       style: {
         version: 8,
         sources: {
-          sat: {
-            type: "raster",
-            tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-            tileSize: 256,
-            maxzoom: 19,
-            attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
-          },
+          base: baseSource(DEFAULT_BASE),
           [RECT]: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
         },
         layers: [
-          { id: "sat", type: "raster", source: "sat", paint: { "raster-saturation": -0.3, "raster-brightness-max": 0.85 } },
-          { id: "aoi-fill", type: "fill", source: RECT, paint: { "fill-color": "#4cc2ff", "fill-opacity": 0.15 } },
-          { id: "aoi-line", type: "line", source: RECT, paint: { "line-color": "#ffffff", "line-width": 2 } },
+          { id: "bg", type: "background", paint: { "background-color": "#d9dde3" } },
+          { id: "base", type: "raster", source: "base" },
+          { id: "aoi-fill", type: "fill", source: RECT, paint: { "fill-color": "#1f7fd6", "fill-opacity": 0.15 } },
+          { id: "aoi-line", type: "line", source: RECT, paint: { "line-color": "#1f5fb0", "line-width": 2 } },
         ],
       },
       center: [105.85, 21.02],
@@ -112,6 +110,14 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
       map.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const apply = () => switchBase(m, base);
+    if (m.isStyleLoaded()) apply();
+    else m.once("load", apply);
+  }, [base]);
 
   const drawRect = (b: number[] | null) => {
     const src = map.current?.getSource(RECT) as maplibregl.GeoJSONSource | undefined;
@@ -216,6 +222,8 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                   <option value="sentinel1">{t("Sentinel-1 (downloaded from ASF)")}</option>
                   <option value="cosmo_skymed">COSMO-SkyMed</option>
                   <option value="capella">Capella</option>
+                  <option value="iceye">ICEYE</option>
+                  <option value="umbra">Umbra (SICD)</option>
                   <option value="terrasar_x">TerraSAR-X</option>
                 </select>
               </div>
@@ -270,7 +278,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                           key={x.track_id}
                           type="button"
                           onClick={() => (setOrbit(String(x.relative_orbit)), setDirection(x.direction), setPreview(null))}
-                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-[13px] ${on ? "border-accent bg-[#102033]" : "border-line hover:bg-[#131f35]"}`}
+                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-[13px] ${on ? "border-accent bg-accent-bg" : "border-line hover:bg-panel-3"}`}
                         >
                           <span className="font-mono">{x.track_id}</span>
                           <span className="text-muted">{x.subswaths.join(", ")}</span>
@@ -329,7 +337,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                     <div className="mt-3 flex h-20 items-end gap-1" role="img" aria-label={t("Acquisitions per month")}>
                       {Object.entries(preview.months).map(([m, n]) => (
                         <div key={m} className="flex flex-1 flex-col items-center gap-1" title={`${m}: ${n}`}>
-                          <div className="w-full rounded-t bg-[#4c8dff]" style={{ height: `${(56 * n) / maxMonth}px` }} />
+                          <div className="w-full rounded-t bg-accent-2" style={{ height: `${(56 * n) / maxMonth}px` }} />
                           <span className="font-mono text-[9.5px] text-faint">{m.slice(2)}</span>
                         </div>
                       ))}
@@ -375,8 +383,9 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
         <div className="absolute inset-0">
           <div ref={mapEl} className="h-full w-full" />
         </div>
+        <BasemapPicker map={map} base={base} onChange={setBase} />
         {drawing && (
-          <div className="absolute top-3 left-3 z-10 rounded-md bg-[#0b1220]/85 px-3 py-1.5 text-[12.5px] text-ink-2">{t("Click a first corner, then the opposite corner")}</div>
+          <div className="absolute top-3 left-3 z-10 rounded-md bg-bg/85 px-3 py-1.5 text-[12.5px] text-ink-2">{t("Click a first corner, then the opposite corner")}</div>
         )}
       </div>
     </div>

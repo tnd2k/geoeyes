@@ -4,18 +4,17 @@
 // - Forecast: deformation change ahead, the global model only where it beats simple baselines in a backtest.
 // Method and sources: docs/en/research/ai-susceptibility.md, docs/en/research/ai-forecasting.md.
 import { SolidPolygonLayer } from "@deck.gl/layers";
-import { MapboxOverlay } from "@deck.gl/mapbox";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import { api, type ForecastCell, type GridMeta, type SusceptibilitySummary, type Workspace } from "../api";
 import { lang, t, ts } from "../i18n";
-import { BasemapPicker } from "../components/BasemapPicker";
-import { mapStyle, type Base } from "../map";
+import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
+import { addTheme, composeTheme } from "../components/ThemeLayers";
 import { useWarnings } from "../notify";
 import { useApp } from "../state";
 import { Button, ColumnToggle, fmt, Fold, usePersisted } from "../ui";
+import { themeColor } from "../theme";
 
 type RGB = [number, number, number];
 type Tab = "susceptibility" | "forecast";
@@ -24,7 +23,7 @@ const LEVEL_RGB: RGB[] = [[26, 152, 80], [145, 207, 96], [254, 224, 139], [252, 
 const LEVELS = ["Very low", "Low", "Moderate", "High", "Very high"];
 const NA_RGB: RGB = [75, 90, 115];
 const VIRIDIS: RGB[] = [[68, 1, 84], [70, 51, 127], [54, 92, 141], [39, 127, 142], [31, 161, 135], [74, 194, 109], [159, 218, 58], [253, 231, 37]];
-const DIVERGING: RGB[] = [[178, 24, 43], [214, 96, 77], [244, 165, 130], [127, 139, 160], [146, 197, 222], [67, 147, 195], [33, 102, 172]];
+export const DIVERGING: RGB[] = [[178, 24, 43], [214, 96, 77], [244, 165, 130], [127, 139, 160], [146, 197, 222], [67, 147, 195], [33, 102, 172]];
 const MODEL_LABEL: Record<string, string> = {
   logistic: "Logistic regression",
   random_forest: "Random forest",
@@ -66,7 +65,7 @@ function rgb(c: RGB, a = 1) {
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
 
-function ramp(colors: RGB[], x: number): RGB {
+export function ramp(colors: RGB[], x: number): RGB {
   const v = Math.min(1, Math.max(0, x)) * (colors.length - 1);
   const i = Math.min(colors.length - 2, Math.floor(v));
   const f = v - i;
@@ -144,7 +143,7 @@ function ImportanceBars({ imp, layers }: { imp: Record<string, number>; layers: 
           <span className="truncate text-ink-2" title={t(layers[k]?.label ?? k)}>
             {t(layers[k]?.label ?? k)}
           </span>
-          <span className="h-2 rounded bg-[#1a2740]">
+          <span className="h-2 rounded bg-chip">
             <span className="block h-full rounded bg-accent" style={{ width: `${(100 * v) / max}%` }} />
           </span>
           <span className="text-right font-mono text-[11px] text-muted">{v.toFixed(3)}</span>
@@ -154,7 +153,7 @@ function ImportanceBars({ imp, layers }: { imp: Record<string, number>; layers: 
   );
 }
 
-function ForecastChart({ c }: { c: ForecastCell }) {
+export function ForecastChart({ c }: { c: ForecastCell }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
@@ -178,7 +177,7 @@ function ForecastChart({ c }: { c: ForecastCell }) {
       pad(hi80, nH - 1),
       pad(lo80, nH - 1),
     ] as uPlot.AlignedData;
-    const axis = { stroke: "#93a4bf", grid: { stroke: "#1a2740", width: 1 }, ticks: { stroke: "#22324d", width: 1 }, font: "11px Inter, system-ui, sans-serif" };
+    const axis = { stroke: themeColor("muted"), grid: { stroke: themeColor("chip"), width: 1 }, ticks: { stroke: themeColor("line-2"), width: 1 }, font: "11px 'Lexend Variable', system-ui, sans-serif" };
     const plot = new uPlot(
       {
         width: el.clientWidth,
@@ -189,12 +188,12 @@ function ForecastChart({ c }: { c: ForecastCell }) {
         scales: { x: { time: true } },
         axes: [
           { ...axis, values: (_u, v) => v.map((s) => new Date(s * 1000).toISOString().slice(0, 7)) },
-          { ...axis, size: 48, label: t("mm (LOS)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
+          { ...axis, size: 48, label: t("mm (LOS)"), labelSize: 14, labelFont: "11px 'Lexend Variable', sans-serif" },
         ],
         series: [
           {},
-          { stroke: "#4cc2ff", width: 1.6, points: { show: true, size: 5, fill: "#4cc2ff", stroke: "#0b1220" }, spanGaps: true },
-          { stroke: "#f5b84b", width: 2, dash: [6, 4], points: { show: true, size: 5, fill: "#f5b84b" } },
+          { stroke: themeColor("accent"), width: 1.6, points: { show: true, size: 5, fill: themeColor("accent"), stroke: themeColor("bg") }, spanGaps: true },
+          { stroke: themeColor("warn"), width: 2, dash: [6, 4], points: { show: true, size: 5, fill: themeColor("warn") } },
           { stroke: "transparent", points: { show: false } },
           { stroke: "transparent", points: { show: false } },
           { stroke: "transparent", points: { show: false } },
@@ -220,10 +219,10 @@ function ForecastChart({ c }: { c: ForecastCell }) {
       <div ref={box} className="w-full" />
       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted">
         <span className="flex items-center gap-1">
-          <span className="h-0.5 w-4 bg-[#4cc2ff]" /> {t("observed (cell median, 0 at the first date)")}
+          <span className="h-0.5 w-4 bg-accent" /> {t("observed (cell median, 0 at the first date)")}
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 border-t-2 border-dashed border-[#f5b84b]" /> {t("forecast")}
+          <span className="w-4 border-t-2 border-dashed border-warn" /> {t("forecast")}
         </span>
         <span className="flex items-center gap-1">
           <span className="h-2.5 w-4 bg-[rgba(245,184,75,0.35)]" /> {t("80 % / 95 % interval")}
@@ -234,13 +233,11 @@ function ForecastChart({ c }: { c: ForecastCell }) {
 }
 
 export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | undefined; project?: string; product?: string; tab?: string }) {
-  const { go, layers } = useApp();
+  const { go, layers, showProduct } = useApp();
   const qc = useQueryClient();
   const tab: Tab = routeTab === "forecast" ? "forecast" : "susceptibility";
-  const mapEl = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const overlay = useRef<MapboxOverlay | null>(null);
-  const [base, setBase] = useState<Base>("dark");
+  const shell = useBaseMap();
+  const { overlay } = shell;
   const [view, setView] = useState("probability");
   const [horizon, setHorizon] = useState<number | null>(null);
   const [sel, setSel] = useState<number | null>(null);
@@ -300,33 +297,24 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
   }, [tab, view, fc?.chosen]);
 
   // ------------------------------------------------------------ map
-  useEffect(() => {
-    if (!mapEl.current) return;
-    const m = new maplibregl.Map({ container: mapEl.current, style: mapStyle("dark"), center: [105.82, 21.02], zoom: 10, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
-    m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
-    const ov = new MapboxOverlay({ interleaved: false, layers: [] });
-    m.addControl(ov as unknown as maplibregl.IControl);
-    map.current = m;
-    overlay.current = ov;
-    return () => {
-      m.remove();
-      map.current = null;
-      overlay.current = null;
-    };
-  }, []);
-  const firstBase = useRef(true);
-  useEffect(() => {
-    if (firstBase.current) {
-      firstBase.current = false;
-      return;
+  // go to the data: the susceptibility grid's bounds, else (forecast only) the extent of the cells shown
+  const gridBounds = useMemo(() => {
+    const g = grid.data;
+    if (!g || !g.meta.n) return undefined;
+    const [lon0, lat0] = g.meta.origin;
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (let i = 0; i < g.meta.n; i++) {
+      const x = lon0 + value(g, i, "dlon");
+      const y = lat0 + value(g, i, "dlat");
+      if (x < w) w = x;
+      if (x > e) e = x;
+      if (y < s) s = y;
+      if (y > n) n = y;
     }
-    map.current?.setStyle(mapStyle(base));
-  }, [base]);
-  const bounds = susc?.grid.bounds;
-  useEffect(() => {
-    if (bounds && map.current) map.current.fitBounds(bounds as [number, number, number, number], { padding: 60, duration: 600 });
-  }, [bounds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+    return [w, s, e, n];
+  }, [grid.data]);
+  const bounds = susc?.grid.bounds ?? gridBounds;
+  useFitTo(shell, bounds, bounds?.map((v) => v.toFixed(3)).join(","));
 
   const polys = useMemo(() => {
     const g = grid.data;
@@ -418,7 +406,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
       ] as never,
       getTooltip: ({ object }: { object?: { i: number } }) => {
         if (!object) return null;
-        const style = { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" };
+        const style = { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" };
         if (tab === "forecast" && h) return { text: `${fmt.vel(value(g, object.i, `c${h}`))} mm · ${h} ${t("days")}`, style };
         const p = value(g, object.i, "probability");
         const lab = value(g, object.i, "label");
@@ -451,9 +439,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <div className="absolute inset-0">
-        <div ref={mapEl} className="h-full w-full" />
-      </div>
+      <MapCanvas m={shell} />
 
       {!leftOpen && (
         <div className="absolute top-3 left-3 z-10">
@@ -470,7 +456,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                 go({ page: "ai", name: n, product: rest.join("/"), tab });
               }}
               aria-label={t("Product")}
-              className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink"
+              className="h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink"
             >
               {choices.map((c) => (
                 <option key={`${c.project}/${c.product}`} value={`${c.project}/${c.product}`}>
@@ -485,9 +471,10 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                   type="button"
                   aria-pressed={tab === k}
                   onClick={() => (setView(k === "forecast" ? "change" : "probability"), go({ page: "ai", name: project, product, tab: k }))}
-                  className={`h-7 flex-1 rounded-md text-[12.5px] ${tab === k ? "bg-raised font-semibold text-ink" : "text-muted hover:text-ink"}`}
+                  title={k === "susceptibility" ? t("Susceptibility from thematic layers") : t("Deformation forecast")}
+                  className={`min-h-7 flex-1 rounded-md px-2 py-1 text-[12.5px] leading-tight ${tab === k ? "bg-raised font-semibold text-ink" : "text-muted hover:text-ink"}`}
                 >
-                  {k === "susceptibility" ? t("Susceptibility from thematic layers") : t("Deformation forecast")}
+                  {k === "susceptibility" ? t("Susceptibility") : t("Deformation forecast")}
                 </button>
               ))}
             </div>
@@ -499,11 +486,11 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                 <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12px] text-muted">
                   <label className="flex items-center gap-1.5" title={t("Cells moving at or above this rate (mm/yr, sinking or downslope) are labelled as moving")}>
                     <span className="w-20 flex-none">{t("Threshold")}</span>
-                    <input value={labelRate} onChange={(e) => setLabelRate(e.target.value)} placeholder="5" className="h-7 w-full min-w-0 rounded-md border border-line-2 bg-[#0a1322] px-2 font-mono text-[12px] text-ink" />
+                    <input value={labelRate} onChange={(e) => setLabelRate(e.target.value)} placeholder="5" className="h-7 w-full min-w-0 rounded-md border border-line-2 bg-sunken px-2 font-mono text-[12px] text-ink" />
                   </label>
                   <label className="flex items-center gap-1.5" title={t("Size of the spatial cross-validation blocks")}>
                     <span className="w-20 flex-none">{t("CV blocks")}</span>
-                    <select value={blockM} onChange={(e) => setBlockM(Number(e.target.value))} className="h-7 w-full min-w-0 rounded-md border border-line-2 bg-[#0a1322] px-1 text-[12px] text-ink">
+                    <select value={blockM} onChange={(e) => setBlockM(Number(e.target.value))} className="h-7 w-full min-w-0 rounded-md border border-line-2 bg-sunken px-1 text-[12px] text-ink">
                       {[500, 1000, 2000, 5000].map((v) => (
                         <option key={v} value={v}>
                           {v} m
@@ -512,21 +499,27 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                     </select>
                   </label>
                 </div>
-                {!status.data?.hazard && <div className="mt-2 rounded-md bg-[#2a2110] px-2 py-1 text-[11.5px] text-[#f5d08b]">{t("Run the hazard zoning of this product first: its cells are the labels.")}</div>}
+                {!status.data?.hazard && <div className="mt-2 rounded-md bg-warn-bg px-2 py-1 text-[11.5px] text-warn-ink">{t("Run the hazard zoning of this product first: its cells are the labels.")}</div>}
               </>
             ) : (
               <p className="mt-2 text-[12px] leading-snug text-muted">
                 {t("Forecasts the change of displacement of every cell; the machine-learning model is used only where it beats simple baselines in a backtest on the past.")}
               </p>
             )}
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2 [&>button]:whitespace-nowrap">
               <Button variant="primary" disabled={!product || job?.running || (tab === "susceptibility" && !status.data?.hazard)} onClick={run}>
                 {job?.running ? t("Running…") : (tab === "susceptibility" ? susc : fc) ? t("Run again") : t("Run")}
               </Button>
+              {(tab === "forecast" ? fc : susc) && (
+                <>
+                  <Button onClick={() => (addTheme(project!, product!, tab), showProduct(project!, product!, { open: true }))}>{t("View on the results map")}</Button>
+                  <Button onClick={() => (composeTheme(project!, product!, tab), showProduct(project!, product!), go({ page: "compose" }))}>{t("Make a map")}</Button>
+                </>
+              )}
             </div>
             {busy && <div className="mt-2 text-[12px] text-bad">{busy}</div>}
             {(job?.running || job?.failed) && job.log.length > 0 && (
-              <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-[#070c16] p-2 font-mono text-[11px] text-[#a9b8cf]">{job.log.join("\n")}</pre>
+              <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-deep p-2 font-mono text-[11px] text-ink-3">{job.log.join("\n")}</pre>
             )}
           </Fold>
 
@@ -626,8 +619,6 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
         </div>
       )}
 
-      <BasemapPicker map={map} base={base} onChange={setBase} />
-
       {g && !rightOpen && (
         <div className="absolute top-3 right-3 z-10">
           <ColumnToggle open={false} side="right" label={t("Layers")} onClick={() => setRightOpen(true)} />
@@ -637,7 +628,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
         <div className="pointer-events-none absolute top-3 right-3 bottom-3 z-10 flex w-[min(360px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto">
           <Fold id="ai.layers" title={t("LAYERS")} extra={<ColumnToggle open side="right" label={t("Layers")} onClick={() => setRightOpen(false)} />}>
             {tab === "susceptibility" && susc ? (
-              <select value={view} onChange={(e) => setView(e.target.value)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+              <select value={view} onChange={(e) => setView(e.target.value)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                 <optgroup label={t("Model results")}>
                   {(["probability", "label", "outside"] as const).map((k) => (
                     <option key={k} value={k}>
@@ -658,7 +649,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
             ) : (
               fc && (
                 <div className="space-y-2">
-                  <select value={view} onChange={(e) => setView(e.target.value)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+                  <select value={view} onChange={(e) => setView(e.target.value)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                     {(["change", "width"] as const).map((k) => (
                       <option key={k} value={k}>
                         {k === "change" ? t("Forecast change") : t("Uncertainty (80 % width)")}
@@ -667,7 +658,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                   </select>
                   <label className="flex items-center gap-2 text-[12px] text-muted">
                     {t("Forecast horizon")}
-                    <select value={h ?? ""} onChange={(e) => setHorizon(Number(e.target.value))} className="h-7 rounded-md border border-line-2 bg-[#0a1322] px-1.5 text-[12px] text-ink">
+                    <select value={h ?? ""} onChange={(e) => setHorizon(Number(e.target.value))} className="h-7 rounded-md border border-line-2 bg-sunken px-1.5 text-[12px] text-ink">
                       {fc.horizons_days.map((d) => (
                         <option key={d} value={d}>
                           {d} {t("days")}
@@ -724,7 +715,7 @@ export function Ai({ ws, project, product, tab: routeTab }: { ws: Workspace | un
                     <GradientLegend colors={VIRIDIS} lo={0} hi={fcLim} unit="mm" left={t("narrow")} right={t("wide")} />
                   )}
                   {fc.chosen === "last" && (
-                    <div className="mt-2 rounded-md bg-[#2a2110] px-2 py-1 text-[11.5px] leading-snug text-[#f5d08b]">
+                    <div className="mt-2 rounded-md bg-warn-bg px-2 py-1 text-[11.5px] leading-snug text-warn-ink">
                       {t("The best model on the past is “no change”: the forecast change is 0 everywhere, only its uncertainty varies.")}
                     </div>
                   )}

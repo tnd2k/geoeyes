@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import { t } from "../i18n";
+import { themeColor } from "../theme";
 
 export function RainBars({ months, from, to, height = 74, axis: showAxis = false }: { months: { month: string; mm: number | null }[]; from: string; to: string; height?: number; axis?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
@@ -12,18 +13,18 @@ export function RainBars({ months, from, to, height = 74, axis: showAxis = false
     const x = months.map((m) => Date.parse(`${m.month}-15`) / 1000);
     const y = months.map((m) => m.mm);
     const bars = uPlot.paths.bars!({ size: [0.75, 18] });
-    const axis = { stroke: "#93a4bf", grid: { stroke: "#1a2740", width: 1 }, ticks: { stroke: "#22324d", width: 1 }, font: "10px Inter, system-ui, sans-serif" };
+    const axis = { stroke: themeColor("muted"), grid: { stroke: themeColor("chip"), width: 1 }, ticks: { stroke: themeColor("line-2"), width: 1 }, font: "10px 'Lexend Variable', system-ui, sans-serif" };
     const plot = new uPlot(
       {
         width: el.clientWidth,
         height,
-        padding: [10, 8, 6, 0],            // room above the tallest bar and below the 0 label
+        padding: [10, 24, 6, 0],           // room above the tallest bar, below the 0 label, right of the last month
         legend: { show: false },
         cursor: { drag: { x: false, y: false }, points: { show: false } },
         scales: { x: { time: true, range: [Date.parse(from) / 1000, Date.parse(to) / 1000] }, y: { range: (_u, _min, max) => [0, Math.max(50, max * 1.12)] } },
         axes: [
           showAxis ? { ...axis, size: 30, values: (_u, v) => v.map((s) => new Date(s * 1000).toISOString().slice(0, 7)) } : { ...axis, show: false },
-          { ...axis, size: 48, label: t("mm/month"), labelSize: 12, labelFont: "10px Inter, sans-serif", values: (_u, t) => t.map((v) => `${v}`) },
+          { ...axis, size: 48, label: t("mm/month"), labelSize: 12, labelFont: "10px 'Lexend Variable', sans-serif", values: (_u, t) => t.map((v) => `${v}`) },
         ],
         series: [{}, { stroke: "#5b9bd5", fill: "rgba(91,155,213,0.55)", width: 0, paths: bars, points: { show: false } }],
       },

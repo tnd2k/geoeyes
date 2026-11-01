@@ -1,22 +1,24 @@
 // Map composer: frame the products shown on the map on a sheet (title, legend, scale bar, north arrow, product
 // details, credits) and export it as PNG or PDF at print resolution.
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Workspace } from "../api";
+import { api, type Workspace } from "../api";
 import { degLabel, drawSheet, graticuleStep, layout, metresPerPixel, PAPERS, pdfFromJpeg, type Options, type SheetData } from "../compose";
+import { floodFeatures, floodLayers } from "../components/FloodReports";
+import { COMPOSE_SUBJECT, loadTheme, themeLayers, themeLegendSpec, themeTitle, useThemes, type ThemeData } from "../components/ThemeLayers";
 import { BASES, loadLayer, mapStyle, productLayer, type Base, type LayerData } from "../map";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
-import { Button, fmt, Panel } from "../ui";
+import { Button, fmt, Panel, usePersisted } from "../ui";
 
-const field = "h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
+const field = "h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
 
 function Toggle({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink-2">
-      <input type="checkbox" className="h-4 w-4 accent-[#4cc2ff]" checked={on} onChange={(e) => set(e.target.checked)} />
+      <input type="checkbox" className="h-4 w-4 accent-accent" checked={on} onChange={(e) => set(e.target.checked)} />
       {label}
     </label>
   );
@@ -96,15 +98,51 @@ function download(blob: Blob, name: string) {
 }
 
 export function Compose({ ws }: { ws: Workspace | undefined }) {
-  const { layers, go } = useApp();
+  const { layers, go, toggleLayer } = useApp();
   const visible = layers.filter((l) => l.visible);
-  const first = visible[0];
+  // every output on the results map: the products, their thematic layers (analyses, machine learning), the reported
+  // flood locations; one of them is the map's subject (title and legend)
+  const th = useThemes();
+  const themesOn = th.themes.filter((x) => x.visible);
+  const themeQ = useQueries({
+    queries: th.themes.map((x) => ({ queryKey: ["theme", x.key], queryFn: () => loadTheme(x), staleTime: 5 * 60_000, gcTime: 10 * 60_000 })),
+  });
+  const themeData: Record<string, ThemeData | undefined> = {};
+  th.themes.forEach((x, i) => (themeData[x.key] = themeQ[i]?.data));
+  const hazardQ = useQueries({
+    queries: themesOn
+      .filter((x) => x.kind === "hazard")
+      .map((x) => ({ queryKey: ["avail-hazard", x.project, x.product], queryFn: () => api.hazard(x.project, x.product), staleTime: 60_000 })),
+  });
+  const [floodsOn, setFloodsOn] = usePersisted("explorer.floods", false);
+  const floodsQ = useQuery({ queryKey: ["floods"], queryFn: api.floods, enabled: floodsOn, staleTime: 60_000 });
+  const floodShown = useMemo(() => (floodsOn ? floodFeatures(floodsQ.data, false) : []), [floodsOn, floodsQ.data]);
+  const [subjectKey, setSubjectKey] = useState(() => {
+    try {
+      return sessionStorage.getItem(COMPOSE_SUBJECT) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(COMPOSE_SUBJECT, subjectKey);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [subjectKey]);
+  const subjectTheme = themesOn.find((x) => x.key === subjectKey) ?? null;
+  const subjectProduct = subjectTheme ? null : (visible.find((l) => l.key === subjectKey) ?? visible[0] ?? null);
+  // the details and credits follow the subject's product
+  const first = subjectProduct ?? (subjectTheme ? { key: `${subjectTheme.project}/${subjectTheme.product}`, project: subjectTheme.project, product: subjectTheme.product } : visible[0]);
   const summary = first ? ws?.projects[first.project]?.tracks.find((t) => t.product?.id === first.product) : undefined;
   const [paperId, setPaperId] = useState("a4l");
   const [dpi, setDpi] = useState(300);
   const [base, setBase] = useState<Base>("light");
+  // the title follows the subject until it is edited
+  const autoTitle = subjectTheme ? `${themeTitle(subjectTheme)} — ${subjectTheme.project}` : first ? t("Ground motion — {project}", { project: first.project }) : t("Ground motion");
   const [o, setO] = useState<Options>({
-    title: first ? t("Ground motion — {project}", { project: first.project }) : t("Ground motion"),
+    title: autoTitle,
     subtitle: "",
     legend: "right",
     scale: true,
@@ -116,6 +154,11 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     theme: "light",
   });
   const set = <K extends keyof Options>(k: K, v: Options[K]) => setO((x) => ({ ...x, [k]: v }));
+  const lastAuto = useRef(autoTitle);
+  useEffect(() => {
+    setO((x) => (x.title === lastAuto.current ? { ...x, title: autoTitle } : x));
+    lastAuto.current = autoTitle;
+  }, [autoTitle]);
   const paper = PAPERS.find((p) => p.id === paperId)!;
   const L = useMemo(() => layout(paper, o), [paper, o]);
 
@@ -134,13 +177,21 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   }, [visible, data]);
   const firstData = first ? byKey[first.key] : undefined;
 
+  // the subtitle (sensor, period) follows the subject's product until it is edited; a thematic subject: no "LOS velocity"
+  const autoSub = (() => {
+    const p = summary?.product;
+    if (!summary || !p) return "";
+    const dir = summary.direction === "ascending" ? t("ascending") : summary.direction === "descending" ? t("descending") : summary.direction;
+    const v = { sensor: fmt.sensor(summary.sensor), direction: dir, first: p.first, last: p.last, n: p.epochs };
+    return subjectTheme
+      ? t("{sensor} {direction} · {first} → {last} ({n} acquisitions)", v)
+      : t("{sensor} {direction} · LOS velocity {first} → {last} ({n} acquisitions)", v);
+  })();
+  const lastSub = useRef("");
   useEffect(() => {
-    if (summary?.product && !o.subtitle) {
-      const p = summary.product;
-      set("subtitle", t("{sensor} {direction} · LOS velocity {first} → {last} ({n} acquisitions)", { sensor: fmt.sensor(summary.sensor), direction: summary.direction === "ascending" ? t("ascending") : summary.direction === "descending" ? t("descending") : summary.direction, first: p.first, last: p.last, n: p.epochs }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [summary?.product?.id]);
+    setO((x) => (!x.subtitle || x.subtitle === lastSub.current ? { ...x, subtitle: autoSub } : x));
+    lastSub.current = autoSub;
+  }, [autoSub]);
 
   // ------------------------------------------------------------ preview sheet size
   const area = useRef<HTMLDivElement>(null);
@@ -192,24 +243,31 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   const fitted = useRef(false);
   useEffect(() => {
     if (fitted.current || !map.current) return;
-    const ds = Object.values(byKey).filter(Boolean) as LayerData[];
-    if (!ds.length) return;
-    const b = ds.reduce(
-      (a, d) => [Math.min(a[0], d.meta.bounds[0]), Math.min(a[1], d.meta.bounds[1]), Math.max(a[2], d.meta.bounds[2]), Math.max(a[3], d.meta.bounds[3])],
-      [180, 90, -180, -90],
-    );
+    const bs = [
+      ...(Object.values(byKey).filter(Boolean) as LayerData[]).map((d) => d.meta.bounds),
+      ...themesOn.map((x) => themeData[x.key]?.bounds).filter((b): b is [number, number, number, number] => !!b),
+    ];
+    if (!bs.length) return;
+    const b = bs.reduce((a, c) => [Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.max(a[2], c[2]), Math.max(a[3], c[3])], [180, 90, -180, -90]);
     map.current.resize();
     map.current.fitBounds([b[0], b[1], b[2], b[3]], { padding: 24, duration: 0 });
     fitted.current = true;
-  }, [byKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byKey, themeQ.map((q) => q.dataUpdatedAt).join()]);
 
   const deckLayers = useCallback(
     (pixelScale = 1) =>
-      [...visible].reverse().flatMap((l) => {
-        const d = byKey[l.key];
-        return d ? [productLayer(l, d, { pickable: false, pixelScale, idPrefix: `c${pixelScale}-` })] : [];
-      }),
-    [visible, byKey],
+      [
+        ...[...visible].reverse().flatMap((l) => {
+          const d = byKey[l.key];
+          return d ? [productLayer(l, d, { pickable: false, pixelScale, idPrefix: `c${pixelScale}-` })] : [];
+        }),
+        // the thematic layers over the points, as on the results map; the flood reports on top
+        ...themeLayers(themesOn, themeData, null, () => {}),
+        ...(floodShown.length ? floodLayers(floodShown, { selected: null, onPick: () => {}, three: false, extensions: [] }) : []),
+      ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, byKey, themesOn.map((x) => `${x.key}${x.view}${x.horizon}${x.opacity}`).join(), themeQ.map((q) => q.dataUpdatedAt).join(), floodShown],
   );
   useEffect(() => {
     overlay.current?.setProps({ layers: deckLayers() as never });
@@ -232,9 +290,20 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
                 [t("Product"), `v${prod.version} (${prod.engine ?? ""})`],
               ] as [string, string][])
             : []),
-          ...(visible.length > 1 ? ([[t("Also shown"), visible.slice(1).map((l) => l.project).join(", ")]] as [string, string][]) : []),
+          ...(subjectTheme ? ([[t("Layer"), themeTitle(subjectTheme)]] as [string, string][]) : []),
+          ...(() => {
+            const others = [
+              ...visible.filter((l) => l.key !== subjectProduct?.key).map((l) => `${t("LOS velocity")} · ${l.project}`),
+              ...themesOn.filter((x) => x.key !== subjectTheme?.key).map((x) => `${themeTitle(x)} · ${x.project}`),
+              ...(floodShown.length ? [t("{n} reported flood locations", { n: floodShown.length })] : []),
+            ];
+            return others.length ? ([[t("Also shown"), others.join(", ")]] as [string, string][]) : [];
+          })(),
         ]
       : [];
+    const hz = subjectTheme?.kind === "hazard" ? hazardQ[themesOn.filter((x) => x.kind === "hazard").findIndex((x) => x.key === subjectTheme.key)]?.data?.summary : undefined;
+    const sd = subjectTheme ? themeData[subjectTheme.key] : undefined;
+    const spec = subjectTheme && sd ? themeLegendSpec(subjectTheme, sd, hz ?? undefined) : null;
     const year = summary?.product?.last?.slice(0, 4) ?? "";
     const basemap = base === "none" ? "" : ` · ${t("Base map: {attribution}", { attribution: BASES[base].attribution })}`;
     const credit = summary ? `${SENSOR_CREDIT[summary.sensor] ? t(SENSOR_CREDIT[summary.sensor]) : ""} ${summary.sensor === "sentinel1" ? year : ""}`.trim() : "";
@@ -262,15 +331,17 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
         ? { heading: fm.heading_deg, look: fm.look_azimuth_deg ?? null, pass: (summary.direction === "ascending" ? t("ascending") : summary.direction === "descending" ? t("descending") : summary.direction).toUpperCase() }
         : null;
     return {
-      legend: firstData ? firstData.meta : null,
+      legend: firstData && !subjectTheme ? firstData.meta : null,
       legendTitle: t("LOS velocity"),
+      spec,
       ticks,
       geometry,
       meta,
       credits: `GeoEyes · ${new Date().toISOString().slice(0, 10)}${credit ? ` · ${credit}` : ""}${basemap}`,
       metresPerUnit,
     };
-  }, [L, sp, summary, first, visible, base, firstData, o.frame]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [L, sp, summary, first?.key, visible, base, firstData, o.frame, subjectTheme?.key, subjectTheme?.view, subjectTheme?.horizon, themeQ.map((q) => q.dataUpdatedAt).join(), hazardQ.map((q) => q.dataUpdatedAt).join(), floodShown.length, themesOn.length]);
 
   // preview canvas over the live map (map rectangle transparent)
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -329,7 +400,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     }
   };
 
-  if (!visible.length) {
+  if (!visible.length && !themesOn.length) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <Panel className="max-w-md p-6 text-center">
@@ -385,6 +456,38 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
             ))}
           </div>
         </div>
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("LAYERS")}</div>
+          <p className="text-[11.5px] leading-snug text-faint">{t("The layers of the results map. ◉ is the map's subject: its legend and title go on the sheet.")}</p>
+          {[
+            ...layers.map((l) => ({ key: l.key, label: `${t("LOS velocity")} · ${l.project}`, on: l.visible, toggle: () => toggleLayer(l.key), subject: l.visible })),
+            ...th.themes.map((x) => ({ key: x.key, label: `${themeTitle(x)} · ${x.project}`, on: x.visible, toggle: () => th.update(x.key, { visible: !x.visible }), subject: x.visible })),
+          ].map((r) => {
+            const isSubject = r.key === (subjectTheme?.key ?? subjectProduct?.key);
+            return (
+              <div key={r.key} className="flex items-center gap-2 text-[12.5px]">
+                <input type="checkbox" className="h-4 w-4 flex-none accent-accent" checked={r.on} onChange={r.toggle} aria-label={r.label} />
+                <span className={`min-w-0 flex-1 truncate ${r.on ? "text-ink-2" : "text-faint"}`} title={r.label}>
+                  {r.label}
+                </span>
+                <button
+                  type="button"
+                  disabled={!r.subject}
+                  aria-pressed={isSubject}
+                  title={t("Map subject: its legend and title")}
+                  onClick={() => setSubjectKey(r.key)}
+                  className={`flex-none text-[14px] leading-none ${isSubject ? "text-accent" : "text-faint hover:text-ink"} disabled:opacity-30`}
+                >
+                  {isSubject ? "◉" : "○"}
+                </button>
+              </div>
+            );
+          })}
+          <Toggle label={t("Reported flood locations")} on={floodsOn} set={setFloodsOn} />
+          <button type="button" className="text-[12px] text-accent hover:underline" onClick={() => go({ page: "explorer" })}>
+            {t("Add layers on the results map")} →
+          </button>
+        </div>
         <div className="space-y-2">
           <div className="text-[11px] font-semibold tracking-[1.2px] text-muted">{t("TEXT")}</div>
           <input className={field} value={o.title} onChange={(e) => set("title", e.target.value)} placeholder={t("Title (empty: none)")} aria-label={t("Title")} />
@@ -420,11 +523,11 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
           </Button>
           {error && <div className="text-[12px] text-bad">{error}</div>}
           <div className="text-[11.5px] leading-snug text-faint">
-            {t("Colours and classes as in QGIS and the reports.")} {visible.length > 1 ? t("The legend is that of the first layer.") : ""}
+            {t("Colours and classes as on the results map, in QGIS and in the reports.")} {visible.length + themesOn.length > 1 ? t("The legend is that of the map's subject (◉).") : ""}
           </div>
         </div>
       </div>
-      <div ref={area} className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#070c16]">
+      <div ref={area} className="flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-deep">
         <div className="relative shadow-2xl shadow-black/60" style={{ width: L.W * sp, height: L.H * sp }}>
           <div className="absolute" style={{ left: L.map.x * sp, top: L.map.y * sp, width: L.map.w * sp, height: L.map.h * sp }}>
             <div ref={mapEl} className="h-full w-full" />
