@@ -128,6 +128,8 @@ def _download(url: str, dest: Path, attempts: int = 3) -> bool:
     import time
 
     import requests
+
+    from geoeyes.core import netrate
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     for k in range(1, attempts + 1):
@@ -139,6 +141,7 @@ def _download(url: str, dest: Path, attempts: int = 3) -> bool:
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_content(1 << 20):
                         f.write(chunk)
+                        netrate.add(len(chunk))
             tmp.replace(dest)
             log.info("downloaded DEM tile %s", dest.name)
             return True

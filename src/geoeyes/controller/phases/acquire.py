@@ -5,6 +5,10 @@ The fingerprint is the ASF catalogue (burst file ids) for the track, AOI and ``[
 acquisition on ASF re-runs the phase, and ``build_stack`` then extends the stack with the new date
 (incremental build). Offline, the catalogue recorded by the last run is used, so a missing network never blocks
 processing of data already in the archive. CSK / Capella / TSX are commercial: no download (phase disabled).
+
+Open data (``[acquire] opendata`` = a stack id of ``geoeyes opendata stacks``, ICEYE or Capella): the stack's
+scenes covering the AOI, from the local open-data index (``geoeyes opendata sync``), into
+``<archive>/<sensor>/<track_id>/YYYYMMDD/``; ICEYE and Umbra scenes are cut to the AOI + ``opendata_margin_m``.
 """
 from __future__ import annotations
 
@@ -19,12 +23,91 @@ log = logging.getLogger(__name__)
 
 def enabled(ctx) -> bool:
     """Sentinel-1, workspace archive, and a ``[acquire] date_range`` to search (without one: use the archive as
-    it is)."""
+    it is); or an open-data stack."""
     a = ctx.cfg.acquire
+    if a.opendata:
+        return not a.archive
     return ctx.track.sensor is Sensor.SENTINEL1 and not a.archive and a.date_range is not None
 
 
+def _opendata(ctx) -> bool:
+    return bool(ctx.cfg.acquire.opendata)
+
+
+def _od_stack(ctx) -> dict:
+    """The open-data stack, restricted to the scenes covering the AOI, ``date_range`` and ``max_per_month``."""
+    if "acquire" not in ctx.cache:
+        from geoeyes.core.errors import DataError
+        from geoeyes.opendata import find_stacks, load
+        from geoeyes.opendata.stacks import get_stack
+        a = ctx.cfg.acquire
+        source = a.opendata.split(":", 1)[0]
+        st = get_stack(find_stacks(load(ctx.workspace, [source]), aoi=tuple(ctx.cfg.aoi.bbox), min_scenes=1),
+                       a.opendata)
+        if st is None:
+            raise DataError(f"open-data stack {a.opendata} has no scene covering the AOI in the local index "
+                            "(run `geoeyes opendata sync`, check the id with `geoeyes opendata stacks --bbox ...`)")
+        scenes = st["scenes"]
+        if a.date_range:
+            scenes = [s for s in scenes if str(a.date_range[0]) <= s["date"] <= str(a.date_range[1])]
+        if a.max_per_month:
+            by_month: dict[str, list] = defaultdict(list)
+            for sc in scenes:
+                by_month[sc["date"][:7]].append(sc)
+            scenes = [sc for m in sorted(by_month) for sc in by_month[m][:a.max_per_month]]
+        ctx.cache["acquire"] = {**st, "scenes": scenes}
+        log.info("%s: open-data stack %s, %d scene(s) over the AOI", ctx.track_id, st["id"], len(scenes))
+    return ctx.cache["acquire"]
+
+
+def _od_problem(ctx) -> str | None:
+    from geoeyes.opendata.sources import SOURCES
+    source = ctx.cfg.acquire.opendata.split(":", 1)[0]
+    if ctx.cfg.aoi.bbox is None:
+        return "[aoi] bbox is required to fetch an open-data stack"
+    if source not in SOURCES:
+        return f"[acquire] opendata: unknown source {source!r} (known: {', '.join(sorted(SOURCES))})"
+    if SOURCES[source].sensor != ctx.track.sensor.value:
+        return (f"{ctx.track_id}: [acquire] opendata {ctx.cfg.acquire.opendata} needs a "
+                f"{SOURCES[source].sensor or 'unsupported'} track, the track is {ctx.track.sensor.value}")
+    return None
+
+
+def _od_margin(ctx) -> float | None:
+    """Margin around the AOI of a cut product ([acquire] opendata_margin_m, else the source default); None when the
+    source is downloaded whole."""
+    from geoeyes.opendata.fetch import CUT, MARGIN_M
+    source = ctx.cfg.acquire.opendata.split(":", 1)[0]
+    if source not in CUT:
+        return None
+    m = ctx.cfg.acquire.opendata_margin_m
+    return float(m) if m is not None else MARGIN_M[source]
+
+
+def _od_request(ctx, item: str) -> dict:
+    a = ctx.cfg.acquire
+    return {"stack": a.opendata, "aoi": list(ctx.cfg.aoi.bbox), "margin_m": _od_margin(ctx),
+            "item": item}
+
+
+def _od_missing(ctx) -> list[str]:
+    import json
+
+    from geoeyes.controller.phases.build_stack import scenes_root
+    from geoeyes.opendata.fetch import MARKER
+    root, out = scenes_root(ctx), []
+    for s in _od_stack(ctx)["scenes"]:
+        m = root / s["date"].replace("-", "") / MARKER
+        rec = json.loads(m.read_text(encoding="utf-8")) if m.exists() else {}
+        want = _od_request(ctx, s["item"])
+        if any(rec.get(k) != v for k, v in want.items()):
+            out.append(s["date"])
+    return out
+
+
 def problem(ctx) -> str | None:
+    if _opendata(ctx):
+        return _od_problem(ctx)
     if ctx.cfg.aoi.bbox is None:
         return "[aoi] bbox is required to search Sentinel-1 bursts"
     if ctx.track.relative_orbit is None:
@@ -67,6 +150,9 @@ def _previous(ctx) -> dict:
 
 
 def fingerprint(ctx) -> str:
+    if _opendata(ctx):
+        return sha256_params({"items": sorted(s["item"] for s in _od_stack(ctx)["scenes"]),
+                              "aoi": list(ctx.cfg.aoi.bbox), "margin_m": _od_margin(ctx)})
     try:
         refs = catalogue(ctx)
     except Exception as exc:                     # offline: keep what the last run downloaded
@@ -81,6 +167,8 @@ def fingerprint(ctx) -> str:
 
 def outputs_exist(ctx) -> bool:
     from geoeyes.processing.acquire.s1_bursts import _complete, burst_paths
+    if _opendata(ctx):
+        return bool(_od_stack(ctx)["scenes"]) and not _od_missing(ctx)
     if ctx.cache.get("acquire_offline"):
         return True
     refs = catalogue(ctx)
@@ -90,6 +178,9 @@ def outputs_exist(ctx) -> bool:
 def changes(ctx) -> str:
     """New acquisitions on ASF since the last run ('' when none or no previous run)."""
     from geoeyes.processing.acquire.s1_bursts import _complete, burst_paths
+    if _opendata(ctx):
+        missing = _od_missing(ctx)
+        return f"{len(missing)} open-data scene(s) to fetch: {', '.join(missing)}" if missing else ""
     if ctx.cache.get("acquire_offline"):
         return ""
     refs = catalogue(ctx)
@@ -102,7 +193,29 @@ def changes(ctx) -> str:
     return f"{missing} burst file(s) of {n_acq} acquisitions not in the archive" if missing else ""
 
 
+def _od_run(ctx) -> dict:
+    from geoeyes.controller.phases.build_stack import scenes_root
+    from geoeyes.core.logging import event
+    from geoeyes.geometry.dem import load_dem
+    from geoeyes.opendata import load
+    from geoeyes.opendata.fetch import fetch_stack
+    st = _od_stack(ctx)
+    w, s, e, n = ctx.cfg.aoi.bbox
+    dem = None
+    if ctx.track.sensor in (Sensor.ICEYE, Sensor.UMBRA):     # range window: lowest and highest ground of the AOI
+        dem = load_dem(None if ctx.cfg.stack.dem in ("", "srtm-1") else ctx.cfg.stack.dem, s - 0.05, n + 0.05,
+                       w - 0.05, e + 0.05, cache=ctx.workspace.cache_dir("dem"))
+    got = fetch_stack(st, load(ctx.workspace, [st["source"]]), scenes_root(ctx), aoi=(w, s, e, n), dem=dem,
+                      margin_m=_od_margin(ctx) or 0.0,
+                      progress=lambda i, k, sid: event(log, "progress", f"fetch {sid}", stage="acquire",
+                                                       done=i - 1, total=k))
+    return {"acquisitions": len(got), "stack": st["id"], "dates": [g["date"] for g in got],
+            "bytes": sum(g["bytes"] for g in got)}
+
+
 def run(ctx) -> dict:
+    if _opendata(ctx):
+        return _od_run(ctx)
     from geoeyes.config.settings import load_settings
     from geoeyes.processing.acquire.s1_bursts import download
     refs = catalogue(ctx)
