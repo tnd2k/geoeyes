@@ -1,7 +1,8 @@
 """Phase ``build_stack``: raw scenes of a track -> native StackStore over the AOI (S1 bursts or stripmap scenes).
 
 Scenes: ``[acquire] archive`` when set, else ``<workspace>/archive/<sensor>/<track_id>/``. Sentinel-1: scene
-folders with ``bursts.json`` (any depth below the root); Capella / COSMO-SkyMed: folders named ``YYYYMMDD``
+folders with ``bursts.json`` (any depth below the root); Capella / COSMO-SkyMed / ICEYE / Umbra (SICD): folders named
+``YYYYMMDD``
 holding the product. ``[network] reference`` ``auto`` = the median acquisition date.
 """
 from __future__ import annotations
@@ -148,29 +149,71 @@ def problem(ctx) -> str | None:
         return "[stack] engine = 'snap' is not available in GeoEyes (set engine = 'native')"
     if ctx.cfg.aoi.bbox is None:
         return "[aoi] bbox is required to build a native stack"
-    if ctx.track.sensor not in (Sensor.SENTINEL1, Sensor.CAPELLA, Sensor.COSMO_SKYMED):
+    if ctx.track.sensor not in (Sensor.SENTINEL1, Sensor.CAPELLA, Sensor.COSMO_SKYMED, Sensor.ICEYE, Sensor.UMBRA):
         return f"no native stack builder for {ctx.track.sensor.value} yet"
     return None
 
 
-def scene_signature(folder: Path) -> str:
-    """Names and sizes of the files of a scene: a re-delivered or repaired product changes it."""
-    files = sorted((p.relative_to(folder).as_posix(), p.stat().st_size) for p in folder.rglob("*") if p.is_file()
-                   and not p.name.endswith(".done"))
+def scene_files(folder: Path, burst_ids: set[str] | None = None) -> list[Path]:
+    """The files of a scene a stack reads. ``burst_ids`` (Sentinel-1): only those bursts and the annotation, as the
+    archive is shared and a scene folder gains the bursts other projects download (another AOI or subswath)."""
+    files = [p for p in folder.rglob("*") if p.is_file() and not p.name.endswith(".done")]
+    if burst_ids is None or not (folder / "bursts.json").exists():
+        return files
+    import json
+    used = {f"{b['subswath']}_{b['polarization']}_{b['burst_index']}.tiff"
+            for b in json.loads((folder / "bursts.json").read_text()) if b.get("full_burst_id") in burst_ids}
+    return [p for p in files if p.name in used or p.suffix == ".xml"]
+
+
+def scene_signature(folder: Path, burst_ids: set[str] | None = None) -> str:
+    """Names and sizes of the files of a scene the stack reads: a re-delivered or repaired product changes it."""
+    files = sorted((p.relative_to(folder).as_posix(), p.stat().st_size) for p in scene_files(folder, burst_ids))
     return sha256_params(files)[:16]
 
 
+def stack_burst_ids(ctx) -> set[str] | None:
+    """Sentinel-1 bursts of the stack (those of the reference acquisition over the AOI, in the track's subswaths)."""
+    if ctx.track.sensor is not Sensor.SENTINEL1 or ctx.cfg.aoi.bbox is None:
+        return None
+    from geoeyes.core.types import BBox
+    t = target(ctx)
+    ids = aoi_burst_ids(t["scenes"][t["reference"]], BBox.from_sequence(list(ctx.cfg.aoi.bbox)))
+    if ctx.track.subswaths:
+        ids = [i for i in ids if any(i.endswith(sw) or f"_{sw}" in i for sw in ctx.track.subswaths)]
+    return set(ids)
+
+
 def signatures(ctx) -> dict[str, str]:
+    """Per date, the signature of the files the stack reads. A date the stored stack already has keeps its stored
+    signature while none of those files changed after the stack was written (stacks signed before the
+    signatures were limited to the stack's bursts stay valid)."""
     t = target(ctx)
     if "signatures" not in t:
-        t["signatures"] = {str(d): scene_signature(p) for d, p in t["scenes"].items()}
+        from geoeyes.io.stack import StackStore
+        ids = stack_burst_ids(ctx)
+        st = StackStore(t["path"])
+        stored, built = {}, 0.0
+        if st.exists() and (Path(t["path"]) / "zarr.json").exists():
+            stored = st.attrs.get(SIGNATURES_ATTR) or {}
+            built = (Path(t["path"]) / "zarr.json").stat().st_mtime
+        out = {}
+        for d, p in t["scenes"].items():
+            files = scene_files(p, ids)
+            if str(d) in stored and files and max(f.stat().st_mtime for f in files) <= built:
+                out[str(d)] = stored[str(d)]
+            else:
+                out[str(d)] = scene_signature(p, ids)
+        t["signatures"] = out
     return t["signatures"]
 
 
 def _fingerprint(ctx, sigs: dict[str, str]) -> str:
-    return sha256_params({"sensor": ctx.track.sensor.value, "scenes": sigs,
-                          "reference": str(target(ctx)["reference"]), "aoi": list(ctx.cfg.aoi.bbox),
-                          "dem": ctx.cfg.stack.dem, "subswaths": list(ctx.track.subswaths)})
+    p = {"sensor": ctx.track.sensor.value, "scenes": sigs, "reference": str(target(ctx)["reference"]),
+         "aoi": list(ctx.cfg.aoi.bbox), "dem": ctx.cfg.stack.dem, "subswaths": list(ctx.track.subswaths)}
+    if ctx.cfg.stack.coreg_model != "constant":      # stacks built before the option keep their fingerprint
+        p["coreg_model"] = ctx.cfg.stack.coreg_model
+    return sha256_params(p)
 
 
 def fingerprint(ctx) -> str:
@@ -294,11 +337,29 @@ def _build(ctx, t, dem, aoi, out, prev, keep):
                               orbits=orbits, overwrite=True, previous=prev, reuse_dates=keep,
                               ionosphere=ctx.cfg.stack.ionosphere, ionosphere_model=ctx.cfg.stack.ionosphere_model,
                               ionosphere_smooth_m=ctx.cfg.stack.ionosphere_smooth_m)
+    if ctx.track.sensor is Sensor.UMBRA:
+        from geoeyes.processing.stack.native.sicd_stack import SicdScene, build_sicd_stack
+        from geoeyes.sensors.sicd import slc as sicd
+        sicd_scenes = {}
+        for d, p in t["scenes"].items():
+            data, xml = sicd.find_files(p)
+            m = sicd.read_metadata(data, xml)
+            sicd_scenes[d] = SicdScene(m, partial(sicd.read_slc, data, m), m.core_name or data.stem)
+        r = sicd_scenes[t["reference"]].meta
+        if r.pass_direction != ctx.track.direction.value:
+            raise DataError(f"{ctx.track_id}: the reference scene {t['reference']} is a {r.pass_direction} pass, the "
+                            f"track is declared {ctx.track.direction.value}: check [[tracks]] direction")
+        return build_sicd_stack(sicd_scenes, t["reference"], dem, out, aoi=aoi, track_id=ctx.track_id,
+                                overwrite=True, sensor="umbra", previous=prev, reuse_dates=keep)
     from geoeyes.processing.stack.native.stripmap import Scene, build_stripmap_stack
     scenes = {}
     for d, p in t["scenes"].items():
         if ctx.track.sensor is Sensor.CAPELLA:
             from geoeyes.sensors.capella import slc as rdr
+            tif, js = rdr.find_files(p)
+            scenes[d] = Scene(rdr.read_metadata(js), partial(rdr.read_slc, tif))
+        elif ctx.track.sensor is Sensor.ICEYE:
+            from geoeyes.sensors.iceye import slc_cog as rdr
             tif, js = rdr.find_files(p)
             scenes[d] = Scene(rdr.read_metadata(js), partial(rdr.read_slc, tif))
         else:
@@ -310,7 +371,7 @@ def _build(ctx, t, dem, aoi, out, prev, keep):
         raise DataError(f"{ctx.track_id}: the reference scene {t['reference']} is a {r.pass_direction} pass, the track "
                         f"is declared {ctx.track.direction.value}: check [[tracks]] direction or the scene folders")
     return build_stripmap_stack(scenes, t["reference"], dem, out, aoi=aoi, track_id=ctx.track_id, overwrite=True,
-                                previous=prev, reuse_dates=keep)
+                                previous=prev, reuse_dates=keep, coreg_model=ctx.cfg.stack.coreg_model)
 
 
 def outputs_exist(ctx) -> bool:

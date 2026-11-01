@@ -130,8 +130,9 @@ def _run_s1_native(case: dict, out: Path) -> dict:
     for d in sorted(arch.iterdir()):
         day = d.name.split("_")[5][:8]
         scenes[date(int(day[:4]), int(day[4:6]), int(day[6:]))] = d
-    ids = sorted({r["full_burst_id"] for d in scenes.values()
-                  for r in _json.loads((d / "bursts.json").read_text())})
+    # the archive is shared: other projects add bursts (078_165498 since the golden was made); the case's own
+    ids = inp.get("burst_ids") or sorted({r["full_burst_id"] for d in scenes.values()
+                                         for r in _json.loads((d / "bursts.json").read_text())})
     s, n, w, e = inp["dem_box"]
     dem = load_dem(None, s, n, w, e)
     orbits = PoeorbProvider(inp["orbit_cache"], token=os.environ.get("EARTHDATA_TOKEN"))

@@ -9,7 +9,8 @@
     "reference": "2024-07-14",
     "aoi": [-99.03, 19.30, -98.98, 19.42],
     "dem_box": [19.0, 19.6, -99.7, -98.6],
-    "track": "sentinel1-asc-078"
+    "track": "sentinel1-asc-078",
+    "burst_ids": ["078_165499_IW3", "078_165500_IW3"]
   },
   "params": {
     "ps_cell": [2, 8],

@@ -9,3 +9,6 @@ byteswap = 1
 
 [phase_linking]
 half_window = [7, 7]
+
+[acquire]
+max_per_month = 2                  # 6-12 day revisit: 2 dates a month keep the series, halve downloads

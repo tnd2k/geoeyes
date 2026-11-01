@@ -25,6 +25,7 @@ from pathlib import Path
 
 import requests
 
+from geoeyes.core import netrate
 from geoeyes.core.errors import DataError
 from geoeyes.core.logging import event
 from geoeyes.sensors.sentinel1.asf import BurstRef, group_by_acquisition
@@ -60,7 +61,12 @@ def _complete(dest: Path) -> bool:
     return dest.exists() and dest.with_name(dest.name + ".done").exists()
 
 
-def _fetch(session: requests.Session, url: str, dest: Path, *, max_wait_s: float = 600, attempts: int = 3) -> Path:
+def _backoff(attempt: int) -> float:
+    """Seconds before retry ``attempt + 1``: 5, 15, 45, 120, 120… (the extractor drops connections under load)."""
+    return min(5.0 * 3 ** (attempt - 1), 120.0)
+
+
+def _fetch(session: requests.Session, url: str, dest: Path, *, max_wait_s: float = 600, attempts: int = 6) -> Path:
     if _complete(dest):
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +88,7 @@ def _fetch(session: requests.Session, url: str, dest: Path, *, max_wait_s: float
             with open(tmp, "wb") as fh:
                 for block in resp.iter_content(CHUNK):
                     fh.write(block)
+                    netrate.add(len(block))
             got = tmp.stat().st_size
             if (expected and got != expected) or got == 0:
                 raise DataError(f"{url}: got {got} bytes, expected {expected or '> 0'}")
@@ -92,8 +99,17 @@ def _fetch(session: requests.Session, url: str, dest: Path, *, max_wait_s: float
             last_exc = exc
             tmp.unlink(missing_ok=True)
             log.warning("download %s failed (attempt %d/%d): %s", dest.name, attempt, attempts, exc)
-            time.sleep(5 * attempt)
+            if attempt < attempts:
+                time.sleep(_backoff(attempt))
     raise DataError(f"could not download {url}: {last_exc}")
+
+
+def _listed(scene: Path) -> list[dict]:
+    """The burst records already in a scene folder's ``bursts.json`` (none when absent or unreadable)."""
+    try:
+        return list(json.loads((scene / "bursts.json").read_text(encoding="utf-8")))
+    except (FileNotFoundError, ValueError):
+        return []
 
 
 def download(refs: Iterable[BurstRef], ws: WorkspaceLayout, *, token: str | None, workers: int = 4,
@@ -111,18 +127,42 @@ def download(refs: Iterable[BurstRef], ws: WorkspaceLayout, *, token: str | None
             out.append(BurstFiles(r, tiff, xml))
         d = scene_dir(ws, group[0])
         d.mkdir(parents=True, exist_ok=True)
-        (d / "bursts.json").write_text(json.dumps([asdict(r) for r in group], default=str, indent=1),
-                                       encoding="utf-8")
+        # the archive is shared: merged with the bursts other projects already listed for this acquisition (a
+        # rewrite would drop them, and their stacks would no longer find their bursts)
+        recs = {r["file_id"]: r for r in _listed(d)}
+        recs.update({r.file_id: json.loads(json.dumps(asdict(r), default=str)) for r in group})
+        listed = sorted(recs.values(), key=lambda r: (r["subswath"], r["burst_index"]))
+        (d / "bursts.json").write_text(json.dumps(listed, default=str, indent=1), encoding="utf-8")
         log.debug("queued %s: %d bursts", slc, len(group))
     todo = {p: v for p, v in jobs.items() if not _complete(p)}
     total = sum(v[1] for v in todo.values())
     log.info("bursts: %d files to download (~%.1f GB), %d already in the archive",
              len(todo), total / 1e9, len(jobs) - len(todo))
     done = 0
+    failed: dict[Path, str] = {}
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futs = {pool.submit(_fetch, http, url, path): path for path, (url, _size) in todo.items()}
         for fut in as_completed(futs):
-            fut.result()
+            try:
+                fut.result()
+            except DataError:                         # one bad file must not stop the others: retried below
+                failed[futs[fut]] = todo[futs[fut]][0]
+                continue
             done += 1
             event(log, "progress", f"downloaded {futs[fut].name}", stage="acquire", done=done, total=len(todo))
+    if failed:
+        # a last pass one file at a time, once the parallel load on the extractor is gone
+        log.warning("bursts: %d file(s) failed, retrying one at a time", len(failed))
+        for path, url in list(failed.items()):
+            try:
+                _fetch(http, url, path)
+            except DataError as exc:
+                log.error("%s", exc)
+                continue
+            del failed[path]
+            done += 1
+            event(log, "progress", f"downloaded {path.name}", stage="acquire", done=done, total=len(todo))
+    if failed:
+        raise DataError(f"{len(failed)} of {len(todo)} burst file(s) could not be downloaded (the rest are in the "
+                        f"archive; run again to fetch only these): " + ", ".join(p.name for p in failed))
     return out
