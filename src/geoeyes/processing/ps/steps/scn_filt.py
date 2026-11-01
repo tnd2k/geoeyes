@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage, sparse
-from scipy.sparse.linalg import splu
+from scipy.sparse.linalg import LinearOperator, cg, spilu, splu
 from scipy.spatial import cKDTree
 
 from geoeyes.processing.ps.geometry import triangulation_edges
@@ -50,15 +50,23 @@ def scn_filt(*, ph_uw: np.ndarray, ph_scla: np.ndarray, C_uw: np.ndarray, ph_ram
     ph[np.isnan(ph)] = 0
 
     e = triangulation_edges(np.asarray(xy)[:, 1:3])
-    dph = ph[e[:, 1]] - ph[e[:, 0]]
-    dph_hpt = dph - dph @ time_lowpass(d, float(time_win), time_fit).T
+    lt = time_lowpass(d, float(time_win), time_fit).T
 
     w = np.ones(n) if weights is None else np.asarray(weights, np.float64).ravel()
     sw = np.sqrt(np.sqrt(w[e[:, 0]] * w[e[:, 1]]))
     m = e.shape[0]
     a = sparse.csr_matrix((np.concatenate([-sw, sw]), (np.concatenate([np.arange(m), np.arange(m)]),
                                                        np.concatenate([e[:, 0], e[:, 1]]))), shape=(m, n))[:, 1:]
-    hpt = splu((a.T @ a).tocsc()).solve(np.asarray(a.T @ (dph_hpt * sw[:, None]), np.float64))
+    # the arc phases, their temporal high-pass and the right-hand side Aᵀ·b block by block of arcs: whole, the
+    # float64 arc arrays are GBs on millions of PS (7M arcs × 45 interferograms on HCMC)
+    rhs = np.zeros((n - 1, n_sec))
+    for e0 in range(0, m, EDGES):
+        s = slice(e0, min(e0 + EDGES, m))
+        dph = ph[e[s, 1]] - ph[e[s, 0]]
+        rhs += a[s].T @ ((dph - dph @ lt) * sw[s, None])
+    del ph, dph
+    hpt = _solve_normal((a.T @ a).tocsc(), rhs)
+    del rhs
     hpt = np.vstack((np.zeros((1, n_sec)), hpt)).astype(np.float32)
 
     fxy = np.asarray(xy, np.float64)[:, 1:3] if filter_xy is None else np.asarray(filter_xy, np.float64)
@@ -75,6 +83,35 @@ def scn_filt(*, ph_uw: np.ndarray, ph_scla: np.ndarray, C_uw: np.ndarray, ph_ram
     wmat = sparse.csr_matrix(((w_raw / s[src]).astype(np.float32), (src, dst)), shape=(n, n), dtype=np.float32)
     scn = wmat @ hpt
     return Scn(ph_scn=(scn - scn[0, :]).astype(np.float64), ph_hpt=hpt)
+
+
+DIRECT = True
+EDGES = 500_000                # arcs per block of the right-hand side
+
+
+def _solve_normal(lhs: sparse.csc_matrix, rhs: np.ndarray) -> np.ndarray:
+    """Solve the grounded arc-network Laplacian ``lhs`` (SPD) for every column of ``rhs``: sparse LU (the legacy
+    path, parity with StaMPS). When SuperLU runs out of memory (2.4M ICEYE PS on Tenerife; some 300k Delaunay
+    graphs), conjugate gradients preconditioned with an incomplete LU (~15 iterations on a 300k synthetic graph
+    against Jacobi's ~1700); when the incomplete LU runs out of memory too (2.3M PS on HCMC with little free
+    memory), Jacobi."""
+    if DIRECT:
+        try:
+            return splu(lhs).solve(rhs)
+        except (MemoryError, SystemError, RuntimeError):   # SuperLU reports a failed malloc as RuntimeError
+            pass
+    try:
+        ilu = spilu(lhs, drop_tol=1e-4, fill_factor=10, permc_spec="MMD_AT_PLUS_A")
+        pre, maxiter = LinearOperator(lhs.shape, ilu.solve), 2000
+    except (MemoryError, RuntimeError):                  # SuperLU: "SUPERLU_MALLOC fails"
+        d = lhs.diagonal()
+        pre, maxiter = LinearOperator(lhs.shape, lambda x: x / d), 50_000
+    out = np.empty(rhs.shape, np.float64)
+    for k in range(rhs.shape[1]):
+        out[:, k], info = cg(lhs, rhs[:, k], rtol=1e-11, maxiter=maxiter, M=pre)
+        if info:
+            raise RuntimeError(f"scn: CG did not converge for interferogram {k} (info {info})")
+    return out
 
 
 def time_lowpass(d: np.ndarray, time_win: float, fit: str = "mean") -> np.ndarray:

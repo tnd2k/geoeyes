@@ -17,6 +17,7 @@ from geoeyes.processing.ps.unwrap.irls import dct_init, enforce_congruence, irls
 from geoeyes.processing.ps.unwrap.space_time import SpaceTime
 
 log = logging.getLogger(__name__)
+DEGENERATE_MRL = 1.0 - 1e-6   # a smooth coherent interferogram (MRL 0.99..0.9999) is unwrapped, not dropped
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class SpatialParams:
     irls_iter: int = 50
     irls_target_rms: float = 0.01
     irls_epsilon: float = 0.001
+    align: bool = False                # irls.enforce_congruence(align=...): [ps] unwrap_align_constant
 
 
 @dataclass
@@ -100,7 +102,7 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
         if int(nz.sum()) < 10:
             log.info("interferogram %d: empty grid, not unwrapped", i + 1)
             continue
-        if float(np.abs(np.mean(np.exp(1j * np.angle(col[nz]))))) > 0.99:
+        if float(np.abs(np.mean(np.exp(1j * np.angle(col[nz]))))) > DEGENERATE_MRL:      # the same phase everywhere
             log.warning("interferogram %d: constant phase, marked NaN", i + 1)
             ph_uw[:, i] = np.nan
             continue
@@ -116,7 +118,7 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
         phase = np.where(np.abs(g) > 0, np.angle(g).astype(np.float32), np.nan)
         u, rms = irls_unwrap(phase, row_c, col_c, dct_init(phase), p.irls_iter, p.irls_target_rms, p.irls_epsilon)
         pcg[i] = rms if np.isfinite(rms) else np.nan
-        uw = enforce_congruence(phase, u)
+        uw = enforce_congruence(phase, u, align=p.align)
         msd[i] = _msd(uw)
         vals = np.zeros(n_ps, np.float32)
         vals[in_grid] = uw[r_ix[in_grid], c_ix[in_grid]]

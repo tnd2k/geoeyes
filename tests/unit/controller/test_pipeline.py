@@ -59,7 +59,7 @@ def test_acquire_sentinel1_bursts(tmp_path, monkeypatch):
     cfg, prj, ws = project(tmp_path, project=psi, tracks=tracks, acquire={})
     assert step(plan(cfg, prj, ws), "acquire").action == "disabled"           # no date_range: archive as is
     cfg, prj, ws = project(tmp_path, project=psi, tracks=tracks,
-                           acquire={"date_range": ["2024-05-01", "2024-06-30"]})
+                           acquire={"date_range": ["2024-05-01", "2024-06-30"], "max_per_month": 0})   # every date (no S1 cap)
 
     def ref(d, n):
         return asf.BurstRef(file_id=f"S1_1_IW3_{d:%Y%m%d}_VV_{n}-BURST", full_burst_id="078_165499_IW3",
@@ -185,3 +185,22 @@ def test_cli_parser_and_plan(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "capella-asc/build_stack" in out and "5 phase(s) to run" in out
     assert main(["--workspace", str(ws.root), "status", "cap"]) == 0
+
+
+def test_build_stack_sees_the_scenes_acquire_just_downloaded(tmp_path, monkeypatch):
+    """The plan lists the archive before acquire runs; build_stack of the same run must use the new dates too."""
+    from geoeyes.controller import pipeline as pl
+    from geoeyes.controller.phase import ProjectState
+    from geoeyes.controller.phases import acquire as acq
+    from geoeyes.controller.phases import build_stack as bs
+    cfg, prj, ws = project(tmp_path)
+    raw = tmp_path / "raw"
+    for name, fn in (("enabled", lambda ctx: True), ("problem", lambda ctx: None), ("fingerprint", lambda ctx: "f"),
+                     ("outputs_exist", lambda ctx: False), ("changes", lambda ctx: "2 new")):
+        monkeypatch.setattr(acq, name, fn)
+    monkeypatch.setattr(acq, "run", lambda ctx: [(raw / d).mkdir() for d in ("20240711", "20240714")] and {})
+    monkeypatch.setattr(bs, "run", lambda ctx: {"dates": len(bs.target(ctx)["scenes"])})
+    assert len(bs.find_scenes(pl.PhaseContext(cfg, prj, ws, cfg.tracks[0]))) == 5
+    out = pl.run(cfg, prj, ws, to="build_stack")
+    assert out["status"] == "ok"
+    assert ProjectState(prj).get(cfg.tracks[0].track_id, "build_stack")["result"]["dates"] == 7

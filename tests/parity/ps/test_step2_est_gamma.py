@@ -26,7 +26,7 @@ def test_est_gamma_matches_legacy(case):
     np.testing.assert_array_equal(new.grid_ij, old["grid_ij"])
     np.testing.assert_allclose(new.low_pass, old["low_pass"], rtol=1e-12)
     np.testing.assert_allclose(new.Nr, old["Nr"], rtol=1e-9)
-    np.testing.assert_allclose(new.ph_grid, old["ph_grid"], rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(new.ph_grid.dense(), old["ph_grid"], rtol=1e-5, atol=1e-5)
     np.testing.assert_allclose(new.ph_patch, old["ph_patch"], atol=1e-5)
     np.testing.assert_allclose(new.coh, old["coh_ps"], atol=1e-6)
     if "Q_ps" in old:                            # CSK engine only

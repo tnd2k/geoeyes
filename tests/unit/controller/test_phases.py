@@ -74,7 +74,7 @@ def test_ps_phase_reads_linked_slc_and_ds(tmp_path, monkeypatch):
         ps.run(cfg, st, tmp_path / "run")
     phase_linking.run(cfg, st)
     k = ps.run(cfg, st, tmp_path / "run")
-    assert k["slc_var"] == "slc_linked" and k["ds_tcoh_min"] == 0.7 and k["da_max"] == 0.4
+    assert k["slc_var"] == "slc_linked" and k["ds_tcoh_min"] == 0.7 and k["da_max"] == 0.42    # the default da_threshold
     assert ps.run(cfg, st, tmp_path / "run", engine="ps_lite")["slc_var"] == "slc_linked"
     k = ps.run(config("sentinel1"), st, tmp_path / "run2")
     assert k["slc_var"] == "slc" and k["ds_tcoh_min"] is None

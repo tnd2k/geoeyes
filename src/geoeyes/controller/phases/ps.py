@@ -14,9 +14,11 @@ def engine_of(cfg) -> str:
 
 
 def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: str = "", track_id: str = "",
-        psrun_id: str = "", cache_root: str | Path | None = None, resume_from: str | Path | None = None) -> dict:
+        psrun_id: str = "", cache_root: str | Path | None = None, resume_from: str | Path | None = None,
+        from_step: int | None = None, stop_after: int | None = None) -> dict:
     """``engine`` overrides the project method (e.g. ``ps_lite`` on a CSK stack); ``resume_from``: a previous
-    ``ps`` run folder whose steps 1-5 are reused (unwrapping and later steps again)."""
+    ``ps`` run folder whose steps 1-5 are reused (unwrapping and later steps again); ``from_step`` /
+    ``stop_after``: the steps of the ``ps`` engine to compute again / to stop after (checkpoints kept)."""
     engine = engine or engine_of(cfg)
     slc_var = "slc"
     if cfg.phase_linking.enabled:
@@ -26,6 +28,8 @@ def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: s
         slc_var = "slc_linked"
     if engine == "ps_lite":
         from geoeyes.processing.ps_lite.runner import run as ps_lite_run
+        if from_step or stop_after:
+            raise PhaseError("ps", "PS steps (from / stop after) are steps of the ps engine, not of ps_lite")
         return ps_lite_run(store, out_dir, cfg.ps_lite, run_id=run_id, track_id=track_id, psrun_id=psrun_id,
                            slc_var=slc_var, weather=weather_params(cfg, cache_root))
     if engine != "ps":
@@ -35,12 +39,13 @@ def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: s
     return ps_run(store, out_dir, dict(cfg.ps), da_max=sel.da_threshold, run_id=run_id, track_id=track_id,
                   psrun_id=psrun_id, slc_var=slc_var,
                   ds_tcoh_min=sel.ds_coherence_min if slc_var == "slc_linked" else None, ds_cell=sel.ds_cell,
-                  weather=weather_params(cfg, cache_root), resume_from=resume_from)
+                  weather=weather_params(cfg, cache_root), resume_from=resume_from, from_step=from_step,
+                  stop_after=stop_after)
 
 
 def weather_params(cfg, cache_root: str | Path | None = None):
-    """``[atmosphere] method = "era5" | "gacos"`` -> WeatherParams (None: the linear APS of the engine).
-    The ERA5 cache defaults to ``<workspace>/cache/era5``."""
+    """``[atmosphere] method = "era5" | "cerra" | "gacos"`` -> WeatherParams (None: the linear APS of the engine).
+    The caches default to ``<workspace>/cache/era5`` and ``<workspace>/cache/cerra``."""
     import dataclasses
 
     from geoeyes.processing.atmosphere.weather import WeatherParams
@@ -48,8 +53,8 @@ def weather_params(cfg, cache_root: str | Path | None = None):
     if method in ("none", "linear", "a_l", "n", ""):
         return None
     if method not in LEGACY_TROPO:
-        raise PhaseError("ps", f"[atmosphere] method {cfg.atmosphere.method!r} (none, linear, era5, gacos)")
-    if cache_root is None and not dict(cfg.atmosphere.era5).get("cache"):
+        raise PhaseError("ps", f"[atmosphere] method {cfg.atmosphere.method!r} (none, linear, era5, cerra, gacos)")
+    if cache_root is None and not (dict(cfg.atmosphere.era5).get("cache") and dict(cfg.atmosphere.cerra).get("cache")):
         from geoeyes.config.settings import load_settings
         cache_root = load_settings().workspace_layout().cache
     kind, component = LEGACY_TROPO[method]
@@ -60,4 +65,4 @@ def weather_params(cfg, cache_root: str | Path | None = None):
 # [atmosphere] method, including the StaMPS tropo_method codes kept by `geoeyes migrate config`
 LEGACY_TROPO = {"era5": ("era5", None), "a_era5": ("era5", "total"), "a_e": ("era5", "total"),
                 "a_era5-h": ("era5", "hydro"), "a_eh": ("era5", "hydro"), "a_era5-w": ("era5", "wet"),
-                "a_ew": ("era5", "wet"), "gacos": ("gacos", None), "a_gacos": ("gacos", None)}
+                "a_ew": ("era5", "wet"), "cerra": ("cerra", None), "gacos": ("gacos", None), "a_gacos": ("gacos", None)}

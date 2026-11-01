@@ -125,11 +125,21 @@ def _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon) -> tuple[np.ndar
     return u, rms
 
 
-def enforce_congruence(phase: np.ndarray, unwrapped: np.ndarray) -> np.ndarray:
-    """Snap to ``phase + 2πk`` (k integer) wherever the wrapped phase is defined."""
+def enforce_congruence(phase: np.ndarray, unwrapped: np.ndarray, align: bool = False) -> np.ndarray:
+    """Snap to ``phase + 2πk`` (k integer) wherever the wrapped phase is defined.
+
+    ``align``: the least-squares / IRLS solution is defined up to a constant (zero-mean or zero-median); it is first
+    shifted by the circular mean of ``phase - unwrapped``, so ``unwrapped - phase`` sits near a multiple of 2π
+    instead of anywhere in between. Without it, an interferogram whose mean phase is near ±π has (u - φ) / 2π near
+    ±1/2 in every cell and the rounding puts whole regions one cycle off (Tenerife ICEYE 2026-02-27: a 13 mm step).
+    Off by default: the validated results were made without it (with it, the S1 Mexico ps_lite golden keeps 2.1x the
+    points, the CSK Hanoi ps golden matches 89.6 % of its points); the ``ps`` engine turns it on with
+    ``[ps] unwrap_align_constant = "y"`` (ICEYE preset). To be assessed against SNAP+StaMPS before a wider use."""
     wp = np.asarray(phase, np.float64)
     u = np.asarray(unwrapped).astype(np.float64).reshape(wp.shape)
     ok = np.isfinite(wp) & np.isfinite(u)
+    if align and ok.any():
+        u = u + np.angle(np.mean(np.exp(1j * (wp[ok] - u[ok]))))
     out = u.copy()
     out[ok] = wp[ok] + 2 * np.pi * np.round((u[ok] - wp[ok]) / (2 * np.pi))
     return out.astype(np.float32)

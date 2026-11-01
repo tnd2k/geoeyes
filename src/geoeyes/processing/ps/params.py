@@ -16,21 +16,28 @@ from geoeyes.processing.ps.steps.weed import WeedParams
 from geoeyes.processing.ps.unwrap.spatial import SpatialParams
 
 DEFAULTS: dict[str, Any] = {
-    "max_topo_err": 20.0, "filter_grid_size": 50, "filter_weighting": "P-square", "clap_win": 32,
+    # clap_win 16, filter_grid_size 10, PERCENT 80 %, unwrap_gold_n_win 16: the settings tuned on the HCMC
+    # Sentinel-1 product (hcm_test_des, 2026-10), default for every sensor since 2026-10-30 (a preset may
+    # still override them: CSK and ICEYE keep their own percent_rand and unwrap_gold_n_win)
+    "max_topo_err": 20.0, "filter_grid_size": 10, "filter_weighting": "P-square", "clap_win": 16,
     "clap_low_pass_wavelength": 800, "clap_alpha": 1.0, "clap_beta": 0.3, "gamma_change_convergence": 0.005,
     "gamma_max_iterations": 3, "dem_error_amb_auto_threshold": "y", "dem_error_amb_q_reject": 0.10,
     "dem_error_amb_q_ok": 0.25, "dem_error_spatial_lambda": 0.5, "dem_error_spatial_huber_delta": None,
     "dem_error_spatial_iters": 5, "topofit_chunk_pixels": 200000,
-    "select_method": "DENSITY", "percent_rand": 1.0, "density_rand": 2.0, "gamma_min_threshold": 0.3,
+    "select_method": "PERCENT", "percent_rand": 80, "density_rand": 2.0, "gamma_min_threshold": 0.3,
     "gamma_stdev_reject": 0.0, "drop_ifg_index": [], "slc_osf": 1, "reest_smoothing_flag": "y",
     "ps_select_smooth_chunk_pixels": 1024,
     "weed_time_win": 730, "weed_standard_dev": 1.0, "weed_max_noise": float("inf"), "weed_zero_elevation": "n",
     "weed_neighbours": "n", "weed_adjacent_keep_per_group": 1, "weed_arc_edge_chunk_cap": None,
     "weed_noise_ifg_chunk": 12,
     # unwrap_grid_size (m): StaMPS 200 aliases fast motion (S1 Mexico: Capella r 0.64 -> 0.86 at 10 m)
-    "unwrap_grid_size": 10, "unwrap_gold_n_win": 32, "unwrap_gold_alpha": 0.8, "unwrap_gold_coh_floor": 0.2,
+    "unwrap_grid_size": 10, "unwrap_gold_n_win": 16, "unwrap_gold_alpha": 0.8, "unwrap_gold_coh_floor": 0.2,
     "unwrap_prefilter_flag": "y", "unwrap_time_win": 730, "unwrap_la_error_flag": "y", "unwrap_irls_iter": 50,
     "unwrap_irls_target_rms": 0.01, "unwrap_irls_epsilon": 0.001,
+    # align the IRLS constant before snapping to the wrapped phase (irls.enforce_congruence): avoids one-cycle region
+    # slips of interferograms whose mean phase is near ±π (Tenerife ICEYE); changes the validated CSK Hanoi result
+    # (89.6 % of the points matched), so off by default until assessed (memory: ps_lite / ps congruence align)
+    "unwrap_align_constant": "n",
     "scla_deramp": "n", "scn_time_win": 365, "scn_wavelength": 100, "subtr_tropo": "y",
     # SCN temporal low-pass: "linear" (local linear fit, keeps the deformation trend out of the noise) or "mean"
     # (StaMPS ps_scn_filt; leaks the trend into the SCN at the series ends and in series shorter than the window)
@@ -44,7 +51,8 @@ DEFAULTS: dict[str, Any] = {
     "ref_centre_lonlat": [0.0, 0.0], "ref_radius": float("inf"), "ref_auto": "n",
     # linear APS fitted only inside this lon/lat polygon [[lon, lat], ...] (StaMPS non_defo); None = all PS
     "aps_non_defo": None,
-    # "y" reproduces the legacy bugs kept for the parity tests (docs/en/refactor/TODO.md, Phase 4, port log of the ps engine)
+    # "y" reproduces the legacy bugs kept for the parity tests (docs/en/refactor/TODO.md, Phase 4, port log of
+    # the ps engine)
     "legacy_quirks": "n",
 }
 
@@ -60,6 +68,19 @@ def hoa_max_topo_err(bperp, wavelength: float, slant_range: float, incidence: fl
     if b.size == 0:
         raise ValueError("max_topo_err = 'auto' needs non-zero perpendicular baselines")
     return float(np.median(wavelength * slant_range * np.sin(incidence) / (2 * b)) / 4)
+
+
+def auto_time_win(days) -> float:
+    """``unwrap_time_win = "auto"``: the Gaussian time window of the space-time unwrapping from the span of the
+    data. StaMPS's 730 days suits multi-year stacks; on a stack shorter than the window the temporal model is
+    almost a straight line, weakest at both ends, and noisy arcs there can take a wrong cycle count. A quarter of
+    the span, at least four sampling intervals (enough dates inside the window), between 60 and 730 days."""
+    d = np.sort(np.unique(np.asarray(days, np.float64)))
+    if d.size < 3:
+        return 730.0
+    span = float(d[-1] - d[0])
+    step = float(np.median(np.diff(d)))
+    return float(np.clip(round(max(span / 4, 4 * step)), 60, 730))
 
 
 def _yes(v) -> bool:
@@ -139,7 +160,8 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
             la_flag=_yes(pm["unwrap_la_error_flag"]), scla_deramp=_yes(pm["scla_deramp"]), drop_ifg_index=drop,
             spatial=SpatialParams(irls_iter=int(pm["unwrap_irls_iter"]),
                                   irls_target_rms=float(pm["unwrap_irls_target_rms"]),
-                                  irls_epsilon=float(pm["unwrap_irls_epsilon"])),
+                                  irls_epsilon=float(pm["unwrap_irls_epsilon"]),
+                                  align=_yes(pm.get("unwrap_align_constant", "n"))),
             legacy=_yes(pm["legacy_quirks"])),
         scla_deramp=_yes(pm["scla_deramp"]), two_pass=_yes(pm["subtr_tropo"]),
         scn_time_win=float(pm["scn_time_win"]), scn_wavelength=float(pm["scn_wavelength"]),

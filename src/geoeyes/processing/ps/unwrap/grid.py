@@ -9,9 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
 
-from geoeyes.processing.ps.clap import clap_filter
+from geoeyes.processing.ps.clap import SparseGrid, clap_filter, gaussian_at
 
 
 @dataclass
@@ -47,47 +46,43 @@ def grid_wrapped(ph_in: np.ndarray, xy_in: np.ndarray, *, grid_size: float, pref
         raise ValueError(f"resampled grid {n_i}x{n_j} is smaller than the prefilter window {prefilt_win}")
     r, c = (g[:, 0] - 1).astype(int), (g[:, 1] - 1).astype(int)
 
+    # a sparse grid (only the cells with PS): a 10 m grid of a city is several GB dense
     phc = np.nan_to_num(np.asarray(ph_in).astype(np.complex64), nan=0.0, posinf=0.0, neginf=0.0)
-    grid = np.zeros((n_i, n_j, n_ifg), np.complex64)
-    np.add.at(grid, (r, c), phc)
-    nzix = np.any(grid != 0, axis=2)
-    nz_i, nz_j = np.where(nzix)
+    flat = r.astype(np.int64) * n_j + c
+    cells, inv = np.unique(flat, return_inverse=True)
+    inv = inv.reshape(-1)
+    grid = SparseGrid.accumulate((n_i, n_j, n_ifg), flat, phc, (cells, inv))
+    nz = np.any(grid.vals != 0, axis=1)                  # cells with a non-zero phase (row-major order)
+    grid = SparseGrid(grid.shape, grid.idx[nz], grid.vals[nz])
+    at = grid.idx
+    nzix = np.zeros(n_i * n_j, bool)
+    nzix[at] = True
+    nzix = nzix.reshape(n_i, n_j)
+    nz_i, nz_j = np.divmod(at, n_j)
 
     ph_lowpass = np.array([])
+    sigma = max(prefilt_win // 8, 2)
     if prefilter == "none":
-        ph = grid[nzix]
+        ph = grid.vals
     elif prefilter == "gaussian":
-        sigma = max(prefilt_win // 8, 2)
-        filt = np.empty_like(grid)
-        for k in range(n_ifg):
-            filt[:, :, k] = (gaussian_filter(grid[:, :, k].real, sigma=sigma)
-                             + 1j * gaussian_filter(grid[:, :, k].imag, sigma=sigma)).astype(np.complex64)
-        filt[~nzix, :] = 0
-        ph = filt[nzix]
+        ph = gaussian_at(grid, sigma, at)
     else:
         coh_ps = np.ones(n_ps) if coh is None else np.clip(
             np.clip(np.nan_to_num(np.asarray(coh, np.float64).reshape(-1), nan=0.0, posinf=1.0, neginf=0.0),
                     1e-6, 1 - 1e-6), 0.0, 1.0)
-        coh_grid = np.zeros((n_i, n_j, n_ifg), np.float32)
-        count = np.zeros((n_i, n_j, n_ifg), np.float32)
-        np.add.at(coh_grid, (r, c), np.broadcast_to(coh_ps[:, None], (n_ps, n_ifg)).astype(np.float32))
-        np.add.at(count, (r, c), 1.0)
-        coh_grid = np.divide(coh_grid, np.maximum(count, 1.0), out=np.zeros_like(coh_grid), where=count > 0)
-        coh_grid[~nzix] = np.nan
-        coh_med = np.clip(np.nan_to_num(np.nanmedian(coh_grid, axis=(0, 1)).astype(np.float64), nan=0.0, posinf=1.0,
-                                        neginf=0.0), 0.0, 1.0)
+        # mean coherence of the PS of each cell (the same for every interferogram)
+        coh_sum = np.zeros(cells.size, np.float32)
+        count = np.zeros(cells.size, np.float32)
+        np.add.at(coh_sum, inv, coh_ps.astype(np.float32))
+        np.add.at(count, inv, np.float32(1.0))
+        coh_cell = (coh_sum / np.maximum(count, 1.0))[nz]
+        med = float(np.median(coh_cell)) if coh_cell.size else 0.0
+        coh_med = np.full(n_ifg, np.clip(np.nan_to_num(med, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0))
         a_min = min(0.15, gold_alpha * 0.25)
         alpha = (a_min + (gold_alpha - a_min) * coh_med).astype(np.float32)
-        work = np.where(nzix[:, :, None], grid, np.nan + 0j).astype(np.complex64)
-        filt = clap_filter(work, alpha, 0.1, prefilt_win, 0, None, coh_grid=coh_grid, coh_floor=coh_floor)
-        filt[~nzix, :] = 0
-        ph = filt[nzix]
-        sigma = max(prefilt_win // 8, 2)
-        low = np.empty_like(grid)
-        for k in range(n_ifg):
-            low[:, :, k] = (gaussian_filter(grid[:, :, k].real, sigma=sigma)
-                            + 1j * gaussian_filter(grid[:, :, k].imag, sigma=sigma)).astype(np.complex64)
-        ph_lowpass = low[nzix]
+        coh_grid = SparseGrid(grid.shape, at, np.repeat(coh_cell[:, None], n_ifg, axis=1))
+        ph = clap_filter(grid, alpha, 0.1, prefilt_win, 0, None, coh_grid=coh_grid, coh_floor=coh_floor, at=at)
+        ph_lowpass = gaussian_at(grid, sigma, at)
 
     xy = np.column_stack([np.arange(nz_i.size), (nz_j - 0.5) * grid_size, (nz_i - 0.5) * grid_size])
     return UwGrid(ph=ph, ph_lowpass=ph_lowpass, xy=xy, ij=np.column_stack([nz_i, nz_j]), nzix=nzix, grid_ij=g,
