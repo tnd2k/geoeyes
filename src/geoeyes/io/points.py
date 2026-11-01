@@ -54,19 +54,36 @@ def write_timeseries(path: str | Path, point_uid, dates, disp_mm, disp_std_mm=No
     n, t = disp.shape
     if uid.shape != (n,) or d.shape != (t,):
         raise StoreError(f"shape mismatch: uid {uid.shape}, dates {d.shape}, disp {disp.shape}")
-    cols = {POINT_UID: np.repeat(uid, t), "date": np.tile(d, n), "disp_mm": disp.ravel()}
+    mats = {"disp_mm": disp}
     if disp_std_mm is not None:
-        cols["disp_std_mm"] = np.asarray(disp_std_mm, dtype=np.float32).ravel()
+        mats["disp_std_mm"] = np.asarray(disp_std_mm, dtype=np.float32)
     if flags is not None:
-        cols["flags"] = np.asarray(flags, dtype=np.uint8).ravel()
+        mats["flags"] = np.asarray(flags, dtype=np.uint8)
     if disp_scn_mm is not None:
-        cols["disp_scn_mm"] = np.asarray(disp_scn_mm, dtype=np.float32).ravel()
-    df = pd.DataFrame(cols).sort_values([POINT_UID, "date"], kind="stable")
+        mats["disp_scn_mm"] = np.asarray(disp_scn_mm, dtype=np.float32)
+    # sorted by (point_uid, date), written one block of points at a time: the long table of a few million points
+    # does not fit in memory at once (Tenerife ICEYE: 3.9M PS x 16 dates)
+    rows = np.argsort(uid, kind="stable")
+    cols_t = np.argsort(d, kind="stable")
+    d32 = pa.array(d[cols_t], pa.date32())
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    table = table.cast(table.schema.set(table.schema.get_field_index("date"), pa.field("date", pa.date32())))
-    pq.write_table(table, path, compression="zstd", row_group_size=1_000_000)
+    block = max(1, 1_000_000 // max(t, 1))
+    writer = None
+    try:
+        for s in range(0, max(n, 1), block):
+            r = rows[s:s + block]
+            cols = {POINT_UID: pa.array(np.repeat(uid[r], t)), "date": pa.concat_arrays([d32] * r.size)
+                    if r.size else pa.array([], pa.date32())}
+            for k, m in mats.items():
+                cols[k] = pa.array(m[r][:, cols_t].ravel())
+            table = pa.table(cols)
+            if writer is None:
+                writer = pq.ParquetWriter(path, table.schema, compression="zstd")
+            writer.write_table(table, row_group_size=1_000_000)
+    finally:
+        if writer is not None:
+            writer.close()
     return path
 
 
@@ -92,9 +109,16 @@ def timeseries_arrays(path: str | Path, point_uid, columns=("disp_mm",)) -> tupl
     if meta.num_rows != n * t:
         raise StoreError(f"{path.parent.name}: timeseries has {meta.num_rows} rows, expected {n} x {t}")
     order = np.argsort(uid, kind="stable")                         # row k of the file block = point order[k]
-    first = pq.read_table(path, columns=[POINT_UID]).column(0)
-    if not np.array_equal(first.take(np.arange(0, n * t, t)).to_numpy(zero_copy_only=False).astype(str),
-                          uid[order]):
+    # the first row of each point, read a batch at a time (millions of points x dates: the whole string column is
+    # several GB and past the 2 GB offsets of an Arrow string array once concatenated)
+    heads, off = [], 0
+    for b in pq.ParquetFile(path).iter_batches(columns=[POINT_UID], batch_size=4_000_000):
+        col = b.column(0)
+        k0 = -(-off // t) * t                                     # first multiple of t at or after off
+        if k0 < off + len(col):
+            heads.append(col.take(np.arange(k0 - off, len(col), t)).to_numpy(zero_copy_only=False))
+        off += len(col)
+    if not np.array_equal(np.concatenate(heads).astype(str) if heads else np.array([], str), uid[order]):
         raise StoreError(f"{path.parent.name}: timeseries points do not match points.parquet")
     out = {}
     for c in columns:

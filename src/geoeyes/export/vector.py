@@ -6,6 +6,8 @@
 ``<product_id>.qml``   the same style, for other formats / layers.
 ``<product_id>.csv``   optional: points with the wide time series.
 ``<product_id>.pmtiles`` vector tiles of the points (``export.pmtiles``): QGIS 3.32+, the web app's large-product mode.
+``<product_id>.kmz``   Google Earth: velocity overlay, legend, the fastest points (``export.kmz``).
+``3dtiles/``           3D Tiles point cloud + Cesium viewer page (``export.tiles3d``).
 """
 from __future__ import annotations
 
@@ -72,4 +74,10 @@ def export_product(product: str | Path, out_dir: str | Path, formats=("gpkg",)) 
         p = out_dir / f"{pid}.pmtiles"
         product_pmtiles(product, p)
         written.append(p)
+    if "kmz" in formats:
+        from geoeyes.export.kmz import export_kmz
+        written.append(export_kmz(product, out_dir / f"{pid}.kmz"))
+    if "3dtiles" in formats:
+        from geoeyes.export.tiles3d import export_3dtiles
+        written.append(export_3dtiles(product, out_dir / "3dtiles"))
     return written

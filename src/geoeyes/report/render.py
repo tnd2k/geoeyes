@@ -1,4 +1,5 @@
-"""Render the report of a product: ``products/<id>/report.pdf`` + ``report.json`` (the data shown).
+"""Render the report of a product: ``products/<id>/report.pdf`` + ``report.json`` (the data shown) +
+``indicators.json`` (the standardised indicators of the assessment, ``geoeyes.indicators/1``).
 
 The product's manifest does not list the report: it is derived, regenerated at any time (``geoeyes report``).
 """
@@ -10,7 +11,9 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from geoeyes.report import figures
+import numpy as np
+
+from geoeyes.report import assess, figures
 from geoeyes.report.collect import collect
 
 log = logging.getLogger(__name__)
@@ -30,14 +33,35 @@ def _figures(product: Path, data: dict, out: Path) -> dict[str, str]:
         "noise": figures.noise(data["dates"], out / "noise.svg"),
         "clusters": figures.clusters(data["clusters"], out / "clusters.svg"),
     }
+    # Part A: the map in the assessment basis with the hot spots, each hot spot's series, the hazard levels
+    asm = data["assessment"]
+    marks = [(h["lon"], h["lat"], h["id"]) for h in asm["hotspots"]]
+    if asm["basis"] == "vertical":
+        with np.errstate(all="ignore"):
+            pts["vel_vert_mm_yr"] = pts["vel_los_mm_yr"] / pts["los_u"].where(pts["los_u"].abs() > 0.3)
+        made["summary_map"] = figures.velocity_map(
+            pts.loc[pts["vel_vert_mm_yr"].notna(), ["lon", "lat", "vel_vert_mm_yr"]], out / "summary_map.png",
+            reference=data["reference"], column="vel_vert_mm_yr", label="Vertical velocity (mm/yr), negative = sinking",
+            marks=marks)
+    else:
+        made["summary_map"] = figures.velocity_map(pts, out / "summary_map.png", reference=data["reference"],
+                                                   heading=a.get("heading_deg"),
+                                                   look_side=a.get("look_side") or "right", marks=marks)
+    for h in asm["hotspots"]:
+        made[f"hotspot_{h['id']}"] = figures.hotspot_series(h, out / f"hotspot_{h['id']}.svg", asm["basis"])
+    hz = asm["impacts"]["hazard"]
+    if hz.get("assessed"):
+        try:
+            made["hazard_map"] = figures.hazard_map(assess.hazard_cells(hz["folder"]), out / "hazard_map.png",
+                                                    cell_m=hz["cell_m"], marks=marks)
+        except Exception as exc:                          # an old or partial zoning: the table only
+            log.warning("hazard map skipped: %s", exc)
     return {k: f"figures/{p.name}" for k, p in made.items() if p is not None}
 
 
 def _clean(x):
     """JSON for Typst: NaN/inf -> null, numpy scalars -> Python."""
     import math
-
-    import numpy as np
     if isinstance(x, dict):
         return {str(k): _clean(v) for k, v in x.items()}
     if isinstance(x, (list, tuple)):
@@ -62,6 +86,8 @@ def build_report(product: str | Path, *, copy_to: str | Path = "") -> Path:
         pdf = product / "report.pdf"
         typst.compile(str(tmp / "report.typ"), output=str(pdf), root=str(tmp))
         shutil.copy(tmp / "report.json", product / "report.json")
+    (product / "indicators.json").write_text(json.dumps(_clean(data["indicators"]), indent=1, ensure_ascii=False,
+                                                        allow_nan=False), encoding="utf-8")
     if copy_to:
         dest = Path(copy_to)
         dest.mkdir(parents=True, exist_ok=True)
