@@ -52,7 +52,7 @@ Workspace
 │     ├─ hanoi_csk               dự án: chấm trạng thái (đã cập nhật / có dữ liệu mới / đang chạy / lỗi)
 │     │  ├─ cosmo_skymed-asc     vệt quỹ đạo
 │     │  │  ├─ Data              các lần chụp (ngày, đường cơ sở), thư mục lưu trữ
-│     │  │  ├─ Stack             chồng ảnh đã đồng đăng ký (ngày, ảnh tham chiếu, kích thước)
+│     │  │  ├─ Stack             chồng ảnh đã khớp (ngày, ảnh tham chiếu, kích thước)
 │     │  │  ├─ PS run            điểm, hình QC
 │     │  │  ├─ Products          v1, v2 ... (phiên bản bất biến; nút con mắt = hiện trên bản đồ, như lớp QGIS)
 │     │  │  └─ Exports           tải GeoPackage / CSV

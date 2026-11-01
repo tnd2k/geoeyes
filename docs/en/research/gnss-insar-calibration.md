@@ -264,6 +264,121 @@ Yes, for the reference and its rate, under three conditions:
 **Per-epoch calibration** (common mode) is implemented. With fewer than about 3–5 well-distributed stations it
 injects the daily GNSS noise into every point, so it is not the default.
 
+### 7.1 Can a calibration fitted in Mexico City be used in Vietnam? (2026-10-30)
+
+**Why it matters.** Most NGL stations in Vietnam stopped between 2019 and 2021. None covers the current HCMC
+product (2025–2026). A transferable calibration would let the Vietnamese products be tied without a local station.
+
+**Test.** Five station–product pairs, vertical projection, `gnss_rate = window`:
+
+- MMX1 on the Mexico City S1 asc 078 product;
+- HUMG and JNAV on each of the two Hanoi S1 products, asc 128 and desc 091.
+
+Two models of the relation are fitted on a source and applied to a target:
+
+- **M1, offset:** g(t) = i(t) + Δv·t. This is the current calibration.
+- **M2, offset and scale:** g(t) = k·i(t) + Δv·t + c. The scale k would be a gain of the processing, the only term
+  that does not depend on the scene.
+
+The script is [code/gnss_transfer.py](code/gnss_transfer.py).
+
+| Source → target | Model | Rate residual at the target stations (mm/yr) | Series RMSE (mm) |
+|---|---|---|---|
+| none → Hanoi asc | – | 7.6 | 7.1 |
+| **Mexico → Hanoi asc** | M1 | **134.0** | 39.6 |
+| Mexico → Hanoi asc | M2 | 265.3 | 77.4 |
+| Hanoi desc → Hanoi asc | M1 | 3.4 | 6.8 |
+| none → Hanoi desc | – | 10.9 | 7.7 |
+| **Mexico → Hanoi desc** | M1 | **137.4** | 41.2 |
+| Mexico → Hanoi desc | M2 | 270.2 | 80.0 |
+| Hanoi asc → Hanoi desc | M1 | 4.9 | 7.0 |
+
+**Reading.**
+
+1. **The Mexico equation does not transfer.** Applied to Hanoi it is about 15 times worse than no calibration.
+   - The single coefficient, Δv = −126 mm/yr, is the motion of the Mexico product's own reference. That reference is
+     the scene mean; the product's mean rate is +0.1 mm/yr, as it should be.
+   - So Δv measures how much the Mexico City scene subsides as a whole. It is a property of that scene, not of the
+     sensor or the processing, and it carries no information about another city.
+2. **No processing gain can be learnt from Mexico.** M2 needs signals that are not a straight line.
+   - At MMX1 the subsidence is linear over the six months, so i(t) and t are almost collinear (condition number about
+     500).
+   - The fitted k = −0.01 ± 0.09 is meaningless: the fit replaces the InSAR by a line.
+   - A scale term is only identifiable with several stations moving at different rates, or with non-linear motion.
+3. **What does transfer is within one city.** The Hanoi asc calibration applied to the Hanoi desc product, and the
+   other way round, reduces the rate residual (10.9 → 4.9 and 7.6 → 3.4 mm/yr).
+   - The two products cover the same city and period with the same kind of reference (scene mean), so their
+     reference areas move alike.
+   - The gain is of the order of the GNSS rate sigmas (3.5–6 mm/yr), so it is suggestive, not proven.
+4. **The error level transfers.** The detrended residual is 5–8 mm in every pair, in Mexico and in Hanoi. It is the
+   noise of Sentinel-1 PS medians against daily GNSS, and serves as an a-priori uncertainty for products without a
+   station.
+
+**Answer.** No: the calibration equation is not transferable across sites. Its coefficient is the motion of the
+product's reference, which belongs to one scene. What transfers is:
+
+- the **method**: vertical projection, segment handling, window rates, leave-one-out;
+- the **error model**: 5–8 mm per epoch;
+- **within a city**, the calibration between products that share the period and the kind of reference.
+
+**For Vietnam without a current station, the options are:**
+
+1. **A historical local calibration (G7).** Process Sentinel-1 over HCMC for 2017–2019, when HCMC, XC03, GOCO,
+   LTHA, BTRE and VUNT recorded, and calibrate with leave-one-out on 3–6 stations.
+   - Then test a temporal transfer to 2025–2026, using reference areas that do not move between the two periods,
+     such as the same stable buildings.
+   - Within one city this is defensible; across cities it is not.
+2. **A stable reference instead of the scene mean.** Choose a `reference_bbox` on ground known to be stable, such as
+   a Pleistocene terrace or a pile-founded structure. The products then need little or no tie, and Δv stays near 0
+   by construction.
+3. **New stations or reflectors.** Corner reflectors next to a GNSS antenna (G4), or one continuous station in each
+   city.
+
+### 7.2 A historical calibration of HCMC and its transfer to 2025–2026 (G7, 2026-10-31)
+
+**Data.** Sentinel-1 desc 018 over HCMC, 2017-11 → 2019-09: 46 images, 2.3 million points, scene-mean reference
+(project `hcm_hist_des`). Three NGL stations recorded in that period and have points within 100 m: HCMC, LTHA and
+XC03 (GOCO, BTRE and VUNT have no usable overlap). Script: [code/gnss_g7.py](code/gnss_g7.py).
+
+| Station | InSAR (vertical, mm/yr) | GNSS (mm/yr) | Difference | Epochs |
+|---|---|---|---|---|
+| HCMC | +0.5 | +6.9 ± 2.7 | +6.4 | 31 |
+| LTHA | +2.2 | −0.7 ± 6.3 | −2.9 | 12 |
+| XC03 | +0.1 | +5.5 ± 2.9 | +5.4 | 11 |
+
+**Leave-one-out** (rate residual at the left-out station, RMS over the three):
+
+| Model | HCMC | LTHA | XC03 | RMS (mm/yr) |
+|---|---|---|---|---|
+| none | +6.4 | −2.9 | +5.4 | 5.1 |
+| M1, offset | +5.2 | −8.8 | +3.6 | **6.3** |
+| M2, offset and scale | +4.5 | −6.9 | −0.7 | 4.8 |
+
+**Transfer to 2025–2026** (project `hcm_test_des`, same track, smaller footprint in the centre). The two products are
+tied through the 2017–2019 offset (+2.97 mm/yr) and the difference of the scene means over the two footprints
+(+0.55 mm/yr). On the 243,894 20 m cells common to both:
+
+- the rate change 2025 − 2017 has a median of −1.3 mm/yr (IQR 6.4);
+- on the cells stable in 2017–2019 (|v| < 2 mm/yr) it is **+3.4** mm/yr;
+- the tied 2025–2026 map has a median of **+3.9** mm/yr, i.e. the centre of HCMC would be rising.
+
+**Reading.**
+
+1. **Three stations do not determine an offset.** Their differences (−2.9 to +6.4 mm/yr) disagree by more than the
+   offset itself. Their spread is that of the GNSS rate sigmas (2.7–6.3 mm/yr over the short 2017–2019 series).
+   The offset fitted on all three, +3.0 mm/yr, has a standard error of about 2.9 mm/yr: it is not different from 0.
+2. **The offset makes the left-out station worse.** M1 raises the leave-one-out RMS from 5.1 to 6.3 mm/yr.
+   M2 lowers it slightly, but only by replacing the InSAR with a line: k is +0.05, −0.33 and −0.42, i.e.
+   meaningless, as in §7.1.
+3. **The transfer in time gives an implausible map.** A rising city centre contradicts every published HCMC rate.
+   The cells that were stable in 2017–2019 would have started rising by 3 mm/yr. The tie adds the 2017–2019 offset,
+   which is not significant, to a reference (the scene mean) whose motion changes with time and footprint.
+
+**Answer.** No calibration is supported by the 2017–2019 stations, and none transfers to 2025–2026. The HCMC products
+stay referenced to their scene mean, with the reference uncertainty stated: about ±3 mm/yr, the scatter of the three
+stations. To tie them, the options 2 and 3 above remain: a stable reference area (a Pleistocene terrace or
+pile-founded structures), or corner reflectors and a new continuous station.
+
 ## 8. Limitations
 
 1. **Monument and PS.** The median PS within 100 m may not move like the antenna's monument (roof or ground).
@@ -287,6 +402,7 @@ injects the daily GNSS noise into every point, so it is not the default.
 | G4 | Monument effect | Corner reflectors next to HUMG / JNAV (the corner reflector module exists); PS selection by height | Reflector − GNSS < 2 mm/yr |
 | G5 | Better GNSS rates | Flicker plus white noise (Williams et al. 2004), annual terms, common-mode filtering (Wdowinski et al. 1997; Dong et al. 2006) | Realistic sigmas |
 | G6 | Full integration | Ramps per epoch (GInSAR, Neely et al. 2020), 3-D with asc + desc (Shen & Liu 2020) | Leave-one-out per epoch |
+| G7 | Transfer of a calibration (§7.1): across sites it fails; can it work across time in one city? | S1 over HCMC 2017–2019 with HCMC, XC03, GOCO, LTHA, BTRE and VUNT; calibrate, then apply to 2025–2026 with the same reference areas | Leave-one-out over 3–6 stations in 2017–2019; the 2025–2026 rates stay plausible against published HCMC subsidence. **Done (§7.2): no; 3 stations do not determine an offset, and the transfer makes the centre rise** |
 
 ## 10. Implementation
 

@@ -40,7 +40,7 @@ Một mặt nghiêng hay một vệt trên bản đồ vận tốc có thể đ�
 | Có ở cả hai quỹ đạo | không (chỉ quỹ đạo chụp chiều/tối) | có, mạnh hơn ở quỹ đạo chiều | không nhất thiết | chỉ quỹ đạo có chỗ nối trong vùng | **có**, khớp phép chiếu hướng nhìn |
 | Từng ngày | đổi dấu, đổi độ lớn | ngẫu nhiên, mạnh vào mùa mưa | hằng số theo ngày | **hai mức**: ≈ 0 hoặc một hằng số (−2,2 rad ở Hà Nội) | tích luỹ đều |
 | Tán sắc (tách phổ thấy) | **có** | không | không | không | không |
-| ESD | dịch chuyển phương vị tương quan với mặt nghiêng phương bay | không | không | hiệu ESD giữa hai dải con lệch (+0,012 dòng) | không |
+| ESD | dịch chuyển theo phương bay tương quan với mặt nghiêng phương bay | không | không | hiệu ESD giữa hai dải con lệch (+0,012 dòng) | không |
 | Sai số trong burst TOPS | gradient mạnh gây vệt ngang ở biên burst | không | không | không | không |
 
 Hai phép thử quyết định:
@@ -100,7 +100,7 @@ Mỗi ngày một dòng:
 - Sai số ± là sai số hình thức; cỡ 0,015 rad/km (0,07 mm/km) là bình thường.
 - `noise_rad` trong `ionosphere_per_date` của stack cỡ 10 rad mỗi ô là bình thường: tách phổ khuếch đại nhiễu pha
   khoảng 95 lần. Bù lại có hàng nghìn ô.
-- Nếu số ô `kept` dưới vài trăm, hoặc sai số ± vượt 0,05 rad/km, ngày đó ước lượng yếu: xem độ kết hợp.
+- Nếu số ô `kept` dưới vài trăm, hoặc sai số ± vượt 0,05 rad/km, ngày đó ước lượng yếu: xem độ nhất quán.
 
 Giá trị theo ngày được lưu trong stack: biến `iono` (pha đã khử, theo ngày) và thuộc tính `ionosphere_per_date`.
 
@@ -114,7 +114,7 @@ không, khoảng một nửa của nó (a ≈ 0,5) sẽ lọt vào ước lượ
 2026-07-02 seam IW3: interferogram phase step -2.298 rad (consistency 0.96, 32 blocks) removed
 ```
 
-- Độ nhất quán dưới 0,3 hoặc ít hơn 8 khối: không đo được, bậc được giữ nguyên và có cảnh báo.
+- Độ đồng thuận dưới 0,3 hoặc ít hơn 8 khối: không đo được, bậc được giữ nguyên và có cảnh báo.
 - Giá trị theo ngày nằm trong thuộc tính `subswath_phase_offsets` của stack.
 - Bậc có hai mức (≈ 0 hoặc một hằng số) và trùng với các ngày ESD hai dải con lệch nhau. Nguyên nhân gốc chưa rõ.
 
@@ -155,11 +155,11 @@ mm/km/năm (khoảng 11 mm/năm trên 14 km).
 - Mặt nghiêng phương bay còn sót gần như không tương quan với gradient tầng điện ly đã khử (r = 0,18), nên không phải
   khử thiếu theo tỉ lệ.
 - Nó dao động 0,64 mm/km giữa các ngày, gấp gần 10 lần sai số hình thức của ước lượng tầng điện ly (0,07 mm/km).
-- Mặt nghiêng theo cự ly còn sót lớn nhất vào mùa hè 2026 (+2,4 … +3,6 và −3,0 mm/km ở 07-14, 08-19, 08-31). Quỹ
+- Mặt nghiêng theo phương nhìn ngang còn sót lớn nhất vào mùa hè 2026 (+2,4 … +3,6 và −3,0 mm/km ở 07-14, 08-19, 08-31). Quỹ
   đạo xuống cùng mùa chỉ −0,3 … +0,9.
 
 Phần còn sót này không tán sắc, nên nhiều khả năng là **tầng đối lưu**: đối lưu chiều tối mùa mưa ở Hà Nội mà ERA5
-(0,25°, mỗi giờ) không bắt được. Một phần có thể do mở pha ở các ngày có bậc.
+(0,25°, mỗi giờ) không bắt được. Một phần có thể do giải chập pha ở các ngày có bậc.
 
 Kết luận cho Hà Nội: dùng v6, giữ `deramp = "plane"` khi tách thành phần, và không diễn giải gradient Bắc–Nam của
 quỹ đạo lên khi chỉ có một quỹ đạo.
@@ -170,6 +170,6 @@ quỹ đạo lên khi chỉ có một quỹ đạo.
   lượng được cấu trúc dưới vài km như dải bất ổn định sau hoàng hôn (plasma bubble).
 - Mô hình `local` giả định tầng điện ly gần tuyến tính trong ~10 km quanh vùng cắt.
 - Pha hình học phải được tính lại chính xác trước khi tách. Khoảng một nửa sai số của nó lọt vào ước lượng.
-- Nhấp nháy tầng điện ly (scintillation) làm mất kết hợp; tách phổ không sửa được.
+- Nhấp nháy tầng điện ly (scintillation) làm mất nhất quán; tách phổ không sửa được.
 - Bậc giữa các dải con chỉ đo được khi hai bên chỗ nối đủ kết hợp (đô thị). Ở vùng nông nghiệp, ngập nước có thể
   không đo được.

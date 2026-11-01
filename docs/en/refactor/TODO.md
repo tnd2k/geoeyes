@@ -35,6 +35,24 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
    - [ ] G6: per-epoch ramps, 3-D with ascending + descending.
 7. **SCN low-pass** (ADR-026, 2026-10-25): `scn_time_fit = "linear"` by default; every project re-runs its `ps` phase
    once (mexico_s1 re-run 2026-10-25). Re-run hanoi_csk, hanoi_s1, mexico_capella when convenient.
+8. **Flood model toward a digital twin** (planned 2026-10-30; builds on the flood inventory and the 24 h outlook,
+   [guide](../guide/flood-reports.md)). The loop: InSAR keeps the DEM current, forecasts drive a 2D flood model,
+   reported spots and Sentinel-1 water maps calibrate it.
+   - [ ] F1: map of the ground below the forecast tide peak and connected to the rivers. Use a DEM brought to
+     today with the vertical InSAR rate (z(t) = z0 + v_up · (t − t0)). This replaces the rough "estimated depth"
+     class of the hub.
+   - [ ] F2: SFINCS (Deltares, open source) for HCMC through HydroMT-SFINCS, about a 50 m grid. Rain from the
+     hourly forecast, tide at the river-mouth boundary, the subsidence-updated DEM. A uniform drainage loss stands
+     in for the sewers, calibrated on the reported spots and the 1.82 m tide of October 2025. Output: hourly depth
+     layer with a time slider in Explorer.
+   - [ ] F3: Hanoi, rain only, with the pumping stations (Yên Sở…) as sinks. Couple a sewer network (SWMM) only
+     if network data become available.
+   - [ ] F4: calibrate and validate with Sentinel-1 water maps of big events (research idea 4, Yagi).
+   - Alternatives considered: LISFLOOD-FP (fallback), HEC-RAS 2D (hard to automate), MIKE+ (licence; needs
+     sewer data).
+   - Risks: Copernicus 30 m is a surface model (roofs included). FABDEM removes buildings and trees but its
+     licence is CC BY-NC-SA, non-commercial only. A commercial use needs LiDAR or the city's survey. There is no
+     public sewer data.
 
 The sections below are the historical log, phase by phase.
 

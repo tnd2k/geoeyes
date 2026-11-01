@@ -5,7 +5,9 @@
 
 Xử lý chuỗi thời gian InSAR: từ cảnh SAR thô đến sản phẩm chuyển dịch có quản lý phiên bản và báo cáo.
 
-- **Cảm biến**: Sentinel-1 IW (lấy theo burst từ ASF), COSMO-SkyMed và Capella stripmap; tự đồng đăng ký ảnh, không cần SNAP.
+- **Cảm biến**: Sentinel-1 IW (lấy theo burst từ ASF), COSMO-SkyMed, Capella và ICEYE stripmap / spotlight; tự đồng đăng ký
+  ảnh, không cần SNAP. Hub dữ liệu mở: chồng ảnh chụp lặp trong các catalog STAC mở của ICEYE / Capella / Umbra
+  (`geoeyes opendata`, [hướng dẫn](docs/vi/guide/opendata.md)).
 - **Phương pháp**: điểm tán xạ bền vững (PS) theo kiểu StaMPS (`psi`); liên kết pha (phase linking) kết hợp điểm tán
   xạ phân bố (DS) (`psds`); `ps_lite` cho chồng ảnh Capella ngắn; hiệu chỉnh khí quyển bằng ERA5 / GACOS.
 - **Đầu ra**: sản phẩm bất biến (điểm và chuỗi thời gian dạng GeoParquet, raster COG, STAC item); xuất dữ liệu GIS

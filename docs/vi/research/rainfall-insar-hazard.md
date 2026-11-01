@@ -122,7 +122,7 @@ hiệu chỉnh các lớp theo danh mục thiệt hại hoặc danh mục trư�
   - Intrieri et al. (2018) phát hiện giai đoạn tăng tốc trước khi khối trượt Maoxian phá huỷ trong dữ liệu
     Sentinel-1.
   - Phương pháp nghịch đảo vận tốc ngoại suy 1/v về 0 (Fukuzono 1985; Voight 1988, 1989).
-- **Khoảng trống dữ liệu.** Ở vùng núi dốc chịu gió mùa, InSAR mất độ kết hợp trong mùa mưa (Bekaert et al. 2020,
+- **Khoảng trống dữ liệu.** Ở vùng núi dốc chịu gió mùa, InSAR mất độ nhất quán trong mùa mưa (Bekaert et al. 2020,
   Nepal).
 - **Ngưỡng mưa** *kích hoạt* trượt lở nông, nhanh là một công cụ khác, dùng ở quy mô sự kiện:
   - ngưỡng cường độ – thời đoạn (Caine 1980; Guzzetti et al. 2008; tổng quan của Segoni et al. 2018);
@@ -186,7 +186,7 @@ với FDR tính trên toàn bản đồ.
 ### 4.1 Ô phân tích
 
 - Các điểm được gộp vào ô vuông cạnh `cell_m` mét (mặc định 100 m) trên một lưới hệ mét cục bộ.
-- Mỗi ô lưu chuỗi LOS trung vị, vectơ đơn vị LOS trung vị và độ kết hợp trung vị của các điểm trong ô.
+- Mỗi ô lưu chuỗi LOS trung vị, vectơ đơn vị LOS trung vị và độ nhất quán trung vị của các điểm trong ô.
 - Mỗi ô cần tối thiểu `min_points` điểm (mặc định 3, giống yêu cầu cho một ADA của Tomás et al. 2019).
 - Ô là đơn vị của bản đồ. Gộp theo ô giúp chuỗi ít nhạy với nhiễu, giữ số phép kiểm định ý nghĩa ở mức tính toán
   được, và phù hợp với quy mô tính độ dốc và gradient.
@@ -506,7 +506,7 @@ truy cập) nên hệ thống chuyển sang ERA5 và ghi rõ trong bản tóm t�
 4. **Tương quan không phải nhân quả.** Ở vùng khí hậu gió mùa, mưa và nhiệt độ biến thiên cùng nhau (R2).
 5. **Dữ liệu mưa thô.** Pixel CHIRPS là 0,05° (khoảng 5,5 km); ERA5 là 0,25° và làm trơn các đỉnh mưa đối lưu. Vì
    thế liên hệ được xét theo từng pixel mưa chứ không theo từng sườn dốc.
-6. **Khoảng trống độ kết hợp.** Mất kết hợp trong mùa mưa làm lệch mẫu trên các sườn có thực phủ (Bekaert et al.
+6. **Khoảng trống độ nhất quán.** Mất nhất quán trong mùa mưa làm lệch mẫu trên các sườn có thực phủ (Bekaert et al.
    2020): những ô còn lại có thể chính là những ô ổn định.
 7. **Giới hạn chưa được hiệu chỉnh.** Các giới hạn cường độ sụt lún, lớp độ dốc tạm thời và ma trận vẫn là lựa chọn
    chuyên gia cho đến khi hoàn thành R3 và R4.

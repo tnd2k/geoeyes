@@ -11,8 +11,9 @@ một mục trong bài khác.
 1. [Bài 1: Hà Nội 2025–2026 với hai quỹ đạo](#1-bài-1-hà-nội-20252026-với-hai-quỹ-đạo)
 2. [Bài 2: Học máy dự báo vùng dễ lún, vai trò của địa chất và cách đánh giá](#2-bài-2-học-máy-dự-báo-vùng-dễ-lún-vai-trò-của-địa-chất-và-cách-đánh-giá)
 3. [Bài 3: Bậc pha giữa các dải con TOPS và tầng điện ly chạng vạng](#3-bài-3-bậc-pha-giữa-các-dải-con-tops-và-tầng-điện-ly-chạng-vạng)
-4. [Các hướng chưa nên viết riêng](#4-các-hướng-chưa-nên-viết-riêng)
-5. [Việc cần làm](#5-việc-cần-làm)
+4. [Bài 4: Ngập úng và sụt lún ở Hà Nội, có độ bất định](#4-bài-4-ngập-úng-và-sụt-lún-ở-hà-nội-có-độ-bất-định)
+5. [Các hướng chưa nên viết riêng](#5-các-hướng-chưa-nên-viết-riêng)
+6. [Việc cần làm](#6-việc-cần-làm)
 
 ## 1. Bài 1: Hà Nội 2025–2026 với hai quỹ đạo
 
@@ -55,7 +56,7 @@ một mục trong bài khác.
   (mục 3). Mọi kết quả tách thành phần ở dải phía tây rộng khoảng 3,5 km phải làm lại với sản phẩm đã cân pha.
 
 **Còn thiếu.**
-- Hiệu chỉnh tầng điện ly bằng tách phổ theo cự ly (D5), rồi tách thành phần lại.
+- Hiệu chỉnh tầng điện ly bằng tách phổ theo phương nhìn ngang (D5), rồi tách thành phần lại.
 - Kiểm chứng độc lập: GNSS (vận tốc đứng và ngang), thuỷ chuẩn, gương phản xạ góc.
 - Đối chiếu ngày khởi phát lún với ngày thi công thật (giấy phép xây dựng, ảnh vệ tinh quang học).
 - Khảo sát hư hại vài tuyến phố để kiểm chứng mức rủi ro.
@@ -101,7 +102,7 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
    - nó lệch 35–50° so với hướng các đứt gãy Sông Hồng, Sông Chảy;
    - độ lớn của nó đổi theo cách xử lý.
 3. Nguyên nhân là pha interferogram của hai dải con lệch nhau một hằng số ở một số ngày. Khâu ghép kiểu cắt rồi dán
-   biến hằng số đó thành bậc thẳng. Mở pha và chuỗi thời gian lại biến nó thành vận tốc, vì các ngày lệch dồn vào
+   biến hằng số đó thành bậc thẳng. Giải chập pha và chuỗi thời gian lại biến nó thành vận tốc, vì các ngày lệch dồn vào
    nửa cuối chuỗi.
 4. Cách sửa: đo bậc pha qua chỗ nối cho từng ngày và khử trước khi ghép.
 
@@ -115,7 +116,7 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
   độ lệch thời gian giữa hai dải hay Doppler. Bản thân sai lệch ESD 0,012 dòng chỉ gây vài phần mười radian, nên cả
   hai nhiều khả năng là triệu chứng của cùng một nguyên nhân trong sản phẩm SLC. **Nguyên nhân gốc chưa rõ.**
 - Phương pháp đo bậc: hai dải 40 cột (khoảng 100 m) hai bên chỗ nối, bỏ 4 cột sát vết cắt, khối 32 dòng, lấy trung
-  bình có trọng số độ kết hợp. Độ nhất quán giữa các khối 0,83–0,97; ước lượng tự động khớp đo tay (−2,224 so với
+  bình có trọng số độ nhất quán. Độ đồng thuận giữa các khối 0,83–0,97; ước lượng tự động khớp đo tay (−2,224 so với
   −2,22 rad).
   - Mã: `seam_step` trong `processing/stack/native/s1_stack.py`.
   - Giá trị theo ngày lưu ở thuộc tính `subswath_phase_offsets` của stack.
@@ -138,10 +139,10 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
     ngang" trước đây là do bậc ở chỗ nối. Không khử mặt phẳng thì vẫn còn mặt nghiêng 18,5 mm/năm và tỉ lệ 17,1 %.
 - **v5 và v6: bậc ra khỏi tách phổ** (2026-10-27/28). Cả hai lấy dải rộng nhất (IW3) làm mốc.
   - v5 thêm một hằng số tự do cho mỗi dải con vào mô hình tầng điện ly. **Không dùng được:** hằng số ước lượng ra
-    −4,4 … +4,6 rad, cả ở 15 ngày không có bậc, và đổi gradient cự ly của ngày 2025-10-04 từ −0,030 sang +0,126
-    rad/km. Với mô hình mặt phẳng cục bộ, hằng số theo dải con gần như trùng với gradient cự ly.
-  - v6 trừ thẳng bậc đã đo trên toàn băng khỏi băng thấp của từng dải con trước khi mở pha. Băng tương quan chéo
-    không cần sửa vì bậc giống nhau ở hai băng con. Gradient cự ly của 2025-10-04 thành +0,001 ± 0,014 rad/km (v4:
+    −4,4 … +4,6 rad, cả ở 15 ngày không có bậc, và đổi gradient theo phương nhìn ngang của ngày 2025-10-04 từ −0,030 sang +0,126
+    rad/km. Với mô hình mặt phẳng cục bộ, hằng số theo dải con gần như trùng với gradient theo phương nhìn ngang.
+  - v6 trừ thẳng bậc đã đo trên toàn băng khỏi băng thấp của từng dải con trước khi giải chập pha. Băng tương quan chéo
+    không cần sửa vì bậc giống nhau ở hai băng con. Gradient theo phương nhìn ngang của 2025-10-04 thành +0,001 ± 0,014 rad/km (v4:
     −0,030); chênh lệch khoảng 0,03 rad/km đúng là phần a·c của bậc. Mã: `WideArea.shift` trong
     `processing/stack/native/iono.py`. Test: `test_subswath_step_is_shifted_out_of_the_ionosphere`.
   - So sánh (cùng một script; bậc = trung vị vận tốc trong 0,08° góc tới hai bên chỗ nối; gx, gy = mặt phẳng khớp
@@ -165,7 +166,7 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
 **Điểm mới dự kiến (cần rà tài liệu).**
 - Ghi nhận và định lượng bậc pha giữa các dải con trong chuỗi Sentinel-1 gần đây (có S1D), kèm dấu hiệu chẩn đoán
   bằng hiệu ESD giữa các dải con.
-- Một bước sửa đơn giản, tự động, theo từng ngày trong khâu ghép, với tiêu chí chất lượng (độ nhất quán, số khối).
+- Một bước sửa đơn giản, tự động, theo từng ngày trong khâu ghép, với tiêu chí chất lượng (độ đồng thuận, số khối).
 - **Tương tác với hiệu chỉnh tầng điện ly bằng tách phổ.** Một hằng số pha không phụ thuộc tần số có trong cả hai băng
   con sẽ lọt khoảng một nửa (c·f_L·f_H / (f0·(f_L + f_H))) vào ước lượng tầng điện ly. Vì vậy cân pha dải con phải
   làm **trước** tách phổ. Cần chứng minh bằng mô phỏng và số liệu.
@@ -195,7 +196,85 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
 **Nơi đăng gợi ý.** *IEEE Geoscience and Remote Sensing Letters* (bài ngắn), *Remote Sensing* (MDPI), hoặc một
 mục phương pháp lớn trong bài 1 nếu rà tài liệu cho thấy hiện tượng đã được biết.
 
-## 4. Các hướng chưa nên viết riêng
+## 4. Bài 4: Ngập úng và sụt lún ở Hà Nội, có độ bất định
+
+Ghi ngày 2026-10-28. Gợi ý từ preprint Chen, Yang, Weng, Wang (2026), *Integrating predictive uncertainty into
+satellite-based flood mapping*, EGUsphere, doi:10.5194/egusphere-2026-4233, đang phản biện cho NHESS. Bài đó gắn
+Evidential Deep Learning vào UNet++ trên WorldFloods (ảnh quang học, phải xử lý mây) để có bản đồ ngập kèm độ bất
+định từng pixel, so với Deep Ensemble và MC Dropout. Mới đọc trang tóm tắt; toàn văn (23 MB) chưa đọc.
+
+**Câu hỏi.** Ở Hà Nội, nơi đang lún nhanh có ngập thường xuyên hơn, sâu hơn hoặc lâu rút hơn không? Bản đồ nguy cơ
+ngập có nên dùng tốc độ lún làm một biến, và độ tin cậy của bản đồ đó đến đâu?
+
+**Vì sao hợp với GeoEyes.**
+- Radar nhìn xuyên mây, đúng lúc mưa bão, khắc phục điểm yếu của bài trên; chuỗi SLC Sentinel-1 đã có sẵn.
+- Trong đô thị, nước khó thấy qua biên độ (phản xạ kép từ nhà cửa); độ nhất quán InSAR sụt bất thường so với các cặp
+  trước là dấu hiệu đã được dùng (Chini và cs. 2019, Houston; Pulvirenti và cs. 2021 dùng điểm PS; một nghiên cứu
+  Jakarta 2018/2020 cũng dựa vào cách này). Chưa tìm thấy công trình nào ghép bản đồ ngập SAR với sụt lún InSAR
+  cho Hà Nội (tìm nhanh, chưa rà kỹ).
+- GeoEyes đã có: tốc độ lún theo ô 100 m (hai quỹ đạo), phân vùng nguy cơ có lượng mưa CHIRPS, mô hình mức độ
+  nhạy cảm, khoảng conformal cho dự báo.
+
+**Vướng mắc chính: thời điểm chụp.** Ngập nội thành do mưa ở Hà Nội thường rút trong vài giờ, còn Sentinel-1 qua
+Hà Nội 12 ngày một lần mỗi quỹ đạo (vào lúc 05:51 và 18:06 giờ Việt Nam). Tìm trên ASF (vùng nội thành và ven
+sông Hồng):
+
+| Sự kiện | Ngập | Ảnh gần nhất | Nhận xét |
+|---|---|---|---|
+| Bão Yagi (2024) | lũ sông Hồng, nhiều ngày | desc 091, 05:51 ngày 13/9/2024 | đáng thử: bãi sông và vùng ven có thể còn ngập |
+| Bão Wipha (2025) | mưa ngập 21–22/7/2025; Sentinel Asia có bản đồ ngày 21/7 | desc 091, 05:51 ngày 22/7/2025 (S1A); asc 128, 18:06 ngày 24/7 | đáng thử |
+| Bão Bualoi (2025) | nội thành 30/9/2025, khoảng 65 điểm ngập, có nơi 50 cm | desc 091, 05:51 ngày 2/10/2025 | ~1,5 ngày sau: nội thành nhiều khả năng đã rút |
+| Bão Matmo (2025) | nội thành 7/10/2025 | asc 128, 18:06 ngày 4/10 (trước); không có ảnh ngay sau | không bắt được |
+
+Lưu ý: ASF ghi giờ UTC; 22:51 UTC ngày 1/10 là 05:51 sáng 2/10 giờ Việt Nam.
+
+**Vì vậy, hai cách làm, nên làm cả hai.**
+1. **Ngập quan sát được từ radar** (các trận kéo dài như Yagi, Wipha): biên độ cho vùng trống, độ nhất quán cho đô
+   thị, so với các cặp trước trận; đối chiếu bản đồ Sentinel Asia / Copernicus EMS / UNOSAT nếu có. Có độ bất định
+   (xác suất kiểu Bayes như Chini và cs., hoặc evidential như bài gợi ý).
+2. **Điểm ngập không cần ảnh đúng lúc:** danh sách điểm úng ngập do thành phố công bố hằng năm và các điểm báo chí ghi
+   nhận (Bualoi, Matmo, các trận mưa lớn), đem đối chiếu với tốc độ lún, cao độ, khoảng cách tới cống và kênh. Mô
+   hình mức độ nhạy cảm ngập có tốc độ lún là một biến, kèm độ bất định (ensemble, conformal, evidential): đây là
+   chỗ bài gợi ý được dùng trực tiếp.
+
+**Kết quả kiểm tra Yagi (2026-10-28).** Dự án `hanoi_flood_yagi`: Sentinel-1 desc 091, 2 burst, 7 ngày chụp
+26/7–6/10/2024 (12 ngày một ảnh), ảnh chủ 31/8, B⊥ từ −110 đến +204 m; chỉ chạy acquire và build_stack (AOI như
+`hanoi_s1`). Pha chụp 12/9/2024 22:51 UTC (05:51 sáng 13/9 giờ Việt Nam) rơi vào lúc lũ sông Hồng.
+- **Biên độ thấy rõ ngập.** Tỷ số biên độ 12/9 so với trung bình nhân của 19/8 và 31/8: một dải tối −4 đến −6 dB
+  chạy dọc sông Hồng (bãi bồi, bãi giữa, phía đông bắc AOI), đúng dấu hiệu mặt nước phẳng phản xạ gương; nội đô gần
+  như không đổi. Trên cả AOI chỉ 3,8 % pixel tối đi hơn 3 dB (các cặp không có lũ: 1–2 %), nên con số toàn vùng che
+  mất tín hiệu, phải nhìn bản đồ.
+- **Độ nhất quán ít giúp ở đây.** Lòng sông và bãi bồi đã mất tương quan từ trước sự kiện (nước, đất canh tác); cặp
+  31/8–12/9 so với cặp 19/8–31/8: chỉ 2,4 % diện tích giảm hơn 0,3. Với lũ ven sông, biên độ là chỉ báo tốt hơn;
+  độ nhất quán vẫn là hướng cho ngập trong đô thị (phản xạ kép).
+- Độ nhất quán trung vị các cặp liên tiếp 0,44–0,59 (cửa sổ 5 × 20 pixel), không có cặp nào sụt bất thường.
+- Hình và kịch bản tái lập: `<workspace>/projects/hanoi_flood_yagi/analysis/flood_check/` (`yagi_change.png`,
+  `flood_check.py`).
+
+**Bước tiếp cho Yagi.** (a) Bản đồ ngập: ngưỡng tỷ số biên độ (thử Otsu hoặc mô hình hỗn hợp hai lớp, kèm xác suất
+kiểu Chini và cs.), bỏ nước thường xuyên bằng ảnh trước sự kiện (biên độ thấp ở cả 26/7, 7/8, 19/8, 31/8); (b) đối
+chiếu bản đồ độc lập: Copernicus EMS / UNOSAT nếu có kích hoạt cho Hà Nội, hoặc Sentinel-2 không mây gần 13/9;
+(c) xem ảnh 24/9 để thấy nước rút; (d) so vùng ngập với tốc độ lún của `hanoi_s1` (câu hỏi chính của bài).
+
+**Điểm mới dự kiến (phải rà tài liệu).**
+- Ghép sụt lún InSAR hai quỹ đạo với ngập quan sát và điểm ngập lịch sử ở Hà Nội.
+- Định lượng phần đóng góp của sụt lún vào nguy cơ ngập, có độ bất định.
+- Cảnh báo "đất đang lún ở nơi đã từng ngập" cho quy hoạch thoát nước.
+
+**Còn thiếu.**
+1. Kiểm tra ảnh 13/9/2024 và 22/7/2025: tải, tính biên độ và độ nhất quán so với các cặp trước; xem có thấy nước không.
+   **Yagi 13/9/2024: đã làm (2026-10-28), thấy rõ ngập trên biên độ dọc sông Hồng** (xem "Kết quả kiểm tra Yagi").
+   Wipha 22/7/2025: chưa làm.
+2. Danh sách điểm úng ngập Hà Nội (Sở Xây dựng hoặc Công ty Thoát nước Hà Nội), có toạ độ.
+3. Bản đồ ngập tham chiếu: Sentinel Asia (21/7/2025), Copernicus EMS / UNOSAT cho Yagi nếu có hoạt động trên Hà Nội.
+4. Rà tài liệu: ngập đô thị bằng độ nhất quán SAR; liên hệ sụt lún – ngập (Jakarta, Bangkok, TP.HCM); các nghiên cứu ngập
+   Hà Nội.
+5. Đọc toàn văn bài gợi ý: cách họ đo chất lượng độ bất định (calibration, độ ổn định giữa các trận).
+
+**Nơi đăng gợi ý.** *Natural Hazards and Earth System Sciences*, *International Journal of Disaster Risk
+Reduction*, *Remote Sensing*.
+
+## 5. Các hướng chưa nên viết riêng
 
 | Hướng | Lý do | Dùng ở đâu |
 |---|---|---|
@@ -205,10 +284,11 @@ mục phương pháp lớn trong bài 1 nếu rà tài liệu cho thấy hiện 
 | Kiểu chuyển dịch (hướng 1) | cách phân loại tương tự các nghiên cứu trước; điểm riêng là phát hiện ngày thay đổi chung do dữ liệu | phần phương pháp của bài 1 |
 | Dự báo bằng học máy | kết quả âm: chưa thắng mô hình giữ nguyên trên chuỗi ngắn | ghi chú ngắn, sức hút thấp |
 
-## 5. Việc cần làm
+## 6. Việc cần làm
 
-1. Rà tài liệu InSAR Hà Nội, tài liệu về học máy dự báo vùng dễ lún, và tài liệu về bậc pha giữa các dải con
-   Sentinel-1 để xác định chính xác điểm mới của ba bài.
+1. Rà tài liệu InSAR Hà Nội, tài liệu về học máy dự báo vùng dễ lún, tài liệu về bậc pha giữa các dải con
+   Sentinel-1, và tài liệu về ngập đô thị bằng SAR và liên hệ sụt lún – ngập, để xác định chính xác điểm mới của
+   bốn bài.
 2. Hoàn tất tách thành phần Hà Nội (D1 trong two-geometries-and-soft-soil.md).
 3. Thu thập số liệu kiểm chứng: GNSS, thuỷ chuẩn, ngày thi công, khảo sát hư hại.
 4. Liên hệ để có bản đồ bề dày đất yếu hoặc lỗ khoan Hà Nội (G1).

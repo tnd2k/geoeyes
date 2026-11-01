@@ -13,6 +13,10 @@ Vietnamese translation: [../vi/README.md](../vi/README.md).
 | [guide/projects-and-data.md](guide/projects-and-data.md) | Declaring projects and data |
 | [guide/learn-insar-pair.md](guide/learn-insar-pair.md) | Learning path: one interferometric pair, step by step (web page Principles) |
 | [guide/ionosphere.md](guide/ionosphere.md) | Ionosphere: recognise and correct (signatures, diagnosis, split-spectrum, subswath steps, acceptance criteria) |
+| [guide/incremental.md](guide/incremental.md) | Incremental processing and monitoring: new dates in minutes, early warning, Google Earth and 3D Tiles exports, GACOS |
+| [guide/opendata.md](guide/opendata.md) | Open data: searching the ICEYE / Capella / Umbra STAC catalogs for repeat-pass stacks, fetching and processing them |
+| [guide/atmosphere.md](guide/atmosphere.md) | Troposphere: ERA5, CERRA (Europe), GACOS; trying them on a product (Atmosphere tab) before applying one |
+| [guide/flood-reports.md](guide/flood-reports.md) | Reported floods (HCMC lists): import, locate on OSM, show over the products with the velocity around each location |
 | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Target architecture |
 | [architecture/decisions.md](architecture/decisions.md) | Architecture decision records (ADR) |
 | [architecture/migration-map.md](architecture/migration-map.md) | Old → new file map |

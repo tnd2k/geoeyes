@@ -174,7 +174,7 @@ GeoEyes giờ tự phát hiện mặt nghiêng như vậy và cảnh báo. Với
 - Nhưng nó **không** hướng về các ô lún. Trong khoảng 0,1–1,5 km quanh một ô lún nhanh, 48–53 % số ô dịch về phía
   ô đó, tức là ngẫu nhiên.
 
-Vì vậy đây là phần bất đồng còn lại giữa hai sản phẩm (khí quyển không phẳng, mở pha). Một sai số ở một hướng nhìn
+Vì vậy đây là phần bất đồng còn lại giữa hai sản phẩm (khí quyển không phẳng, giải chập pha). Một sai số ở một hướng nhìn
 lan vào cả e và u, nên nó cũng tập trung ở nơi chuyển dịch lớn.
 
 Nhiễu thực của e nên đọc từ các ô ổn định: trung vị |e| = 1,8 mm/năm, tức σ_e ≈ 2,7 mm/năm, gấp khoảng bốn lần
@@ -194,10 +194,10 @@ trong workspace):
 | Kiểm tra | Kết quả | Ý nghĩa |
 |---|---|---|
 | Tham số xử lý của hai lần chạy PS | giống hệt nhau | không phải do thiết lập |
-| Mặt nghiêng của từng thành phần pha, quy ra vận tốc (asc 128) | pha đã mở ~20 mm/năm; hiệu chỉnh ERA5 1,7; sai số DEM 2,7; nhiễu tương quan 0,7 | có sẵn trong giao thoa đồ; không do ERA5, không do sai số DEM |
+| Mặt nghiêng của từng thành phần pha, quy ra vận tốc (asc 128) | pha đã giải chập ~20 mm/năm; hiệu chỉnh ERA5 1,7; sai số DEM 2,7; nhiễu tương quan 0,7 | có sẵn trong giao thoa đồ; không do ERA5, không do sai số DEM |
 | Mặt nghiêng của từng giao thoa đồ | asc 2,0 mm/km (trung vị), desc 0,8; chủ yếu theo hướng bắc–nam; giảm dần từ thu 2025 đến thu 2026 | sai số nằm ở các lần chụp quỹ đạo lên, theo hướng bay |
 | Giờ chụp; TEC thẳng đứng trên Hà Nội từ GIM (CODE IONEX, CDDIS) | asc 11:06 UTC = **18:06 giờ địa phương**, 39–111 TECU; desc 22:50 UTC = 05:50, 8–19 TECU | quỹ đạo lên gặp tầng điện ly mạnh gấp khoảng 6 lần |
-| Độ dịch phương vị ESD theo ngày (chồng ảnh) | asc trung bình 0,035 dòng, desc 0,013; ESD so với mặt nghiêng bắc–nam: asc **r = −0,56 (p = 0,003)**, desc r = +0,19 (p = 0,37) | gradient tầng điện ly theo phương vị (bắc–nam) vừa làm lệch các burst TOPS vừa uốn pha |
+| Độ dịch theo phương bay ESD theo ngày (chồng ảnh) | asc trung bình 0,035 dòng, desc 0,013; ESD so với mặt nghiêng bắc–nam: asc **r = −0,56 (p = 0,003)**, desc r = +0,19 (p = 0,37) | gradient tầng điện ly theo phương bay (bắc–nam) vừa làm lệch các burst TOPS vừa uốn pha |
 
 Hà Nội nằm dưới đỉnh phía bắc của dị thường ion hoá xích đạo (EIA). Sau hoàng hôn, gần cực đại của chu kỳ mặt trời
 25, lượng điện tử ở đây cao và thay đổi nhanh theo vĩ độ. Các lần chụp quỹ đạo lên (18:06) gặp đúng lúc này, quỹ đạo
@@ -210,7 +210,7 @@ ngày chụp lên cuối cùng (quỹ đạo phục hồi).
 GIM với ô 2,5° × 5° không phân giải được gradient trên 15 km: mặt nghiêng nó dự đoán nhỏ hơn 15 lần và không tương
 quan với mặt nghiêng đo được. Nó chỉ cho biết mức TEC.
 
-**Hiệu chỉnh.** Cách làm đúng là tách phổ theo cự ly (range split-spectrum; Gomba và cs. 2016; Liang & Fielding
+**Hiệu chỉnh.** Cách làm đúng là tách phổ theo phương nhìn ngang (range split-spectrum; Gomba và cs. 2016; Liang & Fielding
 2017): hai giao thoa đồ băng con tách được phần pha tán sắc (tầng điện ly). Chồng ảnh lưu SLC đã khử pha hình học,
 nên phải tính lại chính xác pha hình học từ quỹ đạo trước khi tách: khoảng một nửa sai số của nó sẽ lọt vào ước tính
 tầng điện ly. Trong lúc chờ, khử một mặt phẳng theo từng ngày hoặc trên vận tốc (`deramp = "plane"`) loại được phần
@@ -230,12 +230,12 @@ nó thành vận tốc.
 Nguyên nhân gốc chưa rõ. Bậc không theo vệ tinh (S1A/S1D), phiên bản IPF, cách cắt burst, thời gian hay Doppler.
 
 Cách sửa, trong khâu ghép:
-- **v4:** đo bậc pha qua từng chỗ nối theo từng ngày (hai dải 40 cột, trọng số độ kết hợp, khối 32 dòng) và khử
+- **v4:** đo bậc pha qua từng chỗ nối theo từng ngày (hai dải 40 cột, trọng số độ nhất quán, khối 32 dòng) và khử
   trước khi ghép.
 - **v6:** lấy dải con rộng nhất làm mốc, và trừ cùng bậc đã đo đó khỏi băng con thấp của từng dải trước khi tách phổ
   (`WideArea.shift`). Nếu không, một hằng số c không phụ thuộc tần số sẽ lọt a·c (a ≈ 0,5) vào ước tính tầng điện ly.
 - **v5 (bỏ):** ước lượng bậc như một hằng số tự do cho mỗi dải con trong mô hình tầng điện ly. Kết quả ±4,6 rad, cả ở
-  những ngày không có bậc, vì hằng số này trao đổi với gradient cự ly.
+  những ngày không có bậc, vì hằng số này trao đổi với gradient theo phương nhìn ngang.
 
 Cùng một script cho mọi sản phẩm; bậc = trung vị vận tốc trong 0,08° góc tới mỗi bên chỗ nối; gx, gy = mặt phẳng
 khớp trên toàn vùng (mm/năm/km); E–U = tách thành phần với desc 091 v4:
@@ -318,7 +318,7 @@ nguyên.
 | D2 | Dùng thành phần thẳng đứng sau khi tách cho phân vùng, tuyến và công trình ở nơi có hai hình học |
 | D3 | Gắn GNSS cho phép tách (vận tốc ngang của trạm), và thành phần bắc từ hình học thứ ba |
 | D4 | Tách chuỗi thời gian trên các mốc tháng chung |
-| D5 | Hiệu chỉnh tầng điện ly bằng tách phổ theo cự ly trong bước dựng chồng ảnh (pha hình học chính xác từ quỹ đạo); trước tiên cho Hà Nội asc 128, sau đó cho mọi sản phẩm chụp lúc chạng vạng gần dị thường xích đạo |
+| D5 | Hiệu chỉnh tầng điện ly bằng tách phổ theo phương nhìn ngang trong bước dựng chồng ảnh (pha hình học chính xác từ quỹ đạo); trước tiên cho Hà Nội asc 128, sau đó cho mọi sản phẩm chụp lúc chạng vạng gần dị thường xích đạo |
 | G1 | Bề dày đất yếu Holocen của Hà Nội: số hoá một bản đồ đã công bố (ví dụ Phi & Strokova 2017) hoặc xin số liệu lỗ khoan (mô hình 3D của BGS, Trường Đại học Mỏ – Địa chất) |
 | G2 | Tốc độ lún so với bề dày trên bản đồ thật; c_v của các ô cố kết so với số liệu thí nghiệm |
 | G3 | Số liệu quan trắc mực nước ngầm (mạng quan trắc quốc gia) cùng bề dày: độ lún trên mỗi mét hạ cột nước |
