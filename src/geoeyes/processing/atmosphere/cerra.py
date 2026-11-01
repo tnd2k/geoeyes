@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
@@ -199,12 +200,25 @@ def fetch(cache: Path, requests: list[tuple[date, int]], *, auto_download: bool,
     return out
 
 
+@contextmanager
+def gdal_option(key: str, value: str):
+    """A GDAL configuration option for the duration of the block, the previous value restored after
+    (``gdal.config_options`` exists only from GDAL 3.7; the conda environment has 3.6)."""
+    from osgeo import gdal
+    old = gdal.GetConfigOption(key)
+    gdal.SetConfigOption(key, value)
+    try:
+        yield
+    finally:
+        gdal.SetConfigOption(key, old)
+
+
 def read_window(path: Path, c0: int, c1: int, r0: int, r1: int):
     """(T K, RH %, geopotential m²/s², levels hPa) of the window rows r0:r1, columns c0:c1, arrays (row, col, level)
     with rows from north to south and levels from the surface up."""
     from osgeo import gdal
     gdal.UseExceptions()
-    with gdal.config_options({"GRIB_NORMALIZE_UNITS": "NO"}):
+    with gdal_option("GRIB_NORMALIZE_UNITS", "NO"):
         ds = gdal.Open(str(path))
         fields: dict[str, dict[float, np.ndarray]] = {"t": {}, "r": {}, "z": {}}
         names = {"TMP": "t", "RH": "r", "HGT": "z", "GP": "z", "FI": "z"}
