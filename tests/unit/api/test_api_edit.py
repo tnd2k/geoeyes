@@ -49,7 +49,7 @@ def test_settings_form_edit_keeps_comments_and_backs_up(ws):
     c = TestClient(create_app(ws))
     spec = c.get("/api/projects/alpha/settings").json()
     f = _field(spec, "acquire", "max_per_month")
-    assert (f["kind"], f["value"], f["default"], f["own"]) == ("int", 3, 0, True)
+    assert (f["kind"], f["value"], f["default"], f["own"]) == ("int", 3, 2, True)   # Sentinel-1 preset: 2 a month
     assert _field(spec, "acquire", "date_range")["kind"] == "daterange"
     assert _field(spec, "phase_linking", "shp_test")["default"] == "ad"
     assert _field(spec, "ps", "unwrap_grid_size")["value"] == 10
@@ -67,6 +67,26 @@ def test_settings_form_edit_keeps_comments_and_backs_up(ws):
     bad = c.patch("/api/projects/alpha/settings", json={"acquire.max_per_month": -2})
     assert bad.status_code == 400 and ws.project("alpha").config.read_text(encoding="utf-8") == text
     assert c.patch("/api/projects/alpha/settings", json={"legacy.x": 1}).status_code == 400
+
+
+def test_ps_values_of_the_last_run_and_auto(ws):
+    import json
+    p = ws.project("alpha")
+    run = p.root / "ps_runs" / "sentinel1-asc-078"
+    run.mkdir(parents=True)
+    (run / "params.json").write_text(json.dumps({"table": {"max_topo_err": 7.5, "weed_standard_dev": 2.0},
+                                                 "resolved": {"max_topo_err": {"from": "auto", "value": 7.5}}}))
+    p.config.write_text(TOML + '\n[ps]\nmax_topo_err = "auto"\n', encoding="utf-8")
+    c = TestClient(create_app(ws))
+    spec = c.get("/api/projects/alpha/settings").json()
+    f = _field(spec, "ps", "max_topo_err")
+    assert (f["kind"], f["value"]) == ("string", "auto")
+    assert f["used"] == [{"track": "sentinel1-asc-078", "value": 7.5, "auto": True}]
+    assert _field(spec, "ps", "weed_standard_dev")["used"][0]["value"] == 2.0     # differs from the project: 1.0
+    assert _field(spec, "ps", "unwrap_grid_size")["used"] is None                  # same as the project
+    assert c.patch("/api/projects/alpha/settings", json={"ps.max_topo_err": "12"}).status_code == 200
+    assert tomllib.loads(p.config.read_text(encoding="utf-8"))["ps"]["max_topo_err"] == 12.0
+    assert c.patch("/api/projects/alpha/settings", json={"ps.max_topo_err": "big"}).status_code == 400
 
 
 def test_raw_toml_save_validates(ws):
