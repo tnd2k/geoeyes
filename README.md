@@ -4,7 +4,9 @@
 
 InSAR time-series processing, from raw SAR scenes to versioned displacement products and reports.
 
-- **Sensors**: Sentinel-1 IW (bursts from ASF), COSMO-SkyMed and Capella stripmap; native coregistration (no SNAP).
+- **Sensors**: Sentinel-1 IW (bursts from ASF), COSMO-SkyMed, Capella and ICEYE stripmap / spotlight; native coregistration
+  (no SNAP). Open-data hub: repeat-pass stacks of the ICEYE / Capella / Umbra open STAC catalogs
+  (`geoeyes opendata`, [guide](docs/en/guide/opendata.md)).
 - **Methods**: StaMPS-type persistent scatterers (`psi`), phase linking with distributed scatterers (`psds`),
   `ps_lite` for short Capella stacks; ERA5 / GACOS atmospheric correction.
 - **Outputs**: immutable products (GeoParquet points and time series, COG rasters, STAC item), GIS exports

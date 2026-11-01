@@ -13,6 +13,10 @@
 | Projects and data · Dự án và dữ liệu | [en/guide/projects-and-data.md](en/guide/projects-and-data.md) | [vi/guide/projects-and-data.md](vi/guide/projects-and-data.md) |
 | Learning path: one pair, step by step · Lộ trình học: một cặp ảnh từng bước | [en/guide/learn-insar-pair.md](en/guide/learn-insar-pair.md) | [vi/guide/learn-insar-pair.md](vi/guide/learn-insar-pair.md) |
 | Ionosphere: recognise and correct · Tầng điện ly: nhận diện và xử lý | [en/guide/ionosphere.md](en/guide/ionosphere.md) | [vi/guide/ionosphere.md](vi/guide/ionosphere.md) |
+| Incremental processing and monitoring · Xử lý gia tăng và giám sát | [en/guide/incremental.md](en/guide/incremental.md) | [vi/guide/incremental.md](vi/guide/incremental.md) |
+| Open data hub · Hub dữ liệu mở | [en/guide/opendata.md](en/guide/opendata.md) | [vi/guide/opendata.md](vi/guide/opendata.md) |
+| Troposphere: weather models · Tầng đối lưu: mô hình thời tiết | [en/guide/atmosphere.md](en/guide/atmosphere.md) | [vi/guide/atmosphere.md](vi/guide/atmosphere.md) |
+| Reported floods: inventory and comparison · Điểm ngập được báo cáo: danh mục và đối chiếu | [en/guide/flood-reports.md](en/guide/flood-reports.md) | [vi/guide/flood-reports.md](vi/guide/flood-reports.md) |
 | Architecture · Kiến trúc | [en/architecture/ARCHITECTURE.md](en/architecture/ARCHITECTURE.md) | [vi/architecture/ARCHITECTURE.md](vi/architecture/ARCHITECTURE.md) |
 | Decisions (ADR) · Quyết định kiến trúc | [en/architecture/decisions.md](en/architecture/decisions.md) | [vi/architecture/decisions.md](vi/architecture/decisions.md) |
 | Migration map · Bảng chuyển đổi | [en/architecture/migration-map.md](en/architecture/migration-map.md) | [vi/architecture/migration-map.md](vi/architecture/migration-map.md) |

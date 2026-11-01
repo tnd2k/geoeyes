@@ -74,7 +74,7 @@ Phần này chỉ nêu những điểm ảnh hưởng đến thiết kế (chi t
 | Điều phối | `vinsar.py` ~700 dòng gói trong một hàm; các giai đoạn nối cứng bằng `if control[...]`; phase linking chen vào giữa snap2stamps bằng cách **tạm ghi đè `control.json` + bản sao lưu** | Cần một DAG pha đúng nghĩa (§6) |
 | Tiền xử lý | `modules/snap2stamps/{s1,tsx,csk,capella}`: gọi `gpt` qua tiến trình con, dùng graph XML có thay placeholder; dữ liệu trung gian BEAM-DIMAP (`process/` ~70 GB mỗi dự án) | Backend `stack` có 2 engine: `snap` (tạm thời) và `native` (§8.3) |
 | Đọc dữ liệu gốc | Đã có nhưng rải rác: annotation XML của TSX, thuộc tính HDF5 của CSK (h5py), JSON mở rộng của Capella, burst S1 (stsa); 4 bộ nội suy quỹ đạo khác nhau | Gom về `sensors/*` + `geometry/orbit` (§7, §8.3) |
-| Capella | Quy trình SNAP+StaMPS trong `snap2stamps/capella` (TC **trước** IFG); quy trình PS tham chiếu đơn `modules/ps_stack` (GUI `tools/ps_stack_gui.py`) chạy trên ảnh đã đồng đăng ký trong hình học radar; công cụ khảo sát `tools/capella_ifg_gui.py` | `ps_stack` → `processing/ps_lite` = quy trình Capella (ADR-020); bỏ GUI (ADR-022) |
+| Capella | Quy trình SNAP+StaMPS trong `snap2stamps/capella` (TC **trước** IFG); quy trình PS tham chiếu đơn `modules/ps_stack` (GUI `tools/ps_stack_gui.py`) chạy trên ảnh đã khớp trong hình học radar; công cụ khảo sát `tools/capella_ifg_gui.py` | `ps_stack` → `processing/ps_lite` = quy trình Capella (ADR-020); bỏ GUI (ADR-022) |
 | Chuyển giao → StaMPS | `stamps_prep.py`: `rslc/diff0/geo` kiểu GAMMA + `pscands.1.*` big-endian + các tệp nhị phân `selpsc_patch`, `calamp`… | Thay bằng `selection/` đọc thẳng từ StackStore (§8.5) |
 | Engine StaMPS | 4 × `flow.py` (10–17 nghìn dòng); capella↔csk lệch nhau 71 dòng (rho, nhiễu weed, diag); s1↔capella/csk lệch ~2400 dòng (lọc trước giải chập pha, trọng số amb, bố cục IW); tsx là nhánh cũ, thiếu SBAS/bước 8; `sbas_mintpy_mixin.py` không nơi nào import | Một engine `processing/ps` hợp nhất **s1 + csk**, khác biệt chuyển thành tham số (§8.6); Capella tách khỏi StaMPS (ADR-020) |
 | Phase linking / DS | `phase_linking/{s1,csk,capella}` (csk ≈ bản sao của s1), `python/s1/vsar`, `python/{s1,capella}/tomo` (tệp nhị phân giống hệt từng byte) ; **ghi đè RSLC tại chỗ + `.rslc.bak`** | Một package `processing/phase_linking` duy nhất, ghi kết quả thành biến mới trong chồng ảnh (§8.4) |
@@ -152,7 +152,7 @@ geoeyes/                                  (gốc repo)
 │  │  ├─ orbit.py                         StateVectors, nội suy Hermite/Lagrange, zero-Doppler
 │  │  ├─ dem.py                           tải/cache/cắt DEM (SRTM, Copernicus GLO-30), geoid
 │  │  ├─ rdr2geo.py · geo2rdr.py          range-Doppler thuận/nghịch
-│  │  ├─ baseline.py                      Bperp, Bpar, HoA, độ kết hợp mô hình hoá
+│  │  ├─ baseline.py                      Bperp, Bpar, HoA, độ nhất quán mô hình hoá
 │  │  ├─ lut.py                           LUT mã hoá địa lý (lat/lon/hgt/inc/heading cho từng pixel)
 │  │  └─ los.py                           vector LOS, phép chiếu ENU↔LOS (từ cr_los, gnss_los_compare)
 │  │
@@ -261,8 +261,8 @@ Dữ liệu (`data/ process/ results/ logs/ .cache/ control/`) **không còn** n
 Project ─┬─ ProjectConfig
          ├─ Track* ──── Scene* (thô, bất biến)
          │     └─ Stack* ── Network(reference, pairs)
-         │            ├─ SLC stack (đã đồng đăng ký)    ┐
-         │            ├─ IFG stack + độ kết hợp         │ StackStore (Zarr)
+         │            ├─ SLC stack (đã khớp)    ┐
+         │            ├─ IFG stack + độ nhất quán         │ StackStore (Zarr)
          │            ├─ Linked phase (tuỳ chọn)        │
          │            ├─ Geometry (lat/lon/hgt/inc/LUT)┘
          │            └─ PsRun* ── PsState (HDF5) ── tiles
@@ -275,7 +275,7 @@ Run* ── PhaseRecord* ── Artifact*
 | `Project` | Một vùng nghiên cứu (AOI) + cấu hình | `project` (slug `[a-z0-9_-]{1,64}`) |
 | `Track` | Một hình học quan sát cố định: cảm biến + chiều quỹ đạo + quỹ đạo tương đối (+ frame) | `s1-desc-018`, `csk-asc-xxx`, `alos2-asc-148` |
 | `Scene` | Một ảnh SLC gốc (một epoch) | `track_id/20240626` + ID sản phẩm gốc |
-| `Stack` | Các cảnh của một vệt quỹ đạo (với S1 là một dải con), đã đồng đăng ký về một ảnh tham chiếu | `stack_id = <track>[-<iw>]-<ref_date>-<hash6>` |
+| `Stack` | Các cảnh của một vệt quỹ đạo (với S1 là một dải con), đã khớp về một ảnh tham chiếu | `stack_id = <track>[-<iw>]-<ref_date>-<hash6>` |
 | `Network` | Ảnh tham chiếu + danh sách cặp ảnh (PSI tham chiếu đơn, SBAS, dư thừa) | nằm trong stack |
 | `PsRun` | Một lần chạy engine PS/SBAS trên một stack với một bộ tham số | `psrun_id` |
 | `PointSet` | Tập các điểm đo (PS/DS) + chuỗi thời gian, trong bộ nhớ | — |
@@ -326,7 +326,7 @@ class Phase(Protocol):
 |---|---|---|---|---|---|
 | 1 | `acquire` | track | — | RAW_SCENES | `_1_download`, CSK `_1_subset` (giải nén), Capella STAC, nạp TSX |
 | 2 | `plan_network` | track | RAW_SCENES | NETWORK | `*_master_sel.py` ×4, `synth_sbas_pairs` ×3, `_maybe_filter_pairs_by_extent` |
-| 3 | `build_stack` | track | RAW_SCENES, NETWORK | SLC_STACK, GEOMETRY | split/apply-orbit/back-geocoding/ESD/coreg/TC (SNAP); Capella: đồng đăng ký không TC (đầu vào của `ps_stack` hiện tại) |
+| 3 | `build_stack` | track | RAW_SCENES, NETWORK | SLC_STACK, GEOMETRY | split/apply-orbit/back-geocoding/ESD/coreg/TC (SNAP); Capella: khớp ảnh không TC (đầu vào của `ps_stack` hiện tại) |
 | 4 | `interferograms` | track | SLC_STACK, GEOMETRY, NETWORK | IFG_STACK | graph `Interferogram`/`TopoPhaseRemoval`, StampsExport |
 | 5 | `phase_linking` *(tuỳ chọn)* | track | SLC_STACK, NETWORK | LINKED_STACK | `phase_linking/*`, `vsar`, `tomo` |
 | 6 | `water_mask` *(tuỳ chọn)* | track | SLC_STACK, GEOMETRY | WATER_MASK | `masking/processor` |
@@ -357,14 +357,14 @@ Ghi chú:
 psi    : acquire → plan_network → build_stack → interferograms → [water_mask] → select_candidates
          → ps_estimate → unwrap → [atmosphere] → invert → postprocess → [validate]
          → [merge_subswaths] → build_product → [decompose_3d] → report
-sbas   : như psi; plan_network xây dựng mạng đường đáy ngắn; invert dùng SBAS/MintPy
+sbas   : như psi; plan_network xây dựng mạng đường cơ sở ngắn; invert dùng SBAS/MintPy
 psds   : như psi + phase_linking (bộ ước lượng EMI/EVD/…) trước select_candidates
 comsar : như psds với bộ ước lượng comsar
 capella: acquire → plan_network → build_stack (hình học radar, không TC) → select_candidates (ps_lite)
          → ps_lite → [phase_linking] [atmosphere] → postprocess → build_product → report   (ADR-020)
 ```
 
-Pha `ps_lite` (thay các pha 8–11 trong preset `capella`): cần `SLC_STACK`, `GEOMETRY`, `CANDIDATES` → sinh `TIMESERIES`. Thuật toán lấy từ `modules/ps_stack.run_stack`: epoch tham chiếu tách khỏi ảnh master dùng khi đồng đăng ký; pha tham chiếu tính từ DEM; chọn PS theo D_A kết hợp phân tập phổ theo range; giải chập pha IRLS tinh chỉnh hai lượt, có periodogram sai số độ cao; bình phương tối thiểu có trọng số (vận tốc, ΔH, số hạng tham chiếu); APS bằng lọc Gauss không gian; trọng số chất lượng riêng cho từng giao thoa đồ.
+Pha `ps_lite` (thay các pha 8–11 trong preset `capella`): cần `SLC_STACK`, `GEOMETRY`, `CANDIDATES` → sinh `TIMESERIES`. Thuật toán lấy từ `modules/ps_stack.run_stack`: epoch tham chiếu tách khỏi ảnh master dùng khi khớp ảnh; pha tham chiếu tính từ DEM; chọn PS theo D_A kết hợp phân tập phổ theo range; giải chập pha IRLS tinh chỉnh hai lượt, có periodogram sai số độ cao; bình phương tối thiểu có trọng số (vận tốc, ΔH, số hạng tham chiếu); APS bằng lọc Gauss không gian; trọng số chất lượng riêng cho từng giao thoa đồ.
 
 Preset theo cảm biến: **Capella → chỉ dùng `capella`** (không qua engine StaMPS — ADR-020); S1, CSK, TSX, ALOS → `psi` / `sbas` / `psds` / `comsar`. Cảm biến khác vẫn bật được ps_lite nếu muốn, nhưng không phải mặc định.
 
@@ -373,7 +373,8 @@ Người dùng bật/tắt pha tuỳ chọn trong mục `[pipeline]` của `proj
 ### 6.4 Runner & guard
 
 ```
-geoeyes run <project> [--track T] [--from PHASE] [--to PHASE] [--only PHASE] [--force PHASE] [--dry-run]
+geoeyes run <project> [--track T] [--from PHASE] [--to PHASE] [--only PHASE] [--force PHASE] [--skip PHASE]
+            [--ps-from STEP] [--ps-to STEP] [--dry-run]
 
 Runner.run():
   cfg   = config.load(project)                       # kiểm tra lược đồ
@@ -453,7 +454,7 @@ class SensorProfile:
 |---|---|---|---|---|
 | **Sentinel-1** IW SLC | SAFE (.zip): `measurement/*.tiff` CInt16, `annotation/*.xml`, `calibration/*.xml` | `sentinel1/safe.py` đọc qua `/vsizip/` (đã có ví dụ ở `cr_report/s1slc.py`); `bursts.py` thay `stsa` | POEORB/RESORB `.EOF` tải từ Copernicus Data Space; `orbits.py` (thay Apply-Orbit-File) | TOPS: deramp/ESD (§8.3). Tìm và tải từ ASF (`asf_search`) |
 | **COSMO-SkyMed** (CSK & CSG) | HDF5 L1A SCS_B/SCS_U; thường đóng gói trong `.rar` | `cosmo_skymed/hdf5.py` (h5py; phần đọc thuộc tính đã có ở `csk/_2_master_sel.py`) ; `archive.py` (UnRAR/7z/bsdtar) | State vector nhúng sẵn (thuộc tính HDF5) | Stripmap/Spotlight. CSG (thế hệ 2) đặt tên thuộc tính khác → bộ đọc tự xử lý |
-| **ALOS-PALSAR** (làm sau cùng; xác định thế hệ theo dữ liệu mẫu) | ALOS-1/2: CEOS L1.1 SLC (`LED-*`, `IMG-HH-*`, `TRL-*`, `VOL-*`); ALOS-4: **định dạng L1.1 cần xác minh với JAXA** | `alos/ceos.py` (**mới**), bộ đọc plug-in cho từng thế hệ | Nhúng trong tệp leader | Băng L: ít mất kết hợp trên vùng thực vật; tầng điện ly ảnh hưởng đáng kể → split-spectrum (nguyên mẫu `tools/_split_spectrum_common.py`); ScanSAR chưa thuộc phạm vi ban đầu |
+| **ALOS-PALSAR** (làm sau cùng; xác định thế hệ theo dữ liệu mẫu) | ALOS-1/2: CEOS L1.1 SLC (`LED-*`, `IMG-HH-*`, `TRL-*`, `VOL-*`); ALOS-4: **định dạng L1.1 cần xác minh với JAXA** | `alos/ceos.py` (**mới**), bộ đọc plug-in cho từng thế hệ | Nhúng trong tệp leader | Băng L: ít mất nhất quán trên vùng thực vật; tầng điện ly ảnh hưởng đáng kể → split-spectrum (nguyên mẫu `tools/_split_spectrum_common.py`); ScanSAR chưa thuộc phạm vi ban đầu |
 | **Capella** | SLC GeoTIFF CInt16 + `*_extended.json` (STAC) | `capella/slc.py` (từ `bperp_bpar_from_capella_extended_json`, `fdc_hz_from_capella_extended_json`, `_update_doppler_coefficients`; xem thêm `capella_ifg_gui.load_slc/parse_extended_json`) | State vector trong JSON mở rộng | Spotlight độ phân giải cao; tải qua STAC; preset quy trình `capella` (ADR-020); **hình học radar — không TC trước IFG** (ADR-005) |
 | **TerraSAR-X / TanDEM-X** | `TSX1_SAR__*` / `TDX1_SAR__*`: annotation XML + COSAR | `terrasar_x/` (bộ phân tích XML đã có ở `tsx/_1_master_sel.py`) | Nhúng sẵn | Giữ **hình học bản đồ** (TC trước IFG) đến khi xác minh xong (ADR-005); dùng engine PS hợp nhất, không kéo theo nhánh `flow.py` cũ |
 
@@ -484,7 +485,7 @@ class SensorProfile:
 
 ### 8.2 `network`
 
-- `reference.py`: **một** thuật toán chọn ảnh tham chiếu (thay 4 phiên bản cũ): cực đại hoá tổng độ kết hợp mô hình hoá (Bperp, Btemp, ΔfDC) — `geometry/baseline.py`. Cho phép cố định ảnh tham chiếu trong cấu hình.
+- `reference.py`: **một** thuật toán chọn ảnh tham chiếu (thay 4 phiên bản cũ): cực đại hoá tổng độ nhất quán mô hình hoá (Bperp, Btemp, ΔfDC) — `geometry/baseline.py`. Cho phép cố định ảnh tham chiếu trong cấu hình.
 - `pairs.py`: PSI (tham chiếu đơn), SBAS (ngưỡng Bperp/Btemp, Delaunay, k láng giềng gần nhất), cặp dư thừa (từ `synth_sbas_pairs` ×3), lọc theo tỉ lệ phủ AOI (`extent_min_ratio`).
 - Đầu ra `NETWORK`: bảng `pairs.parquet` (ref, sec, bperp, btemp, dfdc, coh_model) + `network.json`.
 
@@ -504,15 +505,15 @@ class StackEngine(Protocol):
 | Quỹ đạo | `geometry/orbit.py` | Hermite bậc ba / Lagrange 8 điểm; quỹ đạo chính xác cho S1 |
 | DEM | `geometry/dem.py` | Copernicus GLO-30 (mặc định), SRTM 1″; geoid EGM96/EGM2008 → độ cao ellipsoid; cache theo từng mảnh |
 | Hình học tham chiếu | `geometry/rdr2geo.py` | lat/lon/hgt/góc tới/heading cho từng pixel ảnh tham chiếu → `GEOMETRY` |
-| Đồng đăng ký hình học | `stack/native/coregister.py` | geo2rdr cho từng ảnh secondary → độ lệch range/azimuth suy từ DEM |
+| Khớp ảnh hình học | `stack/native/coregister.py` | geo2rdr cho từng ảnh secondary → độ lệch range/azimuth suy từ DEM |
 | Tinh chỉnh | `coregister.py` | Stripmap/Spotlight: tương quan chéo biên độ phần dư (không kết hợp); TOPS: **ESD** trên vùng chồng phủ giữa các burst (cần đạt ~0,001 px theo azimuth) |
 | Lấy mẫu lại | `stack/native/resample.py` | sinc/Lanczos bảo toàn pha; TOPS: deramp → lấy mẫu lại → reramp |
 | TOPS | `stack/native/tops.py` | chọn burst theo AOI, deburst, ghép dải con (tuỳ chọn) |
-| Giao thoa đồ | `stack/native/interferogram.py` | `ref × conj(sec)`; trừ pha trái đất phẳng + pha địa hình tính từ hình học; đầu ra là pha **đã khử địa hình** + độ kết hợp |
+| Giao thoa đồ | `stack/native/interferogram.py` | `ref × conj(sec)`; trừ pha trái đất phẳng + pha địa hình tính từ hình học; đầu ra là pha **đã khử địa hình** + độ nhất quán |
 | Multilook / lọc | `multilook.py`, `filters.py` | Goldstein, boxcar, gaussian (gom từ `unwrap_2d_goldstein`, `_ifg_common`) |
-| Độ kết hợp | `coherence.py` | ước lượng theo cửa sổ/thích nghi |
+| Độ nhất quán | `coherence.py` | ước lượng theo cửa sổ/thích nghi |
 
-Mã hiện có cần gom về: `modules/ps_stack/stack.py` + `utils/flat_earth.py` (hình học lưới pixel trên DEM, range theo từng epoch, pha tham chiếu — đang dùng trong quy trình Capella), `tools/capella_ifg_gui.py` (để tham khảo: đồng đăng ký bằng tương quan chéo, Lanczos, goldstein), `snap2stamps/capella/bin/_2_coreg_ifg.py` (`PythonTerrainCorrection`, `RangeDopplerGeocoding`, `OpenTopographyDem` — hiện đang “ngủ đông”), `utils/flat_earth.py`, `utils/cr_los.py` (`solve_zero_doppler`), `s1/bin/_2_master_sel.py` (`_interpolate_orbit`, `_zero_doppler_state`).
+Mã hiện có cần gom về: `modules/ps_stack/stack.py` + `utils/flat_earth.py` (hình học lưới pixel trên DEM, range theo từng epoch, pha tham chiếu — đang dùng trong quy trình Capella), `tools/capella_ifg_gui.py` (để tham khảo: khớp ảnh bằng tương quan chéo, Lanczos, goldstein), `snap2stamps/capella/bin/_2_coreg_ifg.py` (`PythonTerrainCorrection`, `RangeDopplerGeocoding`, `OpenTopographyDem` — hiện đang “ngủ đông”), `utils/flat_earth.py`, `utils/cr_los.py` (`solve_zero_doppler`), `s1/bin/_2_master_sel.py` (`_interpolate_orbit`, `_zero_doppler_state`).
 
 Kernel: NumPy + **Numba** (CPU), CuPy (GPU tuỳ chọn) qua `core/compute.py`. Xử lý theo khối (chunk Zarr) để không bị giới hạn bởi bộ nhớ.
 
@@ -527,7 +528,7 @@ Hợp nhất `modules/phase_linking/*`, `python/s1/vsar/*`, `python/{s1,capella}
 | `shp.py` | Kiểm định SHP: KS, AD (`adtest`), BWS (`bwstest`) |
 | `estimators.py` | EVD, EMI, MLE, PTA, ADAPTIVE, PSDS, ComSAR (ministack) |
 | `filters.py` | NL-InSAR, lọc hậu kỳ gaussian |
-| `ds.py` | Chọn DS (BroNum, độ kết hợp — `DSFilter`), trộn PS+DS |
+| `ds.py` | Chọn DS (BroNum, độ nhất quán — `DSFilter`), trộn PS+DS |
 | `runner.py` | Vòng lặp theo tile, CPU/GPU |
 
 Đầu ra: biến `slc_linked` (complex64) + `coh_pl`, `bronum`, `shp_count` ghi vào **chính** StackStore đó. **Không** ghi đè RSLC, không `.bak`, không `.done`.
@@ -649,7 +650,7 @@ Chọn backend qua biến môi trường `INSAR_ITYPE` lúc import → **bỏ h�
 | Loại | Định dạng | Kho | Lý do |
 |---|---|---|---|
 | Ảnh thô | Giữ nguyên định dạng nhà cung cấp (SAFE zip, HDF5, CEOS, GeoTIFF) | `raw/` (chỉ đọc) | Không sửa dữ liệu thô |
-| Stack SLC/IFG/độ kết hợp/hình học | **Zarr v3** (chia chunk, nén Blosc-zstd) | `StackStore` | Ghi song song theo chunk, đọc trễ qua xarray/dask, hợp với lưu trữ đối tượng |
+| Stack SLC/IFG/độ nhất quán/hình học | **Zarr v3** (chia chunk, nén Blosc-zstd) | `StackStore` | Ghi song song theo chunk, đọc trễ qua xarray/dask, hợp với lưu trữ đối tượng |
 | Trạng thái engine PS | **HDF5** có lược đồ (`h5py`) | `StateStore` | Nhiều mảng cỡ vừa, truy cập ngẫu nhiên, mỗi tile một tệp, mở được bằng HDFView |
 | Điểm đo | **GeoParquet 1.1** | `PointStore` | Dạng cột, nén tốt, DuckDB/GeoPandas/QGIS đọc trực tiếp |
 | Chuỗi thời gian của điểm | **Parquet** dạng dài (long format) | `TimeSeriesStore` | Truy vấn theo điểm/ngày bằng DuckDB |
@@ -878,31 +879,35 @@ Người **không tham gia xử lý**, chỉ cần đọc báo cáo, phải tr�
 
 ### 13.2 Cấu trúc
 
+Hai phần: phần **đánh giá** đứng trước, viết bằng lời dễ hiểu cho cán bộ thành phố và người dân (câu ngắn, thuật ngữ
+được giải thích ngay trong câu, tốc độ theo phương đứng và âm = lún), sau đó là **phụ lục kỹ thuật** cho chuyên gia.
+
 | Mục | Nội dung | Nguồn dữ liệu |
 |---|---|---|
-| **Trang bìa** | Tên dự án, AOI, cảm biến/vệt quỹ đạo, khoảng thời gian, ID sản phẩm, phiên bản phần mềm, ngày tạo | manifest |
-| **Tóm tắt (1 trang)** | 3–5 phát hiện chính (vận tốc lớn nhất, vùng biến dạng, xu hướng), bảng số liệu chính (số điểm, mật độ, vận tốc min/trung vị/max, độ bất định trung vị), bản đồ thu nhỏ, **nhận định độ tin cậy** (cao/trung bình/thấp + lý do) | metrics, product |
-| **1. Khu vực & dữ liệu** | Bản đồ AOI; bảng cảnh (ngày, ID, chế độ, phân cực); trục thời gian các lần chụp; **biểu đồ đường đáy** (Bperp–thời gian) + mạng cặp ảnh; mức phủ | NETWORK, SceneMetadata |
-| **2. Phương pháp** | **Sơ đồ chuỗi xử lý sinh tự động** từ DAG đã chạy; mô tả từng bước (đồng đăng ký, IFG, phase linking, chọn PS/DS, giải chập pha, APS, nghịch đảo, hậu xử lý) kèm tham số chính và **trích dẫn khoa học**; bảng tham số chính; chỗ khác mặc định | manifest phases, params |
-| **3. Đánh giá chất lượng** | Phân bố độ kết hợp (histogram, theo cặp); mật độ PS/DS; độ kết hợp thời gian; độ lệch chuẩn IFG; sai số khép pha & tỉ lệ cặp lỗi giải chập pha; hiệu quả hiệu chỉnh khí quyển (mức giảm phương sai); RMS phần dư; phân bố sai số DEM; độ ổn định điểm tham chiếu | QualityMetrics, figures |
-| **4. Kết quả** | Bản đồ vận tốc LOS (+ bản đồ độ bất định); histogram vận tốc; chuỗi thời gian các điểm/cụm tiêu biểu (tự chọn theo cụm/cảnh báo); vùng cảnh báo; 3D EW/UD nếu có 2 vệt quỹ đạo | product |
-| **5. Kiểm chứng** *(nếu có)* | So sánh GNSS/CR: biểu đồ phân tán, độ chệch, RMSE, bảng trạm | validation |
-| **6. Diễn giải & hạn chế** | Quy ước dấu LOS, điểm tham chiếu, độ nhạy theo hướng (không nhạy với chuyển dịch Bắc–Nam), khí quyển còn sót, vùng mất kết hợp, khuyến nghị sử dụng | template + metrics |
-| **Phụ lục A** | Toàn bộ tham số (phần khác preset) | params |
-| **Phụ lục B** | Nguồn gốc dữ liệu: danh sách cảnh + checksum, phiên bản phần mềm/thư viện, môi trường, thời gian chạy từng pha | manifest |
-| **Phụ lục C** | Danh sách tệp sản phẩm + SHA-256; định dạng & cách đọc (GeoParquet/COG/STAC) | manifest |
-| **Phụ lục D** | Thuật ngữ & tài liệu tham khảo | tĩnh |
-| **Phụ lục E** *(tuỳ chọn)* | Thông tin vận hành: preflight, thời gian chạy từng pha, tài nguyên máy (bỏ mã quy trình vận hành/cổng/ký duyệt — ADR-016) | run manifest |
+| **Trang bìa** | Dự án, địa danh (bộ nhớ đệm trên máy), cảm biến/vệt quỹ đạo, khoảng thời gian, ID sản phẩm, phiên bản phần mềm, ngày tạo; hai phần của báo cáo | manifest, STAC item |
+| **A1. Tóm tắt (1 trang)** | Các nhận định bằng lời dễ hiểu: diện tích đã đo, tỉ lệ ổn định, diện tích lún nhanh hơn 5/10/20 mm/năm, vùng lún chính và xu hướng của nó, vùng trồi, độ tin cậy; việc cần làm trước; bản đồ vận tốc phương đứng (đủ dải min–max) có đánh dấu các điểm nóng | sản phẩm, `report.assess` |
+| **A2. Điểm nóng** | Các ô 100 m liền nhau (≥ 3 điểm) chuyển động nhanh hơn 5 mm/năm hoặc gấp đôi sai số trung vị (≥ 3 ô, ≥ 30 điểm), tối đa 5 vùng lún + 2 vùng trồi; mỗi thẻ: vị trí (tuyến OSM có tên hoặc điểm ngập gần nhất), tốc độ, các điểm nhanh nhất, xu hướng (nhanh lên / chậm lại / theo mùa / đều, từ tốc độ của hai nửa thời kỳ và một hàm theo năm, bỏ các ngày lệch xa xu hướng), hình chuỗi thời gian | sản phẩm, `analyses/lines`, danh mục điểm ngập |
+| **A3. Tác động** | Vùng nguy cơ (diện tích theo cấp, bản đồ), kiểu chuyển động, công trình (cấp nghiêng 1/500, 1/300; sàng lọc rủi ro), đê / đường sắt / đường chính, điểm ngập được báo nằm trên nền đang lún (`flood_reports.near_product`), nước ngầm; mỗi mục 2–4 câu dễ hiểu + một bảng; phân tích chưa chạy thì ghi rõ kèm lệnh chạy | `analyses/{hazard,behaviour,buildings,risk,lines}/<product>`, `inventories/flood` |
+| **A4. Độ tin cậy** | Mức tin cậy và lý do bằng lời dễ hiểu, số ảnh và thời kỳ, sai số điển hình, mức khớp với GNSS (bảng trạm), các phép kiểm tra xử lý, những ngày ảnh lệch xa xu hướng ở hầu hết các điểm nóng, những chỗ cần kiểm tra ngoài thực địa | quy tắc độ tin cậy, `analyses/gnss/<product>`, QC |
+| **A5. Khuyến nghị và chỉ số** | Khuyến nghị, việc gấp nhất trước, mỗi việc kèm lý do; bảng chỉ số chuẩn (đồng thời ghi ra `indicators.json`) | `report.assess` |
+| **B.1 Tóm tắt kỹ thuật** | Các phát hiện, độ tin cậy (cao/trung bình/thấp + lý do), số liệu chính, bản đồ vận tốc LOS | metrics, sản phẩm |
+| **B.2 Khu vực & dữ liệu** | Phạm vi, các lần chụp, biểu đồ đường cơ sở, bảng theo ngày (B⊥, nhiễu, có dùng, APS thời tiết) | stack, lần chạy PS |
+| **B.3 Phương pháp** | Từng bước đã chạy kèm tham số chính và **trích dẫn**; bảng tham số chính | manifest, params |
+| **B.4 Chất lượng** | Các phép kiểm tra chấp nhận (tầng điện ly, đường nối subswath, các vệt khác, dốc còn sót, phân tách hai hình học), các phân bố, nhiễu từng giao thoa đồ, số điểm qua từng bước chọn | QC, lần chạy PS |
+| **B.5 Kết quả** | Bản đồ vận tốc LOS; chuỗi thời gian tiêu biểu (0,5 % nhanh nhất mỗi chiều, các điểm ổn định) | sản phẩm |
+| **B.6 Diễn giải & hạn chế** | Quy ước dấu LOS, vùng tham chiếu, độ nhạy theo hướng, khí quyển còn sót, vùng mất nhất quán, chuỗi ngắn, đa trị ở băng X | template + metrics |
+| **Nguồn gốc, tệp sản phẩm, tài liệu tham khảo** | Thời gian chạy các pha, phần mềm và thư viện, cảnh, burst; tệp + SHA-256 và định dạng; chỉ các bài báo được trích dẫn | trạng thái lần chạy, manifest |
 
 Tài liệu tham khảo cố định trong template (BibTeX): Ferretti et al. 2001 (PS), Hooper et al. 2004/2007 (StaMPS), Berardino et al. 2002 (SBAS), Ferretti et al. 2011 (SqueeSAR), Ansari et al. 2018 (EMI/sequential), Yunjun et al. 2019 (MintPy), Goldstein & Werner 1998, Prats-Iraola et al. 2012 (TOPS ESD), Jolivet et al. 2011/2014 (APS kiểu ERA5/GACOS), Yu et al. 2018 (GACOS). Chỉ trích dẫn những bước thực sự có chạy.
 
 ### 13.3 Kỹ thuật
 
-- **Thu thập** (`report/collect.py`): chỉ đọc manifest + `QualityMetrics` + sản phẩm — **không** đọc lại `.mat`/log thô. Chỉ số đã được tính **ngay trong** quy trình xử lý (`products/metrics.py`).
-- **Hình** (`report/figures/`): matplotlib, phong cách thống nhất (phông chữ, bảng màu không gây hiểu sai: `RdBu_r` đối xứng quanh 0 cho vận tốc, `viridis` cho độ kết hợp), xuất dạng vector (PDF/SVG) để in sắc nét; bản đồ có thước tỉ lệ, mũi tên chỉ Bắc, chú thích hướng LOS & heading.
-- **Kết xuất**: **Typst** (gói PyPI `typst`, tệp nhị phân độc lập, chạy tốt trên Windows; xử lý tốt công thức toán & trích dẫn) — ADR-010. Template đặt trong `report/templates/*.typ`, dữ liệu truyền vào dưới dạng JSON.
-- **Ngôn ngữ**: tiếng Anh (ADR-015), không i18n.
-- Đầu ra: `products/<id>/report.pdf` + `report.json` (dữ liệu đã dùng). Lúc nào cũng tạo lại được bằng `geoeyes report <product_id>`.
+- **Thu thập** (`report/collect.py`): đọc sản phẩm, lần chạy PS, chồng ảnh (nếu còn), cấu hình và trạng thái các lần chạy; chỉ tính số liệu tổng hợp. Chỉ đọc những chuỗi thời gian được đưa vào báo cáo (một mẫu của mỗi nhóm), không bao giờ đọc cả tệp.
+- **Đánh giá** (`report/assess.py`): tốc độ theo cơ sở của phần đánh giá (phương đứng v_LOS / l_u khi sản phẩm có hướng nhìn, nếu không thì LOS), ô 100 m, các chỉ số diện tích, điểm nóng và xu hướng của chúng, các tác động đọc từ `<project>/analyses/<kind>/<product>/` và `<workspace>/inventories/flood/`, các nhận định bằng lời, khuyến nghị, chỉ số. Không gửi yêu cầu ra mạng: tên địa danh chỉ lấy từ bộ nhớ đệm.
+- **Hình** (`report/figures.py`): matplotlib, phong cách thống nhất; bản đồ vận tốc dùng đúng các lớp của QGIS và ứng dụng web (Pretty Breaks, 10 lớp trên toàn dải min–max, jet_r: không bao giờ cắt theo phân vị); bản đồ có thước tỉ lệ, mũi tên chỉ Bắc, chú thích hướng LOS & heading; bản đồ cấp nguy cơ; chuỗi thời gian điểm nóng kèm tốc độ của hai nửa thời kỳ.
+- **Kết xuất**: **Typst** (gói PyPI `typst`, tệp nhị phân độc lập, chạy tốt trên Windows; xử lý tốt công thức toán & trích dẫn) — ADR-010. Template `report/templates/report.typ`, dữ liệu truyền vào dưới dạng JSON.
+- **Ngôn ngữ**: tiếng Anh (ADR-015, ADR-027), không i18n.
+- Đầu ra: `products/<id>/report.pdf` + `report.json` (dữ liệu đã dùng) + `indicators.json` (`geoeyes.indicators/1`: mọi khoá chỉ số luôn có mặt, dạng `{value, unit, description, source}`, `value` là null khi phân tích chưa chạy; danh sách ở docs/vi/guide/projects-and-data.md §6). Lúc nào cũng tạo lại được bằng `geoeyes report <project> --product <id>`.
 - Báo cáo CR (`cr_report/report.py`) dùng chung engine & phong cách.
 
 ---
@@ -1070,16 +1075,16 @@ Xoá toàn bộ `tools/*_gui.py`, `tools/*viewer*.py`, `modules/pta/cr_target_gu
 
 - Mỗi cảm biến một stack nhỏ đã cắt (≤ 10–15 epoch, AOI ~ 2×2 km) — đủ chạy trọn quy trình trong vài phút.
 - Lưu ngoài repo (`GEOEYES_TEST_DATA`), kèm manifest + checksum.
-- Chỉ số so sánh: số điểm PS (±%), vận tốc (RMSE, độ chệch), chuỗi thời gian (RMSE), độ kết hợp (chênh lệch trung vị), pha IFG (độ lệch chuẩn vòng của hiệu pha).
+- Chỉ số so sánh: số điểm PS (±%), vận tốc (RMSE, độ chệch), chuỗi thời gian (RMSE), độ nhất quán (chênh lệch trung vị), pha IFG (độ lệch chuẩn vòng của hiệu pha).
 
 ### 16.3 Tiêu chí chuyển đổi native ↔ SNAP
 
 | Chỉ số | Ngưỡng đề xuất |
 |---|---|
-| Độ lệch đồng đăng ký còn sót (stripmap) | < 0.05 px |
-| Độ lệch đồng đăng ký azimuth của TOPS sau ESD | < 0.002 px |
-| Độ lệch chuẩn vòng của hiệu pha IFG (vùng độ kết hợp > 0.5) | < 0.3 rad |
-| Chênh lệch trung vị độ kết hợp | < 0.02 |
+| Độ lệch khớp ảnh còn sót (stripmap) | < 0.05 px |
+| Độ lệch khớp ảnh azimuth của TOPS sau ESD | < 0.002 px |
+| Độ lệch chuẩn vòng của hiệu pha IFG (vùng độ nhất quán > 0.5) | < 0.3 rad |
+| Chênh lệch trung vị độ nhất quán | < 0.02 |
 | Vận tốc PS (các điểm chung) | RMSE < 1 mm/năm, độ chệch < 0.5 mm/năm |
 
 ### 16.4 Công cụ
@@ -1116,7 +1121,7 @@ Xoá toàn bộ `tools/*_gui.py`, `tools/*viewer*.py`, `modules/pta/cr_target_gu
 
 | Điểm mở rộng | Đã có sẵn nhờ thiết kế |
 |---|---|
-| **Dữ liệu huấn luyện** | Sản phẩm bất biến + GeoParquet/Zarr có lược đồ + danh mục truy vấn được → `geoeyes.ml.datasets` dựng bộ dữ liệu từ danh mục (điểm, chuỗi thời gian, mảnh IFG/độ kết hợp) |
+| **Dữ liệu huấn luyện** | Sản phẩm bất biến + GeoParquet/Zarr có lược đồ + danh mục truy vấn được → `geoeyes.ml.datasets` dựng bộ dữ liệu từ danh mục (điểm, chuỗi thời gian, mảnh IFG/độ nhất quán) |
 | **Nhãn** | Thêm kho `labels/` (GeoParquet: point_uid/polygon, nhãn, nguồn, người gán nhãn) đặt cạnh sản phẩm |
 | **Mô hình** | `models/<name>/<version>/` + manifest (dữ liệu huấn luyện, chỉ số, hash trọng số) — theo khuôn U-Net phân loại nước (`masking/checkpoint`) |
 | **Suy luận** | Mỗi mô hình là một `Phase` (`requires`/`produces`), cắm vào DAG như mọi pha khác |
@@ -1137,7 +1142,7 @@ Thứ tự (chi tiết & tiến độ trong [`TODO.md`](../refactor/TODO.md)):
 4. **Hợp nhất xử lý** — các cảm biến; engine `snap` ghi vào StackStore; `selection` thay `stamps_prep`; hợp nhất `flow.py` (s1 + csk → engine `ps`; chuyển tsx sang; bỏ capella); phase linking/vsar/tomo; `ps_stack` → `ps_lite` (quy trình Capella, không qua StaMPS).
 4b. **ALOS-PALSAR** — làm sau cùng, khi các cảm biến khác đã ổn định (đã có dữ liệu mẫu).
 5. **Hậu xử lý** — tách `phasingpy`; sản phẩm/xuất dữ liệu; bỏ chức năng xuất bản & thông báo.
-6. **Engine native** — quỹ đạo/DEM/hình học → đồng đăng ký/lấy mẫu lại/IFG (stripmap trước: Capella/CSK/ALOS, rồi đến TOPS) → đạt §16.3 → đặt native làm mặc định → xoá engine snap.
+6. **Engine native** — quỹ đạo/DEM/hình học → khớp ảnh/lấy mẫu lại/IFG (stripmap trước: Capella/CSK/ALOS, rồi đến TOPS) → đạt §16.3 → đặt native làm mặc định → xoá engine snap.
 7. **Lưu trữ dài hạn** — danh mục, chỉ mục, chính sách lưu giữ, gói bàn giao.
 8. **Báo cáo khoa học.**
 9. **Đổi tên & hoàn thiện** — GeoEyes, reference/secondary, dọn tools, type hint, tài liệu → `git init`.
@@ -1153,7 +1158,7 @@ Thứ tự 4 ↔ 6 là cố ý: trước hết hợp nhất mọi thứ **sau** 
 | reference | ảnh tham chiếu của stack | master |
 | secondary | các ảnh còn lại | slave |
 | track | cảm biến + chiều quỹ đạo + quỹ đạo tương đối (vệt quỹ đạo) | dự án con `_ASC`/`_DESC` |
-| stack | các ảnh SLC đã đồng đăng ký của một vệt quỹ đạo (+dải con) | `INSAR_*/raw`, `process/<p>/coreg` |
+| stack | các ảnh SLC đã khớp của một vệt quỹ đạo (+dải con) | `INSAR_*/raw`, `process/<p>/coreg` |
 | pair | một cặp (reference, secondary) tạo thành một giao thoa đồ | `<m>_<s>` |
 | tile | khối không gian được engine PS xử lý | `PATCH_n` |
 | PS run | một lần chạy engine PS trên một stack | `INSAR_*/process` |

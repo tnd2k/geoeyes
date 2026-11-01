@@ -32,8 +32,70 @@
 | 025 | GNSS comparison and calibration from NGL; vertical tie by default; usable by the hazard zoning | Proposed |
 | 026 | SCN temporal low-pass: local linear fit by default (departs from StaMPS `ps_scn_filt`) | Accepted |
 | 027 | Vietnamese: bilingual web app (EN / VI), Vietnamese translations of the docs; notification centre | Accepted |
+| 028 | Open-data hub (ICEYE, Capella, Umbra STAC) and the ICEYE SLC-COG reader; open-data stacks fetched by `acquire` | Accepted |
+| 029 | SICD (NITF) reader and slant-plane stack builder; Umbra processable (`ps_lite`) | Accepted |
 
 ---
+
+### ADR-029 — SICD: NITF reader, image projections, slant-plane stacks *(Accepted 2026-10-28, completes ADR-028)*
+**Context.** Umbra (and other providers) deliver complex data as SICD (NGA Sensor Independent Complex Data): a NITF
+2.1 file with the complex image (I / Q bands) and the SICD XML in a DES. Umbra's products are spotlight images formed
+by polar format (PFA) on a slant plane (Grid `RGAZIM`), squinted by a few degrees: not a zero-Doppler (azimuth time,
+slant range) grid, so `RadarGrid` and the stripmap builder do not apply. A product is ~7 GB (0.15 m pixels).
+**Decision.**
+- `sensors/sicd/nitf.py`: own NITF 2.1 parser (segment table, image subheaders, DES), complex windows from a local
+  file (memory map) or a URL (HTTP range requests per row: an AOI is cut without downloading the product). Types
+  RE32F_IM32F and RE16I_IM16I, uncompressed, pixel-interleaved, blocks and several image segments.
+- `sensors/sicd/meta.py`: the SICD Volume 3 image projections: pixel -> (t_coa, ARP, R, Rdot) for PFA and RMA / INCA,
+  the R / Rdot contour intersected with a surface of given height (DEM iterated), ground -> pixel by Newton. Checked
+  against sarpy (NGA's reference library): identical ground points, < 0.02 pixel back. Phase convention: -2π·KCtr·ΔR
+  with ΔR the range to the point minus the range to the SCP at t_coa (PFA) or xrow (RMA); Row.Sgn = +1 data are
+  conjugated on reading.
+- `processing/stack/native/sicd_stack.py`: reference coarse grid -> ground (DEM) -> pixels of each secondary,
+  resampling at baseband, residual constant offset by amplitude correlation, flattening with 2π (KCtr_sec ΔR_sec -
+  KCtr_ref ΔR_ref), `kh` along the reference resolution cell, B⊥ from the ARPs. Same StackStore as the other builders
+  (lines = SICD columns, samples = SICD rows). Scenes with another side of track / pass, incidence > 2° away, or a
+  spectrum not at baseband (DeltaKCOAPoly) are left out.
+- A cut is stored as a complex GeoTIFF + the chip XML (SICD `FirstRow / FirstCol` convention). The Umbra STAC items
+  have no asset hrefs: `fetch.umbra_sicd_url` lists `sar-data/task-data/<umbra:task_id>/` and takes the collect
+  nearest in time. Default cut margin: 50 m (ICEYE 500 m).
+- New sensor `umbra`, preset `presets/umbra.toml`; method `ps_lite` allowed for Capella and Umbra (short spotlight
+  stacks).
+**Consequences.** GeoEyes reads any SICD with PFA / RGAZIM or RMA / INCA geometry (other grids are refused). Repeat
+passes of a spotlight constellation differ in look angle by degrees while the angular aperture is ~4–5°: the
+azimuth spectra only partly overlap, and the multi-kilometre baselines give height ambiguities below a metre; water
+and container yards decorrelate. Choose small AOIs on stable structures.
+
+### ADR-028 — Open-data hub and ICEYE SLC-COG *(Accepted 2026-10-28)*
+**Context.** Commercial X-band constellations publish open SAR data on AWS as static STAC catalogs (CC-BY 4.0):
+ICEYE (`iceye-open-data-catalog`, SLC-COG), Capella (`capella-open-data`, SLC GeoTIFF + extended JSON), Umbra
+(`umbra-open-data-catalog`, SICD NITF). Some of it is repeat-pass: ICEYE publishes a 19-date daily stack over
+Tenerife (ICEYE-X53, 2026-02-11..03-01), Capella tags InSAR collects (`capella:use_case = insar`, repeat ground track
+`capella:rgt_id`) and holds stacks of up to ~95 dates. They exercise the high-resolution stripmap / spotlight chain
+on data anyone can download.
+**Decision.**
+- `geoeyes.opendata`: a local index per source (`<workspace>/cache/opendata/<source>.json`, refreshed by `sync`,
+  only new item URLs fetched), grouping into candidate stacks from the STAC item geometry only (source, satellite or
+  provider ground track, mode, pass, look side, incidence ±1°, look azimuth ±3°, footprint overlap ≥ 50 %), stable
+  stack ids (`iceye:x53-sm-ar-26-28.2n016.7w`, a track hash for Capella). Baselines are only known once the products
+  are read: `build_stack` logs them and leaves out the scenes outside the reference geometry.
+- `[acquire] opendata = "<stack id>"` makes the `acquire` phase fetch the stack's scenes covering the AOI into
+  `<archive>/<sensor>/<track>/YYYYMMDD/`. ICEYE SLC-COG is cut to the AOI + `opendata_margin_m` with HTTP range
+  reads (window from the product's RPC at the lowest and highest DEM height of the AOI; `geoeyes:crop` in the
+  metadata); Capella scenes are downloaded whole.
+- `sensors/iceye/slc_cog.py`: amplitude / phase uint16 bands with GDAL scale / offset → complex64; the raster is
+  `shadows-down` (rows = range, columns = azimuth) and is transposed to the GeoEyes convention; geometry from the
+  STAC properties (zero-Doppler start, 1 / PRF, near range, precise state vectors, Doppler centroid); checked
+  against the product's RPC to < 0.3 pixel. New sensor `iceye`, preset `presets/iceye.toml` (CSK chain,
+  `max_perp_m = 1000`).
+- Umbra (SICD) is indexed and searchable but not processable (no SICD reader yet): stacks are marked "search only".
+- Interfaces: `geoeyes opendata sync | sources | scenes | stacks | show | fetch | project`, `/api/opendata/*`, web
+  page *Open data*: the server indexes the catalogs by itself (first visit, then daily) and lists every stack by place
+  name (OpenStreetMap reverse geocoding, Nominatim or Photon, cached), a dot per stack on the map; choosing one proposes
+  an area and a project name. Default base map of every map page: light gray.
+**Consequences.** The archive can hold open-data scenes next to commercial ones (same folder layout). The open
+catalogs may hold experimental products (ICEYE's own warning): the reader refuses other orientations / product
+types instead of guessing.
 
 ### ADR-027 — Vietnamese interface and documentation; notification centre *(Accepted 2026-10-26, completes ADR-015)*
 **Context.** The project owner and the expected users work in Vietnamese; ADR-015 made English the product

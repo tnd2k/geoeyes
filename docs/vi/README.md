@@ -15,6 +15,10 @@ ADR-027); đầu mỗi tệp ghi rõ bản gốc và ngày dịch. Thuật ngữ
 | [guide/projects-and-data.md](guide/projects-and-data.md) | Hướng dẫn khai báo dự án và dữ liệu |
 | [guide/learn-insar-pair.md](guide/learn-insar-pair.md) | Lộ trình học: một cặp giao thoa, từng bước (trang Nguyên lý trên web) |
 | [guide/ionosphere.md](guide/ionosphere.md) | Tầng điện ly: nhận diện và xử lý (dấu hiệu, chẩn đoán, tách phổ, bậc giữa dải con, tiêu chí chấp nhận) |
+| [guide/incremental.md](guide/incremental.md) | Xử lý gia tăng và giám sát: ngày mới trong vài phút, cảnh báo sớm, xuất Google Earth và 3D Tiles, GACOS |
+| [guide/opendata.md](guide/opendata.md) | Dữ liệu mở: tìm chồng ảnh chụp lặp trong các catalog STAC của ICEYE / Capella / Umbra, tải và xử lý |
+| [guide/atmosphere.md](guide/atmosphere.md) | Tầng đối lưu: ERA5, CERRA (châu Âu), GACOS; thử trên một sản phẩm (tab Khí quyển) trước khi áp dụng |
+| [guide/flood-reports.md](guide/flood-reports.md) | Điểm ngập được báo cáo (danh sách TP.HCM): nhập, định vị trên OSM, hiển thị cùng sản phẩm kèm vận tốc quanh từng vị trí |
 | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Kiến trúc mục tiêu |
 | [architecture/decisions.md](architecture/decisions.md) | Các quyết định kiến trúc (ADR) |
 | [architecture/migration-map.md](architecture/migration-map.md) | Bảng đối chiếu tệp cũ → mới |

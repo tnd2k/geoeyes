@@ -277,6 +277,121 @@ Có, đối với tham chiếu và tốc độ của tham chiếu, với ba đi�
 **Hiệu chỉnh theo từng lần chụp** (sai số chung) đã được triển khai. Khi có ít hơn khoảng 3–5 trạm phân bố đều, cách
 này đưa nhiễu ngày của GNSS vào mọi điểm, nên không được chọn làm mặc định.
 
+### 7.1 Có dùng được phương trình hiệu chỉnh lập ở Mexico City cho Việt Nam không? (2026-10-30)
+
+**Vì sao cần hỏi.** Phần lớn trạm NGL ở Việt Nam đã ngừng hoạt động trong khoảng 2019–2021. Không trạm nào phủ sản
+phẩm TP.HCM hiện tại (2025–2026). Nếu phương trình hiệu chỉnh chuyển giao được, có thể gắn các sản phẩm ở Việt Nam
+mà không cần trạm tại chỗ.
+
+**Thí nghiệm.** Năm cặp trạm–sản phẩm, phép chiếu thẳng đứng, `gnss_rate = window`:
+
+- MMX1 trên sản phẩm S1 asc 078 của Mexico City;
+- HUMG và JNAV trên mỗi sản phẩm S1 Hà Nội, quỹ đạo lên asc 128 và quỹ đạo xuống desc 091.
+
+Hai dạng quan hệ được lập ở nguồn rồi áp dụng sang đích:
+
+- **M1, chỉ có độ lệch:** g(t) = i(t) + Δv·t. Đây là phương trình hiện đang dùng.
+- **M2, độ lệch kèm hệ số tỉ lệ:** g(t) = k·i(t) + Δv·t + c. Hệ số k (độ khuếch đại của quá trình xử lý) là số hạng
+  duy nhất không phụ thuộc cảnh ảnh.
+
+Mã nguồn thí nghiệm: [code/gnss_transfer.py](../../en/research/code/gnss_transfer.py).
+
+| Nguồn → đích | Dạng | Sai lệch tốc độ tại các trạm đích (mm/năm) | RMSE chuỗi (mm) |
+|---|---|---|---|
+| không hiệu chỉnh → HN quỹ đạo lên | – | 7,6 | 7,1 |
+| **Mexico → HN quỹ đạo lên** | M1 | **134,0** | 39,6 |
+| Mexico → HN quỹ đạo lên | M2 | 265,3 | 77,4 |
+| HN quỹ đạo xuống → HN quỹ đạo lên | M1 | 3,4 | 6,8 |
+| không hiệu chỉnh → HN quỹ đạo xuống | – | 10,9 | 7,7 |
+| **Mexico → HN quỹ đạo xuống** | M1 | **137,4** | 41,2 |
+| Mexico → HN quỹ đạo xuống | M2 | 270,2 | 80,0 |
+| HN quỹ đạo lên → HN quỹ đạo xuống | M1 | 4,9 | 7,0 |
+
+**Đọc kết quả.**
+
+1. **Phương trình của Mexico không chuyển giao được.** Áp sang Hà Nội, sai số lớn gấp khoảng 15 lần so với không
+   hiệu chỉnh.
+   - Hệ số duy nhất của phương trình, Δv = −126 mm/năm, chính là chuyển động của điểm tham chiếu trong sản phẩm
+     Mexico. Điểm tham chiếu đó là trung bình toàn cảnh; tốc độ trung bình của sản phẩm là +0,1 mm/năm, đúng như
+     vậy.
+   - Do đó Δv đo mức lún chung của cả cảnh Mexico City. Đó là đặc trưng của cảnh ảnh, không phải của cảm biến hay
+     của quá trình xử lý, nên không mang thông tin gì về một thành phố khác.
+2. **Không học được hệ số khuếch đại của quá trình xử lý từ Mexico.** Dạng M2 cần tín hiệu không phải đường thẳng.
+   - Tại MMX1, lún gần như tuyến tính trong sáu tháng, nên i(t) và t gần như cộng tuyến (số điều kiện khoảng 500).
+   - Hệ số k = −0,01 ± 0,09 không có ý nghĩa: phép khớp chỉ thay chuỗi InSAR bằng một đường thẳng.
+   - Muốn xác định được hệ số tỉ lệ thì cần nhiều trạm có tốc độ khác nhau, hoặc chuyển dịch phi tuyến.
+3. **Chuyển giao được trong cùng một thành phố.** Hiệu chỉnh của sản phẩm Hà Nội quỹ đạo lên áp sang sản phẩm quỹ
+   đạo xuống, và ngược lại, đều giảm sai lệch tốc độ (10,9 → 4,9 và 7,6 → 3,4 mm/năm).
+   - Hai sản phẩm cùng thành phố, cùng thời kỳ và cùng kiểu tham chiếu (trung bình cảnh), nên vùng tham chiếu của
+     chúng chuyển động giống nhau.
+   - Mức cải thiện cỡ sigma tốc độ GNSS (3,5–6 mm/năm), nên mới là gợi ý, chưa phải kết luận chắc chắn.
+4. **Mức sai số chuyển giao được.** Phần dư sau khi bỏ xu hướng là 5–8 mm ở mọi cặp, cả Mexico lẫn Hà Nội. Đây là
+   nhiễu của trung vị PS Sentinel-1 so với GNSS theo ngày, dùng được làm độ bất định tiên nghiệm cho các sản phẩm
+   không có trạm.
+
+**Trả lời.** Không: phương trình hiệu chỉnh không chuyển giao được giữa các địa điểm. Hệ số của nó là chuyển động của
+điểm tham chiếu trong sản phẩm, vốn thuộc riêng một cảnh ảnh. Những gì chuyển giao được:
+
+- **phương pháp**: phép chiếu thẳng đứng, xử lý trạm dời vị trí, tốc độ theo cửa sổ thời gian, kiểm tra bỏ-một;
+- **mô hình sai số**: 5–8 mm mỗi lần chụp;
+- **trong cùng một thành phố**, hiệu chỉnh giữa các sản phẩm cùng thời kỳ và cùng kiểu tham chiếu.
+
+**Với Việt Nam khi không có trạm đang hoạt động, có ba hướng:**
+
+1. **Hiệu chỉnh tại chỗ bằng dữ liệu lịch sử (G7).** Xử lý Sentinel-1 TP.HCM giai đoạn 2017–2019, khi các trạm HCMC,
+   XC03, GOCO, LTHA, BTRE và VUNT còn hoạt động, rồi hiệu chỉnh và kiểm tra bỏ-một với 3–6 trạm.
+   - Sau đó thử chuyển giao theo thời gian sang 2025–2026, dùng những vùng tham chiếu không đổi giữa hai giai đoạn,
+     chẳng hạn cùng các công trình ổn định.
+   - Chuyển giao trong cùng một thành phố thì có cơ sở; giữa hai thành phố thì không.
+2. **Tham chiếu ổn định thay cho trung bình cảnh.** Chọn `reference_bbox` trên nền đất đã biết là ổn định, như thềm
+   Pleistocen hoặc công trình móng cọc. Khi đó sản phẩm gần như không cần gắn GNSS, vì Δv tự gần bằng 0.
+3. **Trạm mới hoặc gương phản xạ góc.** Gương đặt cạnh ăng-ten GNSS (G4), hoặc một trạm liên tục ở mỗi thành phố.
+
+### 7.2 Hiệu chỉnh lịch sử cho TP.HCM và việc dùng nó cho 2025–2026 (G7, 2026-10-31)
+
+**Dữ liệu.** Sentinel-1 quỹ đạo xuống 018 trên TP.HCM, 11/2017 → 09/2019: 46 ảnh, 2,3 triệu điểm, tham chiếu là
+trung bình cả cảnh (dự án `hcm_hist_des`). Ba trạm NGL có số liệu trong giai đoạn này và có điểm InSAR trong bán kính
+100 m: HCMC, LTHA và XC03 (GOCO, BTRE và VUNT không có phần chồng dùng được). Script:
+[code/gnss_g7.py](../../en/research/code/gnss_g7.py).
+
+| Trạm | InSAR (thẳng đứng, mm/năm) | GNSS (mm/năm) | Chênh lệch | Số kỳ |
+|---|---|---|---|---|
+| HCMC | +0,5 | +6,9 ± 2,7 | +6,4 | 31 |
+| LTHA | +2,2 | −0,7 ± 6,3 | −2,9 | 12 |
+| XC03 | +0,1 | +5,5 ± 2,9 | +5,4 | 11 |
+
+**Kiểm định bỏ-một-trạm** (sai lệch tốc độ tại trạm bị bỏ ra, RMS trên cả ba trạm):
+
+| Mô hình | HCMC | LTHA | XC03 | RMS (mm/năm) |
+|---|---|---|---|---|
+| không hiệu chỉnh | +6,4 | −2,9 | +5,4 | 5,1 |
+| M1, độ lệch | +5,2 | −8,8 | +3,6 | **6,3** |
+| M2, độ lệch và tỉ lệ | +4,5 | −6,9 | −0,7 | 4,8 |
+
+**Dùng cho 2025–2026** (dự án `hcm_test_des`, cùng vệt quỹ đạo, phạm vi nhỏ hơn ở nội thành). Hai sản phẩm được nối
+qua độ lệch của 2017–2019 (+2,97 mm/năm) và chênh lệch giữa trung bình cả cảnh của hai phạm vi (+0,55 mm/năm).
+Trên 243.894 ô 20 m chung của hai sản phẩm:
+
+- thay đổi tốc độ 2025 − 2017 có trung vị −1,3 mm/năm (IQR 6,4);
+- trên các ô ổn định trong 2017–2019 (|v| < 2 mm/năm), thay đổi là **+3,4** mm/năm;
+- bản đồ 2025–2026 sau khi nối có trung vị **+3,9** mm/năm, tức là nội thành TP.HCM đang trồi lên.
+
+**Nhận xét.**
+
+1. **Ba trạm không đủ để xác định một độ lệch.** Chênh lệch giữa chúng (−2,9 đến +6,4 mm/năm) còn lớn hơn chính độ
+   lệch. Độ phân tán này bằng cỡ sai số tốc độ GNSS (2,7–6,3 mm/năm, vì chuỗi 2017–2019 ngắn). Độ lệch khớp trên cả
+   ba trạm, +3,0 mm/năm, có sai số chuẩn khoảng 2,9 mm/năm: không khác 0.
+2. **Độ lệch làm trạm bị bỏ ra kém đi.** M1 tăng RMS bỏ-một-trạm từ 5,1 lên 6,3 mm/năm. M2 giảm được một chút,
+   nhưng chỉ vì thay InSAR bằng một đường thẳng: hệ số k là +0,05, −0,33 và −0,42, không có ý nghĩa, giống §7.1.
+3. **Dùng theo thời gian cho ra bản đồ vô lý.** Nội thành trồi lên trái với mọi công bố về lún ở TP.HCM. Các ô ổn
+   định trong 2017–2019 lại thành trồi 3 mm/năm. Phép nối cộng độ lệch 2017–2019 (vốn không có ý nghĩa thống kê) vào
+   một tham chiếu (trung bình cả cảnh) mà chuyển động của nó thay đổi theo thời gian và theo phạm vi.
+
+**Trả lời.** Các trạm 2017–2019 không ủng hộ phép hiệu chỉnh nào, và cũng không có phép hiệu chỉnh nào dùng được cho
+2025–2026. Các sản phẩm TP.HCM giữ tham chiếu là trung bình cả cảnh, kèm ghi rõ độ bất định của tham chiếu: khoảng
+±3 mm/năm, bằng độ phân tán của ba trạm. Muốn nối với GNSS thì vẫn là các phương án 2 và 3 ở trên: một vùng tham chiếu
+ổn định (thềm Pleistocene hoặc công trình móng cọc), hoặc gương phản xạ góc và một trạm liên tục mới.
+
 ## 8. Hạn chế
 
 1. **Mốc trạm và PS.** Trung vị các PS trong bán kính 100 m có thể không chuyển dịch giống mốc trạm của ăng-ten (trên
@@ -300,6 +415,7 @@ này đưa nhiễu ngày của GNSS vào mọi điểm, nên không được ch�
 | G4 | Ảnh hưởng của mốc trạm | Gương phản xạ góc cạnh HUMG / JNAV (đã có module gương phản xạ góc); chọn PS theo độ cao | Gương phản xạ − GNSS < 2 mm/năm |
 | G5 | Tốc độ GNSS chính xác hơn | Nhiễu nhấp nháy cộng nhiễu trắng (Williams et al. 2004), số hạng năm, lọc sai số chung (Wdowinski et al. 1997; Dong et al. 2006) | Sigma sát thực tế |
 | G6 | Tích hợp hoàn toàn | Mặt nghiêng theo từng lần chụp (GInSAR, Neely et al. 2020), 3-D với asc + desc (Shen & Liu 2020) | Bỏ-một theo từng lần chụp |
+| G7 | Chuyển giao hiệu chỉnh (§7.1): giữa hai địa điểm thì thất bại; theo thời gian trong cùng thành phố thì sao? | S1 TP.HCM 2017–2019 với các trạm HCMC, XC03, GOCO, LTHA, BTRE và VUNT; hiệu chỉnh rồi áp sang 2025–2026 với cùng các vùng tham chiếu | Bỏ-một với 3–6 trạm cho 2017–2019; tốc độ 2025–2026 hợp lý so với các công bố về lún ở TP.HCM. **Đã làm (§7.2): không; 3 trạm không xác định được độ lệch, và khi nối sang 2025–2026 thì nội thành lại trồi lên** |
 
 ## 10. Triển khai
 

@@ -16,9 +16,9 @@ Biến `GEOEYES_WORKSPACE` (đặt trong `.env` hoặc biến môi trường) tr
   projects/<name>/
     project.toml                       tệp khai báo (tệp duy nhất bạn phải viết)
     geom/                              đầu vào tuỳ chọn: danh sách gương phản xạ góc, nhật ký lắp đặt
-    stacks/<track>-ref<YYYYMMDD>/      chồng ảnh đã đồng đăng ký (Zarr)
+    stacks/<track>-ref<YYYYMMDD>/      chồng ảnh đã khớp (Zarr)
     ps_runs/<track>/                   kết quả engine điểm (trạng thái, điểm, chuỗi thời gian, hình QC)
-    products/<project>_<track>_<first>_<last>_v<N>/   sản phẩm bất biến + report.pdf
+    products/<project>_<track>_<first>_<last>_v<N>/   sản phẩm bất biến + report.pdf, report.json, indicators.json (§6)
     exports/<product>/                 GeoPackage (kèm kiểu hiển thị QGIS), CSV
     validation/corner_reflector/       báo cáo gương phản xạ góc
     runs/<run_id>/                     hồ sơ lần chạy: manifest, log.jsonl, mỗi pha một tệp log
@@ -111,7 +111,7 @@ timezone = "Asia/Ho_Chi_Minh"
 ```
 
 `geoeyes cr-report <project>` đo từng gương phản xạ trên từng lần chụp trong kho lưu trữ (RCS, vị trí,
-độ kết hợp) và ghi kết quả ra `validation/corner_reflector/<time>_<track>/cr_report.pdf`.
+độ nhất quán) và ghi kết quả ra `validation/corner_reflector/<time>_<track>/cr_report.pdf`.
 
 ## 5. Chạy
 
@@ -126,3 +126,69 @@ Chạy lại tốn rất ít: pha nào có đầu vào hoặc tham số thay đ�
 ngày mới); chồng ảnh được nối thêm mà vẫn giữ ngày tham chiếu (đổi ngày tham chiếu thì dựng lại toàn bộ),
 rồi các pha sau tạo ra phiên bản sản phẩm mới. Dùng `--force <phase>` để buộc chạy lại một
 pha, `--from` / `--to` / `--only` để chọn pha, `--track` để chỉ chạy một vệt quỹ đạo trong dự án nhiều vệt.
+
+**Bỏ qua pha.** `--skip <phase>` (hoặc `--skip <track>/<phase>`, dùng nhiều lần được) giữ nguyên một pha: pha đó
+không được kiểm tra (bỏ qua `acquire` thì không tìm trên ASF) và trạng thái của nó không làm các pha sau phải chạy.
+Trên trang dự án, công tắc ở góc trên bên phải mỗi thẻ pha làm đúng việc này cho các lần chạy bấm từ đó (lựa chọn
+được trình duyệt nhớ theo từng dự án).
+
+**Các bước của bộ xử lý điểm.** Bộ `ps` lưu checkpoint sau mỗi bước trong 8 bước
+(`ps_runs/<track>/checkpoints/step<N>.pkl`): 1 điểm ứng viên, 2 ước lượng gamma, 3 chọn điểm, 4 lọc điểm, 5 hiệu
+chỉnh pha, 6 giải gói pha lượt 1, 7 giải gói pha lượt 2, 8 vận tốc, SCN và xuất kết quả. Lần chạy bị dừng, bị tắt
+hoặc lỗi sẽ chạy tiếp sau bước cuối cùng đã xong, miễn là stack và tham số của bước đó cùng các bước trước không
+đổi (ví dụ đổi một tham số giải gói pha thì bước 1-5 vẫn được giữ). `--ps-from N` tính lại bước N và các bước sau;
+`--ps-to N` dừng sau bước N (pha chuyển sang *tạm dừng*, lần chạy sau tiếp tục từ bước N + 1). Thẻ `ps` hiện các
+bước đã lưu và có hai lựa chọn tương ứng.
+
+`[ps] unwrap_time_win = "auto"` tự đặt cửa sổ thời gian của bước giải gói pha không gian–thời gian theo dữ liệu: một phần tư khoảng thời gian của chuỗi, ít nhất bốn khoảng lấy mẫu, trong khoảng 60–730 ngày (giá trị đã dùng được ghi trong `params.json` của lần chạy). Mặc định 730 ngày của StaMPS hợp với chuỗi nhiều năm; với chuỗi ngắn hơn, mô hình thời gian gần như là một đường thẳng và yếu nhất ở hai đầu chuỗi.
+
+```bash
+geoeyes run hcm_hist_des --skip acquire --skip build_stack          # vào thẳng ps
+geoeyes run hcm_hist_des --skip acquire --ps-from 6 --ps-to 6       # giải gói pha lượt 1 lại rồi dừng
+```
+
+## 6. Báo cáo
+
+Pha `report` (hoặc lệnh `geoeyes report <project> [--product <id>]`, chạy lúc nào cũng được) ghi ba tệp vào thư mục
+sản phẩm: `report.pdf`, `report.json` (mọi giá trị có trong báo cáo) và `indicators.json`. Bản PDF gồm hai phần:
+
+- **Phần A — Đánh giá**, viết bằng lời dễ hiểu cho cán bộ thành phố và người dân: một trang tóm tắt (chỗ nào lún hay
+  trồi, ở đâu, nhanh đến mức nào, chắc chắn đến đâu, việc cần làm trước, kèm bản đồ vận tốc theo phương đứng); các
+  **điểm nóng** (những ô 100 m liền nhau chuyển động nhanh hơn 5 mm/năm hoặc gấp đôi sai số trung vị, mỗi điểm nóng
+  có vị trí, tốc độ, xu hướng — đang nhanh lên, chậm lại, theo mùa hay đều — và chuỗi thời gian); các **tác động** đọc
+  từ những phân tích đã chạy trên sản phẩm (`hazard`, `behaviour`, `buildings`, `risk`, `lines`, danh mục điểm ngập
+  của `geoeyes floods`, mối liên hệ với nước ngầm trong `hazard`); **độ tin cậy** (mức tin cậy, số ảnh, mức khớp với
+  GNSS của `geoeyes gnss`, các phép kiểm tra xử lý, những chỗ cần kiểm tra ngoài thực địa); **khuyến nghị** và
+  **bảng chỉ số**.
+- **Phần B — Phụ lục kỹ thuật**: tóm tắt kỹ thuật, dữ liệu, phương pháp, kiểm tra chất lượng, kết quả, hạn chế,
+  nguồn gốc dữ liệu, danh sách tệp sản phẩm, tài liệu tham khảo (mục B.1–B.6).
+
+Phân tích nào chưa chạy thì mục tương ứng ghi rõ là chưa đánh giá, kèm lệnh để chạy, nên không mục nào bị bỏ trống
+mà không có lời giải thích; muốn đưa phân tích vào báo cáo thì chạy phân tích trước rồi mới chạy `geoeyes report`.
+Tốc độ ở Phần A là theo phương đứng (v_LOS / l_u, giả định mặt đất chỉ lên hoặc xuống), âm = lún; Phần B vẫn giữ
+hướng nhìn của vệ tinh (LOS). Tên địa danh chỉ lấy từ bộ nhớ đệm có sẵn trên máy (tên địa điểm của các chồng ảnh, tên
+tuyến OSM của `geoeyes lines`, các điểm ngập đã định vị): báo cáo không gửi yêu cầu nào ra mạng.
+
+`indicators.json` (lược đồ `geoeyes.indicators/1`) chứa cùng một bộ chỉ số trong mọi báo cáo, để so sánh các báo cáo
+theo thời gian và làm đầu vào cho bản sao số (digital twin). Khoá nào cũng luôn có mặt; `value` là `null` khi phân
+tích tương ứng chưa chạy (`source: "not assessed"`):
+
+| Khoá | Đơn vị | |
+|---|---|---|
+| `area_monitored_km2`, `points_n`, `points_density_per_km2` | km², số lượng, 1/km² | độ phủ |
+| `period_first`, `period_last`, `period_days`, `images_n` | ngày tháng, ngày, số lượng | thời kỳ |
+| `vel_p01/p05/p50/p95/p99_mm_yr`, `vel_min/max_mm_yr`, `vel_std_p50_mm_yr` | mm/năm | tốc độ các điểm (`velocity_basis`) |
+| `sinking_rate_max_mm_yr`, `area_sinking_over_{5,10,20}_mm_yr_km2`, `area_rising_over_{5,10,20}_mm_yr_km2` | mm/năm, km² | ô 100 m có ≥ 3 điểm |
+| `hotspots_sinking_n`, `hotspots_rising_n`, `hotspot_threshold_mm_yr` | số lượng, mm/năm | điểm nóng |
+| `hazard_{subsidence,landslide}_{very_low…very_high}_km2`, `hazard_accelerating_cells_n`, `hazard_rain_coupled_cells_n` | km², số lượng | `geoeyes hazard` |
+| `groundwater_coupled_cells_n`, `groundwater_storage_trend_mm_yr` | số lượng, mm/năm | `hazard` có GLDAS |
+| `motion_{stable,steady,seasonal,speeding,slowing,onset,step}_cells_n` | số lượng | `geoeyes behaviour` |
+| `buildings_with_points_n`, `buildings_sinking_over_{5,10,20}_mm_yr_n`, `buildings_tilt_over_1_{500,300}_n` | số lượng | `geoeyes buildings` |
+| `buildings_risk_{very_low…very_high}_n` | số lượng | `geoeyes risk` |
+| `lines_km`, `lines_flagged_stations_n` | km, số lượng | `geoeyes lines` |
+| `flood_reports_n`, `flood_reports_in_sinking_n` | số lượng | `geoeyes floods` |
+| `gnss_stations_n`, `gnss_rate_diff_rms_mm_yr` | số lượng, mm/năm | `geoeyes gnss` |
+| `qc_review_n`, `confidence` | số lượng, mức | kiểm tra chất lượng, quy tắc độ tin cậy |
+
+Mỗi mục có dạng `{"value", "unit", "description", "source"}`; tệp còn ghi `velocity_basis` (`vertical` hoặc `los`),
+mã sản phẩm, dự án, vệt quỹ đạo và khung bao.
