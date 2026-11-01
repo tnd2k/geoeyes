@@ -21,8 +21,23 @@ from __future__ import annotations
 import os
 from typing import Any
 
-# joblib (scikit-learn) counts physical cores with wmic, gone from Windows 11: it warns with a traceback each run
+# joblib (scikit-learn) counts physical cores with wmic, gone from Windows 11: it warns with a traceback each run.
+# LOKY_MAX_CPU_COUNT alone does not stop it (loky still asks wmic when the value equals the logical count), so the
+# physical count is given to loky directly, from psutil (no subprocess).
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
+
+def _physical_cores_for_loky() -> None:
+    try:
+        import psutil
+        from joblib.externals.loky.backend import context
+    except ImportError:
+        return
+    if context.physical_cores_cache is None:
+        context.physical_cores_cache = psutil.cpu_count(logical=False) or os.cpu_count() or 1
+
+
+_physical_cores_for_loky()
 
 
 def run_susceptibility(cfg, project, ws, product_id: str, overrides: dict[str, Any] | None = None, progress=None):
