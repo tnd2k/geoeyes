@@ -5,14 +5,14 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, time, timedelta
 
-_STAMP = re.compile(r"(?<!\d)(\d{14})(?!\d)")
+_STAMP = re.compile(r"(?<!\d)(\d{8})T?(\d{6})(?!\d)")        # 20260309110616 or 20260309T110616 (S1)
 
 
 def _from_scene_name(name: str) -> datetime | None:
     stamps = []
-    for s in _STAMP.findall(str(name)):
+    for d, t in _STAMP.findall(str(name)):
         try:
-            stamps.append(datetime.strptime(s, "%Y%m%d%H%M%S"))
+            stamps.append(datetime.strptime(d + t, "%Y%m%d%H%M%S"))
         except ValueError:
             continue
     if not stamps:
