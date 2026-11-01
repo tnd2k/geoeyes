@@ -75,11 +75,24 @@ def list_locks(locks_dir: str | Path) -> list[dict]:
     return out
 
 
-class ProjectLock:
-    """``with ProjectLock(layout.locks, scope=["capella-asc"]): ...`` — raises ``LockedError``."""
+def check_free(locks_dir: str | Path, scope=None) -> None:
+    """Raise ``LockedError`` when a live run holds a lock that conflicts with ``scope`` (before a run starts, so
+    that a refused run leaves nothing behind)."""
+    want = _scope_set(scope)
+    for other in list_locks(locks_dir):
+        if other["alive"] and _conflicts(want, _scope_set(other.get("scope"))):
+            raise LockedError(
+                f"locked by PID {other.get('pid')} (started {other.get('started_at')}, run {other.get('run_id')}, "
+                f"scope {other.get('scope') or 'all'}); lock file {other['lock_path']}")
 
-    def __init__(self, locks_dir: str | Path, scope=None):
+
+class ProjectLock:
+    """``with ProjectLock(layout.locks, scope=["capella-asc"]): ...`` — raises ``LockedError``. ``info``: extra
+    fields of the lock file (the run id)."""
+
+    def __init__(self, locks_dir: str | Path, scope=None, info: dict | None = None):
         self.locks_dir = Path(locks_dir)
+        self.info = dict(info or {})
         self.scope = _scope_set(scope)
         name = "-".join(sorted(self.scope)) if self.scope else ALL
         self.path = self.locks_dir / f"{name}.lock"
@@ -107,7 +120,7 @@ class ProjectLock:
         atomic_write_json(self.path, {
             "pid": os.getpid(), "create_time": psutil.Process(os.getpid()).create_time(),
             "started_at": datetime.now().isoformat(timespec="seconds"), "argv": list(sys.argv),
-            "host": socket.gethostname(), "scope": sorted(self.scope)})
+            "host": socket.gethostname(), "scope": sorted(self.scope), **self.info})
         self.acquired = True
         return self
 

@@ -208,18 +208,32 @@ def space_time(*, grid: UwGrid, ui: UwInterp, day: np.ndarray, ifgday_ix: np.nda
         if estimate_K:
             K, coh = _edge_dem_error(dph, G, day, ifgday_ix, bperp, n_trial_wraps)
         K[coh < 0.22] = 0
-        dph = dph * np.exp(-1j * np.outer(K, bperp.T))
 
-    series = np.vstack([np.zeros((1, n_edge)),
-                        np.linalg.lstsq(G[:, 1:].astype(np.float64), np.angle(dph).T.astype(np.float64),
-                                        rcond=None)[0]])
+    # the phase series of each edge (least squares on the interferograms), smoothed in time; the wrapped rest is the
+    # noise. Per edge, a chunk of edges at a time: a 10 m grid of a city has millions of edges, and the float64 /
+    # complex128 copies of all of them are GBs
     wm = np.exp(-((day[:, None] - day[None, :]) ** 2) / (2.0 * time_win**2))
     wm /= wm.sum(axis=1, keepdims=True)
-    smooth_ifg = (G @ (wm @ series).astype(np.float32)).T
-    noise = _wrapped(dph, smooth_ifg)
-    uw = smooth_ifg + noise
-    if la_flag:
-        uw = uw + K[:, None] * bperp[None, :]
+    a = G[:, 1:].astype(np.float64)
+    uw = noise = None
+    for c0 in range(0, n_edge, 200_000):                # c0:c1, a chunk of edges (e1 / e2 are their cells)
+        c1 = min(c0 + 200_000, n_edge)
+        d = dph[c0:c1]
+        if la_flag:
+            d = d * np.exp(-1j * np.outer(K[c0:c1], bperp.T))
+        series = np.vstack([np.zeros((1, c1 - c0)),
+                            np.linalg.lstsq(a, np.angle(d).T.astype(np.float64), rcond=None)[0]])
+        smooth_ifg = (G @ (wm @ series).astype(np.float32)).T
+        nz = _wrapped(d, smooth_ifg)
+        u = smooth_ifg + nz
+        if la_flag:
+            u = u + K[c0:c1, None] * bperp[None, :]
+        if uw is None:
+            uw = np.empty((n_edge, u.shape[1]), u.dtype)
+            noise = np.empty((n_edge, nz.shape[1]), nz.dtype)
+        uw[c0:c1], noise[c0:c1] = u, nz
+    if uw is None:
+        uw = noise = np.zeros((0, n_ifg), np.float32)
 
     ifreq = np.full((n_cells, n_ifg), np.nan, np.float32)
     jfreq = np.full((n_cells, n_ifg), np.nan, np.float32)
@@ -233,19 +247,26 @@ def space_time(*, grid: UwGrid, ui: UwInterp, day: np.ndarray, ifgday_ix: np.nda
             fi, fj, cij, hm = gradient_filt(img, prefilt_win, legacy)
             ifreq[:, i] = _to_cells(cij, fi, ~np.isnan(fi) & (hm / (np.abs(fi) + 1) > 3), grid.ij)
             jfreq[:, i] = _to_cells(cij, fj, ~np.isnan(fj) & (hm / (np.abs(fj) + 1) > 3), grid.ij)
-        di = grid.ij[e2, 0] - grid.ij[e1, 0]
-        dj = grid.ij[e2, 1] - grid.ij[e1, 1]
-        sm_grad = (di[:, None] * 0.5 * (ifreq[e1] + ifreq[e2]) + dj[:, None] * 0.5 * (jfreq[e1] + jfreq[e2])) \
-            .astype(np.float32, copy=False)
-        noise2 = ((uw - sm_grad + np.pi) % (2.0 * np.pi)) - np.pi
-        std1 = np.nanstd(noise, axis=1)
-        std2 = np.nanstd(noise2, axis=1)
-        shaky = np.isnan(std1) | (std1 > std2)
-        s = np.flatnonzero(shaky)
-        n2 = noise2[s].copy()
-        n2[np.nanstd(n2, axis=1) > 1.3, :] = np.nan
-        noise[s] = n2
-        uw[s] = sm_grad[s] + n2
-        spread[s] = (ifreq[e2[s]] - ifreq[e1[s]] + jfreq[e2[s]] - jfreq[e1[s]]).astype(np.float32)
+        # edges noisier than the spatial gradient of the phase take the gradient instead; per edge, a chunk of edges
+        # at a time (millions of edges: each full (n_edge, n_ifg) temporary is most of a GB)
+        shaky = np.zeros(n_edge, bool)
+        for c0 in range(0, n_edge, 200_000):
+            c1 = min(c0 + 200_000, n_edge)
+            a1, a2 = e1[c0:c1], e2[c0:c1]
+            di = grid.ij[a2, 0] - grid.ij[a1, 0]
+            dj = grid.ij[a2, 1] - grid.ij[a1, 1]
+            sm_grad = (di[:, None] * 0.5 * (ifreq[a1] + ifreq[a2]) + dj[:, None] * 0.5 * (jfreq[a1] + jfreq[a2])) \
+                .astype(np.float32, copy=False)
+            noise2 = ((uw[c0:c1] - sm_grad + np.pi) % (2.0 * np.pi)) - np.pi
+            std1 = np.nanstd(noise[c0:c1], axis=1)
+            std2 = np.nanstd(noise2, axis=1)
+            sh = np.isnan(std1) | (std1 > std2)
+            shaky[c0:c1] = sh
+            s = np.flatnonzero(sh)
+            n2 = noise2[s].copy()
+            n2[np.nanstd(n2, axis=1) > 1.3, :] = np.nan
+            noise[c0 + s] = n2
+            uw[c0 + s] = sm_grad[s] + n2
+            spread[c0 + s] = (ifreq[a2[s]] - ifreq[a1[s]] + jfreq[a2[s]] - jfreq[a1[s]]).astype(np.float32)
     return SpaceTime(dph_space_uw=uw, dph_noise=noise, G=G, spread=spread, ifreq_ij=ifreq, jfreq_ij=jfreq,
                      shaky_ix=shaky, K=K, coh=coh)

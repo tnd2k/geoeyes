@@ -117,6 +117,16 @@ def _drop_duplicates(xy, coh, forced, ix_weed):
         log.info("%d PS with duplicate coordinates removed", n_drop)
 
 
+def _arc_phase(phw: np.ndarray, edges: np.ndarray, ifg_index: np.ndarray, step: int = 500_000) -> np.ndarray:
+    """(n_edge, len(ifg_index)) complex64 phase difference along each arc, a chunk of arcs at a time (no
+    complex128 copy of every arc)."""
+    out = np.empty((edges.shape[0], ifg_index.size), np.complex64)
+    for s in range(0, edges.shape[0], step):
+        e = edges[s:s + step]
+        out[s:s + step] = (phw[e[:, 1]] * np.conj(phw[e[:, 0]]))[:, ifg_index]
+    return out
+
+
 def _arc_noise(dph: np.ndarray, days: np.ndarray, time_win: float, bperp: np.ndarray, edge_chunk, ifg_chunk,
                legacy: bool = False):
     """Per-arc std and max |noise|: arc phase minus its temporally smoothed version (Gaussian window in
@@ -141,7 +151,9 @@ def _arc_noise(dph: np.ndarray, days: np.ndarray, time_win: float, bperp: np.nda
     chunk = max(1, min(n_edge, int(200_000_000 // max(1, n_use * n_use * 8))))
     if edge_chunk:
         chunk = max(1, min(chunk, int(edge_chunk)))
-    smooth = np.zeros((n_edge, n_use), np.complex64)
+    # the noise of each arc against its smoothed phase, a chunk of arcs at a time (millions of arcs in a city: the
+    # smoothed phase of every arc is not kept)
+    noise = np.empty((n_edge, n_use), np.float32)
     for e0 in range(0, n_edge, chunk):
         ds = dph[e0:e0 + chunk]
         dmean = ds @ w.T
@@ -151,29 +163,32 @@ def _arc_noise(dph: np.ndarray, days: np.ndarray, time_win: float, bperp: np.nda
         dma2 = np.angle(np.exp(1j * (dma - np.transpose(np.einsum("uki,uie->uke", g, m), (2, 0, 1)))))
         m2 = np.einsum("uij,uje->uie", inv_gtg,
                        np.einsum("uik,uke->uie", gw_t, dma2.transpose(1, 2, 0) * w_sqrt[:, :, None]))
-        smooth[e0:e0 + chunk] = dmean * np.exp(1j * (m[:, 0, :] + m2[:, 0, :]).T)
+        smooth = (dmean * np.exp(1j * (m[:, 0, :] + m2[:, 0, :]).T)).astype(np.complex64)
+        noise[e0:e0 + chunk] = np.angle(ds.astype(np.complex64, copy=False) * np.conj(smooth)).astype(
+            np.float32, copy=False)
+    del smooth
 
-    noise = np.empty((n_edge, n_use), np.float32)
     s2 = np.zeros(n_use)
     ss2 = np.zeros(n_use)
     ifg_chunk = max(1, min(n_use, ifg_chunk))
     for cs in range(0, n_use, ifg_chunk):
         ce = min(cs + ifg_chunk, n_use)
         sp_ = dph[:, cs:ce].astype(np.complex64, copy=False)
-        noise[:, cs:ce] = np.angle(sp_ * np.conj(smooth[:, cs:ce])).astype(np.float32, copy=False)
         # leave-one-out mean of epoch j: Σ_k W_loo[j, k]·dph[:, k]; legacy used the columns W_loo[:, j]
         loo = dph @ (w_loo[:, cs:ce] if legacy else w_loo[cs:ce].T)
         n2 = np.angle(sp_ * np.conj(loo.astype(np.complex64, copy=False))).astype(np.float32)
         n2 = np.nan_to_num(n2, nan=0.0)
         s2[cs:ce] += n2.sum(axis=0, dtype=np.float64)
         ss2[cs:ce] += np.square(n2, dtype=np.float32).sum(axis=0, dtype=np.float64)
+    del dph, sp_, loo, n2                            # the caller passes the arc phase without keeping it
     mean2 = s2 / max(float(n_edge), 1.0)
     var = ss2 / max(float(n_edge), 1.0) - np.square(mean2)
     var[var == 0] = 1e-6
     wd = np.diag(1.0 / var)
     gk = bperp[:, None]
     k = np.linalg.solve(gk.T @ wd @ gk, gk.T @ wd @ noise.T).T
-    noise = noise - (k @ bperp[None, :]).astype(np.float32, copy=False)
+    for e0 in range(0, n_edge, 500_000):             # in place, a chunk of arcs at a time
+        noise[e0:e0 + 500_000] -= (k[e0:e0 + 500_000] @ bperp[None, :]).astype(np.float32, copy=False)
     return np.std(noise, axis=1, ddof=0), np.amax(np.abs(noise), axis=1)
 
 
@@ -211,9 +226,10 @@ def weed(*, ph: np.ndarray, bperp: np.ndarray, day: np.ndarray, master_ix: int, 
             phw = ph2[ix_weed] * np.exp(-1j * (K2[ix_weed].reshape(-1, 1) @ np.asarray(bperp).reshape(1, -1)))
             phw /= np.abs(phw)
             phw[:, master_ix] = np.exp(1j * C2[ix_weed])
-            dph = (phw[edges[:, 1]] * np.conj(phw[edges[:, 0]]))[:, ifg_index].astype(np.complex64)
-            edge_std, edge_max = _arc_noise(dph, np.asarray(day, np.float64)[ifg_index], p.time_win,
-                                            np.asarray(bperp)[ifg_index], p.edge_chunk, p.ifg_chunk, p.legacy)
+            edge_std, edge_max = _arc_noise(_arc_phase(phw, edges, ifg_index), np.asarray(day, np.float64)[ifg_index],
+                                            p.time_win, np.asarray(bperp)[ifg_index], p.edge_chunk, p.ifg_chunk,
+                                            p.legacy)
+            del phw
             ps_std = np.full(n_w, np.inf, np.float32)
             ps_max = np.full(n_w, np.inf, np.float32)
             for col in (0, 1):

@@ -29,5 +29,15 @@ class PhaseError(GeoEyesError):
         self.phase = phase
 
 
+class PhasePaused(GeoEyesError):
+    """A phase stopped on purpose after one of its steps (``stop after``), its checkpoints kept: the next run
+    resumes it from there."""
+
+    def __init__(self, phase: str, step: int, message: str):
+        super().__init__(f"{phase}: {message}")
+        self.phase = phase
+        self.step = step
+
+
 class LockedError(GeoEyesError):
     """Another run holds the lock of this project/track."""
