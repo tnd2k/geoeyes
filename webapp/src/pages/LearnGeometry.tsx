@@ -4,12 +4,13 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type DecomposeSummary, type GeologySummary, type Workspace } from "../api";
-import { ChapterNav } from "../components/LearnKit";
+import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
 import { EAST_RGB, MOTION_BREAKS, rgb, SOIL_RGB, type Cells, type Geology, type RGB } from "./Hazard";
-import { CellMap, Section } from "./LearnHazard";
+import { CellMap } from "./LearnHazard";
+import { themeColor } from "../theme";
 
 // the classes of the rate (as the Thematic analysis page): blue rising … red sinking
 const RATE_RGB: RGB[] = [[33, 102, 172], [67, 147, 195], [146, 197, 222], [127, 139, 160], [244, 165, 130], [214, 96, 77], [178, 24, 43]];
@@ -33,11 +34,11 @@ function GeometryFigure({ s }: { s: DecomposeSummary }) {
   const L = 150;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[620px]">
-      <line x1={20} x2={W - 20} y1={oy} y2={oy} stroke="#93a4bf" />
-      <text x={W - 20} y={oy + 16} fill="#93a4bf" fontSize="11" textAnchor="end">{t("east")} →</text>
-      <text x={20} y={oy + 16} fill="#93a4bf" fontSize="11">← {t("west")}</text>
-      <line x1={ox} x2={ox} y1={oy} y2={12} stroke="#22324d" strokeDasharray="3 3" />
-      <text x={ox + 4} y={20} fill="#93a4bf" fontSize="11">{t("up")}</text>
+      <line x1={20} x2={W - 20} y1={oy} y2={oy} stroke="var(--c-muted)" />
+      <text x={W - 20} y={oy + 16} fill="var(--c-muted)" fontSize="11" textAnchor="end">{t("east")} →</text>
+      <text x={20} y={oy + 16} fill="var(--c-muted)" fontSize="11">← {t("west")}</text>
+      <line x1={ox} x2={ox} y1={oy} y2={12} stroke="var(--c-line-2)" strokeDasharray="3 3" />
+      <text x={ox + 4} y={20} fill="var(--c-muted)" fontSize="11">{t("up")}</text>
       {s.products.map((p, k) => {
         const n = Math.hypot(p.los[0], p.los[2]) || 1;
         const x = ox + (L * p.los[0]) / n;
@@ -50,13 +51,13 @@ function GeometryFigure({ s }: { s: DecomposeSummary }) {
             <text x={x + (p.los[0] > 0 ? 10 : -10)} y={y + 4} fill={c} fontSize="11.5" textAnchor={p.los[0] > 0 ? "start" : "end"}>
               {p.track}
             </text>
-            <text x={x + (p.los[0] > 0 ? 10 : -10)} y={y + 18} fill="#93a4bf" fontSize="10.5" fontFamily="JetBrains Mono, monospace" textAnchor={p.los[0] > 0 ? "start" : "end"}>
+            <text x={x + (p.los[0] > 0 ? 10 : -10)} y={y + 18} fill="var(--c-muted)" fontSize="10.5" fontFamily="'JetBrains Mono Variable', monospace" textAnchor={p.los[0] > 0 ? "start" : "end"}>
               l_e {p.los[0] > 0 ? "+" : ""}{p.los[0].toFixed(2)} · l_u {p.los[2].toFixed(2)}
             </text>
           </g>
         );
       })}
-      <circle cx={ox} cy={oy} r={4} fill="#e6edf7" />
+      <circle cx={ox} cy={oy} r={4} fill="var(--c-ink)" />
     </svg>
   );
 }
@@ -83,7 +84,7 @@ function DecMap({ d, field }: { d: Dec; field: "up" | "east" }) {
     el.width = W;
     el.height = H;
     const ctx = el.getContext("2d")!;
-    ctx.fillStyle = "#0b1220";
+    ctx.fillStyle = themeColor("bg");
     ctx.fillRect(0, 0, W, H);
     const sx = W / (geo.x1 - geo.x0);
     const sy = H / (geo.y1 - geo.y0);
@@ -142,10 +143,10 @@ function BiasScatter({ d }: { d: Dec }) {
     el.width = W;
     el.height = H;
     const ctx = el.getContext("2d")!;
-    ctx.fillStyle = "#0b1220";
+    ctx.fillStyle = themeColor("bg");
     ctx.fillRect(0, 0, W, H);
     const P = (v: number) => 30 + ((v - lo) / (hi - lo || 1)) * (W - 50);
-    ctx.strokeStyle = "#93a4bf";
+    ctx.strokeStyle = themeColor("muted");
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
     ctx.moveTo(P(lo), H - P(lo));
@@ -160,7 +161,7 @@ function BiasScatter({ d }: { d: Dec }) {
         ctx.fillRect(P(x) - 1, H - P(y) - 1, 2, 2);
       }
     });
-    ctx.fillStyle = "#93a4bf";
+    ctx.fillStyle = themeColor("muted");
     ctx.font = "11px sans-serif";
     ctx.fillText(t("decomposed vertical, mm/yr"), W / 2 - 60, H - 6);
     ctx.save();
@@ -445,30 +446,14 @@ export function GeometryChapter({ ws, step }: { ws: Workspace | undefined; step?
     <div className="flex h-full min-h-0">
       <ChapterNav current="geometry" steps={STEPS.map((s) => s.title)} step={k} onStep={go} />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[1180px] px-6 py-5">
-          <div className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</div>
-          <h1 className="m-0 mt-1 text-[26px] font-bold tracking-tight">{t(S.title)}</h1>
-          <p className="mt-1.5 max-w-[860px] text-[15px] leading-relaxed text-ink-2">{t(S.goal)}</p>
-          <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <Section title="Principle">
-                <div className="flex max-w-[860px] flex-col gap-3 text-[14px] leading-relaxed text-ink-2">
-                  {S.what.map((w) => (
-                    <p key={w} className="mt-0 mb-0">
-                      {t(w)}
-                    </p>
-                  ))}
-                </div>
-                {S.formula && (
-                  <div className="mt-4 max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose whitespace-pre text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-              {S.figures.length > 0 && (
-                <Section title="Illustrated on real data">
+        <Lesson
+          chapter={5}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          idea={S.what}
+          figures={S.figures.length > 0 ? <>
                   {!data ? (
                     <p className="text-[13px] text-muted">{t("No product of the workspace has a hazard zoning yet: run one on the Thematic analysis page, then come back.")}</p>
                   ) : missing ? (
@@ -503,39 +488,24 @@ export function GeometryChapter({ ws, step }: { ws: Workspace | undefined; step?
                       })}
                     </div>
                   )}
-                </Section>
-              )}
-              <Section title="What to look for">
-                <div className="max-w-[860px] rounded-lg border border-[#2b4a73] bg-[#0f1d33] px-4 py-3">
-                  <ul className="m-0 list-disc space-y-1 pl-4 text-[13.5px] leading-relaxed text-ink-2">
-                    {S.look.map((w) => (
-                      <li key={w}>{t(w)}</li>
-                    ))}
-                  </ul>
-                  {S.layer && sel && (
+                </> : undefined}
+          formula={S.formula}
+          look={S.look}
+          lookExtra={<>{S.layer && sel && (
                     <a href={href({ page: "hazard", name: sel.project, product: sel.product, view: S.layer })} className="mt-3 inline-block no-underline">
                       <Button>{t("Open the Thematic analysis")}</Button>
                     </a>
-                  )}
-                </div>
-              </Section>
-              <div className="mt-6 text-[12px] text-faint">
+                  )}</>}
+          doc={<>
                 {t("Full method, sources and research plan:")} docs/{lang()}/research/two-geometries-and-soft-soil.md
-              </div>
-              <nav className="mt-4 mb-8 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {k > 0 ? t(STEPS[k - 1].title) : t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {k < STEPS.length - 1 ? t(STEPS[k + 1].title) : t("Next")} →
-                </Button>
-              </nav>
-            </div>
-            <aside className="mt-6 space-y-3 xl:sticky xl:top-4 xl:self-start">
+              </>}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={<>
               <div className="rounded-xl border border-line bg-panel p-3">
                 <div className="text-[10.5px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Data of the illustrations")}</div>
                 {ready.length ? (
-                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                     {ready.map((p) => (
                       <option key={p.product} value={p.product}>
                         {p.label}
@@ -559,9 +529,8 @@ export function GeometryChapter({ ws, step }: { ws: Workspace | undefined; step?
                   </div>
                 </div>
               )}
-            </aside>
-          </div>
-        </article>
+            </>}
+        />
       </div>
     </div>
   );

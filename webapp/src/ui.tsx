@@ -1,22 +1,23 @@
 // Small shared pieces: status chips (colour + icon + label, never colour alone), buttons, number formatting.
-import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Status } from "./api";
 import { t } from "./i18n";
 
 export const STATUS: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  done: { label: "Done", color: "#3ecf8e", bg: "#0f2a1f", icon: "✓" },
-  running: { label: "Running", color: "#7cd2ff", bg: "#102033", icon: "●" },
-  failed: { label: "Failed", color: "#ff8a8a", bg: "#2a1414", icon: "!" },
-  interrupted: { label: "Interrupted", color: "#f5b84b", bg: "#2a2110", icon: "■" },
-  idle: { label: "Not finished", color: "#93a4bf", bg: "#161f30", icon: "○" },
-  new: { label: "Not run", color: "#93a4bf", bg: "#161f30", icon: "○" },
-  invalid: { label: "Invalid config", color: "#ff8a8a", bg: "#2a1414", icon: "!" },
-  "up-to-date": { label: "up to date", color: "#3ecf8e", bg: "#0f2a1f", icon: "✓" },
-  run: { label: "will run", color: "#7cd2ff", bg: "#102033", icon: "▶" },
-  disabled: { label: "off", color: "#6f7f99", bg: "#161f30", icon: "–" },
-  blocked: { label: "blocked", color: "#ff8a8a", bg: "#2a1414", icon: "!" },
-  skipped: { label: "skipped", color: "#6f7f99", bg: "#161f30", icon: "–" },
-  ok: { label: "ok", color: "#3ecf8e", bg: "#0f2a1f", icon: "✓" },
+  done: { label: "Done", color: "var(--c-good)", bg: "var(--c-good-bg)", icon: "✓" },
+  running: { label: "Running", color: "var(--c-accent-ink)", bg: "var(--c-accent-bg)", icon: "●" },
+  failed: { label: "Failed", color: "var(--c-bad)", bg: "var(--c-bad-bg)", icon: "!" },
+  interrupted: { label: "Interrupted", color: "var(--c-warn)", bg: "var(--c-warn-bg)", icon: "■" },
+  paused: { label: "Paused", color: "var(--c-warn)", bg: "var(--c-warn-bg)", icon: "❚❚" },
+  idle: { label: "Not finished", color: "var(--c-muted)", bg: "var(--c-idle-bg)", icon: "○" },
+  new: { label: "Not run", color: "var(--c-muted)", bg: "var(--c-idle-bg)", icon: "○" },
+  invalid: { label: "Invalid config", color: "var(--c-bad)", bg: "var(--c-bad-bg)", icon: "!" },
+  "up-to-date": { label: "up to date", color: "var(--c-good)", bg: "var(--c-good-bg)", icon: "✓" },
+  run: { label: "will run", color: "var(--c-accent-ink)", bg: "var(--c-accent-bg)", icon: "▶" },
+  disabled: { label: "off", color: "var(--c-faint)", bg: "var(--c-idle-bg)", icon: "–" },
+  blocked: { label: "blocked", color: "var(--c-bad)", bg: "var(--c-bad-bg)", icon: "!" },
+  skipped: { label: "skipped", color: "var(--c-faint)", bg: "var(--c-idle-bg)", icon: "–" },
+  ok: { label: "ok", color: "var(--c-good)", bg: "var(--c-good-bg)", icon: "✓" },
 };
 
 export function StatusDot({ status, size = 8 }: { status: Status | string; size?: number }) {
@@ -44,9 +45,9 @@ export function Chip({ status, label }: { status: string; label?: string }) {
 }
 
 const CONF: Record<string, { color: string; bg: string; icon: string }> = {
-  high: { color: "#3ecf8e", bg: "#0f2a1f", icon: "✓" },
-  medium: { color: "#f5b84b", bg: "#2a2110", icon: "◐" },
-  low: { color: "#ff8a8a", bg: "#2a1414", icon: "!" },
+  high: { color: "var(--c-good)", bg: "var(--c-good-bg)", icon: "✓" },
+  medium: { color: "var(--c-warn)", bg: "var(--c-warn-bg)", icon: "◐" },
+  low: { color: "var(--c-bad)", bg: "var(--c-bad-bg)", icon: "!" },
 };
 
 export function Confidence({ level }: { level?: string | null }) {
@@ -73,9 +74,9 @@ export function Button({
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; children: ReactNode }) {
   const v = {
-    primary: "bg-accent-2 hover:bg-[#4b9dff] text-white border-transparent",
-    ghost: "bg-[#121d31] hover:bg-raised text-ink border-line-2",
-    danger: "bg-[#2a1414] hover:bg-[#3a1a1a] text-[#ffb3b3] border-[#5c2424]",
+    primary: "bg-accent-2 hover:bg-accent-2 text-white border-transparent",
+    ghost: "bg-panel-3 hover:bg-raised text-ink border-line-2",
+    danger: "bg-bad-bg hover:bg-bad-bg text-bad-ink border-bad-line",
   }[variant];
   return (
     <button
@@ -85,6 +86,44 @@ export function Button({
     >
       {children}
     </button>
+  );
+}
+
+// In-page confirmation instead of window.confirm: embedded browsers (the VS Code preview, some kiosks) block the
+// native dialog and it answers "no" silently, so a click on Stop did nothing.
+type Ask = { message: string; ok: string; danger: boolean; resolve: (yes: boolean) => void };
+let showAsk: ((a: Ask | null) => void) | null = null;
+
+export function ask(message: string, { ok = t("OK"), danger = false } = {}): Promise<boolean> {
+  return new Promise((resolve) => (showAsk ? showAsk({ message, ok, danger, resolve }) : resolve(window.confirm(message))));
+}
+
+export function AskHost() {
+  const [a, setA] = useState<Ask | null>(null);
+  useEffect(() => {
+    showAsk = setA;
+    return () => void (showAsk = null);
+  }, []);
+  useEffect(() => {
+    if (!a) return;
+    const key = (e: KeyboardEvent) => e.key === "Escape" && (a.resolve(false), setA(null));
+    addEventListener("keydown", key);
+    return () => removeEventListener("keydown", key);
+  }, [a]);
+  if (!a) return null;
+  const done = (yes: boolean) => (a.resolve(yes), setA(null));
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && done(false)}>
+      <div role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-xl border border-line-2 bg-panel p-5 text-[13.5px] shadow-2xl">
+        <p className="whitespace-pre-line">{a.message}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => done(false)}>{t("Cancel")}</Button>
+          <Button variant={a.danger ? "danger" : "primary"} onClick={() => done(true)} autoFocus>
+            {a.ok}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -98,6 +137,8 @@ export const fmt = {
   vel: (v?: number | null) => (v == null ? "–" : `${v > 0 ? "+" : ""}${v.toFixed(1)}`),
   secs: (s?: number | null) =>
     s == null ? "" : s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${(s / 60).toFixed(1)} min` : `${(s / 3600).toFixed(1)} h`,
+  bytes: (v?: number | null) =>
+    v == null ? "–" : v < 1e3 ? `${Math.round(v)} B` : v < 1e6 ? `${(v / 1e3).toFixed(0)} kB` : v < 1e9 ? `${(v / 1e6).toFixed(1)} MB` : `${(v / 1e9).toFixed(2)} GB`,
   runTime: (id: string) => id.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)$/, "$1-$2-$3 $4:$5"),
   sensor: (s: string) =>
     ({ sentinel1: "Sentinel-1", cosmo_skymed: "COSMO-SkyMed", capella: "Capella", terrasar_x: "TerraSAR-X" })[s] ?? s,
@@ -135,8 +176,34 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 /** A floating map panel with a title bar that folds it (the state is remembered under `id`). */
-export function Fold({ id, title, extra, children, className = "", defaultOpen = true }: { id: string; title: ReactNode; extra?: ReactNode; children: ReactNode; className?: string; defaultOpen?: boolean }) {
+export function Fold({
+  id,
+  title,
+  extra,
+  children,
+  className = "",
+  defaultOpen = true,
+  collapse,
+  expand,
+}: {
+  id: string;
+  title: ReactNode;
+  extra?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  defaultOpen?: boolean;
+  collapse?: boolean; // turning true folds it (another panel took the room); the user may open it again
+  expand?: boolean; // turning true opens it
+}) {
   const [open, setOpen] = usePersisted(`fold.${id}`, defaultOpen);
+  useEffect(() => {
+    if (collapse) setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapse]);
+  useEffect(() => {
+    if (expand) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expand]);
   return (
     <div className={`rounded-xl border border-line-2 bg-panel/95 shadow-xl shadow-black/30 backdrop-blur ${open ? "p-3" : "px-3 py-2"} ${className}`}>
       <div className="flex items-center gap-2">

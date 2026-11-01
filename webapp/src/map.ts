@@ -1,14 +1,18 @@
 // What the Explorer and the map composer share: base maps, product layers (one binary array of points, or vector
 // tiles for large products), velocity colours (QGIS Pretty Breaks classes from the API, jet_r).
 import { COORDINATE_SYSTEM, type Layer } from "@deck.gl/core";
-import { ClipExtension } from "@deck.gl/extensions";
-import { MVTLayer } from "@deck.gl/geo-layers";
-import { ScatterplotLayer, type ScatterplotLayerProps } from "@deck.gl/layers";
+import { _TerrainExtension as TerrainExtension, ClipExtension } from "@deck.gl/extensions";
+import { MVTLayer, TerrainLayer } from "@deck.gl/geo-layers";
+import { ColumnLayer, ScatterplotLayer, type ScatterplotLayerProps } from "@deck.gl/layers";
 import type maplibregl from "maplibre-gl";
 import { api, type LayerMeta, type VelClass } from "./api";
 import type { MapLayer } from "./state";
+import { themeColor } from "./theme";
 
 export type Base = "dark" | "light" | "satellite" | "none";
+
+/** Base map a map opens with (light gray canvas: the points and footprints read best on it). */
+export const DEFAULT_BASE: Exclude<Base, "none"> = "light";
 
 export const BASES: Record<Exclude<Base, "none">, { label: string; tiles: string[]; attribution: string; maxzoom: number }> = {
   dark: {
@@ -31,7 +35,7 @@ export const BASES: Record<Exclude<Base, "none">, { label: string; tiles: string
   },
 };
 
-export function mapStyle(base: Base, background = "#0b1220"): maplibregl.StyleSpecification {
+export function mapStyle(base: Base, background = themeColor("bg")): maplibregl.StyleSpecification {
   if (base === "none") return { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": background } }] };
   const b = BASES[base];
   return {
@@ -42,6 +46,23 @@ export function mapStyle(base: Base, background = "#0b1220"): maplibregl.StyleSp
       { id: "base", type: "raster", source: "base", paint: base === "satellite" ? { "raster-saturation": -0.35, "raster-brightness-max": 0.8 } : {} },
     ],
   };
+}
+
+/** Raster source + layer of a base map, for pages that build their own style around it (source / layer id "base"). */
+export function baseSource(base: Exclude<Base, "none">): maplibregl.RasterSourceSpecification {
+  const b = BASES[base];
+  return { type: "raster", tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
+}
+
+/** Switch the "base" source of such a style to another base map, keeping the page's own layers. */
+export function switchBase(m: maplibregl.Map, base: Base) {
+  const src = m.getSource("base") as maplibregl.RasterTileSource | undefined;
+  if (!src || !m.getLayer("base")) return;
+  m.setLayoutProperty("base", "visibility", base === "none" ? "none" : "visible");
+  if (base === "none") return;
+  src.setTiles(BASES[base].tiles);
+  m.setPaintProperty("base", "raster-saturation", base === "satellite" ? -0.35 : 0);
+  m.setPaintProperty("base", "raster-brightness-max", base === "satellite" ? 0.8 : 1);
 }
 
 export type RenderMode = "auto" | "points" | "tiles";
@@ -70,6 +91,90 @@ export function colorize(buf: Float32Array, stride: number, at: number, classes:
   return colors;
 }
 
+/** RGB per point of a displacement frame (int16 in 1/scale mm, −32768 = none: dark grey). */
+export function colorizeFrame(frame: Int16Array, scale: number, classes: VelClass[]): Uint8Array {
+  const colors = new Uint8Array(frame.length * 3);
+  for (let i = 0; i < frame.length; i++) {
+    const c = frame[i] === -32768 ? [40, 48, 64] : classColor(classes, frame[i] / scale);
+    colors[i * 3] = c[0];
+    colors[i * 3 + 1] = c[1];
+    colors[i * 3 + 2] = c[2];
+  }
+  return colors;
+}
+
+// ------------------------------------------------------------------ lines on the map (profiles)
+const M_LAT = 110_540;
+const mLon = (lat: number) => 111_320 * Math.cos((lat * Math.PI) / 180);
+
+/** Length (m) of each segment of a polyline [[lon, lat], ...]. */
+export function segmentLengths(line: [number, number][]): number[] {
+  return line.slice(1).map((b, i) => {
+    const a = line[i];
+    return Math.hypot((b[0] - a[0]) * mLon((a[1] + b[1]) / 2), (b[1] - a[1]) * M_LAT);
+  });
+}
+
+/** The position at distance `d` (m) along a polyline. */
+export function pointAlong(line: [number, number][], d: number): [number, number] {
+  const L = segmentLengths(line);
+  let rest = Math.max(0, d);
+  for (let i = 0; i < L.length; i++) {
+    if (rest <= L[i] || i === L.length - 1) {
+      const f = L[i] ? Math.min(1, rest / L[i]) : 0;
+      return [line[i][0] + f * (line[i + 1][0] - line[i][0]), line[i][1] + f * (line[i + 1][1] - line[i][1])];
+    }
+    rest -= L[i];
+  }
+  return line[0];
+}
+
+const terrainTiles = new Map<string, Promise<ImageData | null>>();
+
+function terrainTile(z: number, x: number, y: number): Promise<ImageData | null> {
+  const key = `${z}/${x}/${y}`;
+  let p = terrainTiles.get(key);
+  if (!p) {
+    p = fetch(TERRAIN_TILES.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y)))
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.statusText))))
+      .then((b) => createImageBitmap(b))
+      .then((img) => {
+        const c = new OffscreenCanvas(img.width, img.height);
+        const ctx = c.getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+        return ctx.getImageData(0, 0, img.width, img.height);
+      })
+      .catch(() => null);
+    terrainTiles.set(key, p);
+  }
+  return p;
+}
+
+/** Ground height (m, Terrarium tiles at `zoom`) every `step` m along a polyline: [distance m, height m | null][]. */
+export async function terrainProfile(line: [number, number][], step: number, zoom = 14): Promise<[number, number | null][]> {
+  const total = segmentLengths(line).reduce((a, b) => a + b, 0);
+  const n = Math.max(2, Math.min(2000, Math.ceil(total / step) + 1));
+  const out: [number, number | null][] = [];
+  const N = 2 ** zoom;
+  for (let k = 0; k < n; k++) {
+    const d = (total * k) / (n - 1);
+    const [lon, lat] = pointAlong(line, d);
+    const fx = ((lon + 180) / 360) * N;
+    const r = (lat * Math.PI) / 180;
+    const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * N;
+    const img = await terrainTile(zoom, Math.floor(fx), Math.floor(fy));
+    if (!img) {
+      out.push([d, null]);
+      continue;
+    }
+    const px = Math.min(img.width - 1, Math.floor((fx % 1) * img.width));
+    const py = Math.min(img.height - 1, Math.floor((fy % 1) * img.height));
+    const o = (py * img.width + px) * 4;
+    out.push([d, img.data[o] * 256 + img.data[o + 1] + img.data[o + 2] / 256 - 32768]);
+  }
+  return out;
+}
+
 export async function loadLayer(project: string, product: string, mode: RenderMode = "auto"): Promise<LayerData> {
   const meta = await api.layer(project, product);
   if (mode === "tiles" || (mode === "auto" && meta.tiles.recommended)) {
@@ -81,6 +186,29 @@ export async function loadLayer(project: string, product: string, mode: RenderMo
 }
 
 export const CLIP = new ClipExtension();
+export const TERRAIN = new TerrainExtension();
+
+// 3D view: open elevation tiles (Mapzen Terrain Tiles on AWS Open Data, Terrarium encoding, ~30 m at zoom 12+)
+export const TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+export const TERRAIN_ATTRIBUTION = "Terrain: Mapzen Terrain Tiles, AWS Open Data";
+
+/** deck.gl terrain draped with the base map (the other deck layers sit on it with `TERRAIN`); `exaggeration` × the
+ * true heights, so that flat deltas show their relief. */
+export function terrainLayer(base: Base, exaggeration: number): Layer {
+  const e = exaggeration;
+  return new TerrainLayer({
+    id: `terrain-${base}`,
+    minZoom: 0,
+    maxZoom: 15,
+    elevationData: TERRAIN_TILES,
+    texture: base === "none" ? null : BASES[base].tiles[0],
+    elevationDecoder: { rScaler: 256 * e, gScaler: e, bScaler: e / 256, offset: -32768 * e },
+    meshMaxError: 2,
+    color: [26, 36, 56],
+    operation: "terrain+draw",
+    updateTriggers: { elevationDecoder: e },
+  } as never) as unknown as Layer;
+}
 
 interface Feature {
   id?: number;
@@ -97,11 +225,14 @@ export function productLayer(
     clipLon?: [number, number] | null;
     idPrefix?: string;
     pixelScale?: number;      // print export: screen-pixel sizes scaled to the export resolution
+    terrain?: boolean;        // 3D view: on the terrain of `terrainLayer`
+    colors?: Uint8Array;      // points: colours in place of the velocity classes (time animation)
   } = {},
 ): Layer {
   const px = o.pixelScale ?? 1;
   // the kind in the id: deck.gl matches layers by id and would hand the state of a points layer to a tile layer
-  const id = `${o.idPrefix ?? "pts-"}${l.key}#${d.kind}`;
+  const id = `${o.idPrefix ?? "pts-"}${l.key}#${d.kind}${o.terrain ? "-3d" : ""}`;
+  const ext = [...(o.clipLon ? [CLIP] : []), ...(o.terrain ? [TERRAIN] : [])];
   const common = {
     id,
     opacity: l.opacity,
@@ -129,7 +260,8 @@ export function productLayer(
         const fid = info.object?.id;
         if (fid != null && o.onPick) o.onPick(Number(fid));
       },
-      ...(o.clipLon ? { extensions: [CLIP], clipBounds: [o.clipLon[0], -90, o.clipLon[1], 90] } : {}),
+      extensions: ext,
+      ...(o.clipLon ? { clipBounds: [o.clipLon[0], -90, o.clipLon[1], 90] } : {}),
     } as never) as unknown as Layer;
   }
   const origin = d.meta.origin;
@@ -139,7 +271,7 @@ export function productLayer(
       length: d.meta.n,
       attributes: {
         getPosition: { value: d.buf, size: 2, stride: 12, offset: 0 },
-        getFillColor: { value: d.colors, size: 3, normalized: true },
+        getFillColor: { value: o.colors ?? d.colors, size: 3, normalized: true },
       },
     } as unknown as ScatterplotLayerProps["data"],
     coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
@@ -152,11 +284,47 @@ export function productLayer(
     onClick: (info) => {
       if (info.index >= 0 && o.onPick) o.onPick(info.index);
     },
-    ...(o.clipLon
-      ? { extensions: [CLIP], clipBounds: [o.clipLon[0] - origin[0], -1e3, o.clipLon[1] - origin[0], 1e3] }
-      : {}),
+    extensions: ext,
+    ...(o.clipLon ? { clipBounds: [o.clipLon[0] - origin[0], -1e3, o.clipLon[1] - origin[0], 1e3] } : {}),
   };
   return new ScatterplotLayer(props) as unknown as Layer;
+}
+
+// zoomed out, a product is drawn as hexagons of the median velocity (binned on the server, `hexbins`); zoomed in, as
+// its points. The level aims at hexagons about HEX_PX screen pixels wide; below POINTS_BELOW_M the points are shown.
+export const HEX_PX = 11;
+export const POINTS_BELOW_M = 100;
+
+/** Hexagon size (m, centre to vertex) for a zoom at a latitude, or null: show the points. */
+export function hexSize(sizes: number[] | undefined, zoom: number, lat: number): number | null {
+  if (!sizes?.length) return null;
+  const mpp = (156_543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+  const target = HEX_PX * mpp;
+  if (target < POINTS_BELOW_M) return null;
+  return sizes.find((s) => s >= target) ?? sizes[sizes.length - 1];
+}
+
+/** deck.gl hexagons of a product: `buf` from `api.layerHex` (dlon, dlat, median, count per hexagon). */
+export function hexLayer(l: MapLayer, meta: LayerMeta, buf: Float32Array, size: number, o: { onPick?: (lon: number, lat: number) => void } = {}): Layer {
+  const n = Math.floor(buf.length / 4);
+  return new ColumnLayer({
+    id: `hex-${l.key}-${size}`,
+    data: { length: n, attributes: { getPosition: { value: buf, size: 2, stride: 16, offset: 0 }, getFillColor: { value: colorize(buf, 4, 2, meta.classes), size: 3, normalized: true } } } as never,
+    coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
+    coordinateOrigin: [meta.origin[0], meta.origin[1], 0],
+    diskResolution: 6,
+    angle: 0, // flat-top (a vertex east), as the server's bins
+    radius: size,
+    coverage: 0.94,
+    extruded: false,
+    opacity: l.opacity * 0.5, // the hexagons cover the base map: lighter than the points, roads and rivers show through
+    pickable: true,
+    autoHighlight: true,
+    highlightColor: [255, 255, 255, 110],
+    onClick: (info: { index: number }) => {
+      if (info.index >= 0 && o.onPick) o.onPick(meta.origin[0] + buf[info.index * 4], meta.origin[1] + buf[info.index * 4 + 1]);
+    },
+  } as never) as unknown as Layer;
 }
 
 /** Velocity under the cursor of a picked product layer (tooltip), whatever its kind. */

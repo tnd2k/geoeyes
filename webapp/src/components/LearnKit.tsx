@@ -43,7 +43,7 @@ export function ChapterNav({ current, steps, step, onStep, children }: { current
                         className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] ${i === step ? "bg-raised font-semibold text-ink" : "text-muted hover:bg-raised/60 hover:text-ink"}`}
                       >
                         <span
-                          className={`mt-px flex h-5 w-5 flex-none items-center justify-center rounded-full text-[10.5px] ${i < step ? "bg-[#1f4d36] text-[#8fe3b0]" : i === step ? "bg-accent-2 text-white" : "bg-[#1a2740] text-faint"}`}
+                          className={`mt-px flex h-5 w-5 flex-none items-center justify-center rounded-full text-[10.5px] ${i < step ? "bg-good-bg text-good-ink" : i === step ? "bg-accent-2 text-white" : "bg-chip text-faint"}`}
                         >
                           {i}
                         </span>
@@ -59,6 +59,164 @@ export function ChapterNav({ current, steps, step, onStep, children }: { current
       </ol>
       {children}
     </nav>
+  );
+}
+
+/** A numbered section of a lesson. */
+function LessonPart({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <section className="mt-7">
+      <h2 className="m-0 flex items-center gap-2.5 text-[16px] font-semibold text-ink">
+        <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-chip font-mono text-[12px] text-accent-ink">{n}</span>
+        {t(title)}
+      </h2>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+/** One step of a chapter of the Principles page, in the order a newcomer learns it: the goal, the idea in words,
+ * what it looks like on real data, the formula and its symbols, what to check, and the deeper material folded away.
+ * ``sidebar``: data choice, controls and numbers (sticky beside the lesson on wide screens). */
+export function Lesson({
+  chapter,
+  step,
+  total,
+  title,
+  goal,
+  status,
+  idea,
+  figures,
+  formula,
+  symbols,
+  look,
+  lookExtra,
+  deeper,
+  doc,
+  titles,
+  onStep,
+  sidebar,
+}: {
+  chapter: number;
+  step: number;
+  total: number;
+  title: string;
+  goal: string;
+  status?: ReactNode;
+  idea: string[];
+  figures?: ReactNode;
+  formula?: string[];
+  symbols?: [string, string, string][];
+  look: string[];
+  lookExtra?: ReactNode;
+  deeper?: ReactNode;
+  doc?: ReactNode;
+  titles: string[];
+  onStep: (i: number) => void;
+  sidebar?: ReactNode;
+}) {
+  let n = 0;
+  const part = () => (n += 1);
+  return (
+    <article className="mx-auto max-w-[1240px] px-6 py-5">
+      <div className="flex items-center gap-3 text-[12px] text-faint">
+        <span>{t("Chapter {c} · step {i} of {n}", { c: chapter, i: step, n: total - 1 })}</span>
+        <div className="h-1.5 w-40 overflow-hidden rounded-full bg-chip" aria-hidden>
+          <div className="h-full rounded-full bg-accent-2" style={{ width: `${(100 * (step + 1)) / total}%` }} />
+        </div>
+        {status}
+      </div>
+      <h1 className="m-0 mt-1.5 text-[26px] font-bold tracking-tight">{t(title)}</h1>
+      <div className="mt-3 max-w-[860px] rounded-lg border-l-4 border-accent bg-accent-bg px-4 py-2.5">
+        <div className="text-[10.5px] font-semibold tracking-[1.2px] text-accent-ink uppercase">{t("Goal of this step")}</div>
+        <p className="m-0 mt-0.5 text-[14.5px] leading-relaxed text-ink">{t(goal)}</p>
+      </div>
+      <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0">
+          <LessonPart n={part()} title="The idea">
+            <div className="flex max-w-[820px] flex-col gap-3 text-[14.5px] leading-relaxed text-ink-2">
+              {idea.map((w) => (
+                <p key={w} className="m-0">
+                  {t(w)}
+                </p>
+              ))}
+            </div>
+          </LessonPart>
+          {figures && (
+            <LessonPart n={part()} title="See it on real data">
+              {figures}
+            </LessonPart>
+          )}
+          {formula && formula.length > 0 && (
+            <LessonPart n={part()} title="The formula">
+              <div className="max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose whitespace-pre-wrap text-ink">
+                {formula.map((f) => (
+                  <div key={f}>{t(f)}</div>
+                ))}
+              </div>
+              {symbols && symbols.length > 0 && (
+                <div className="mt-3 max-w-[860px] overflow-x-auto">
+                  <div className="mb-1 text-[11px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Reading the formula")}</div>
+                  <table className="w-full border-collapse text-[12.5px]">
+                    <tbody>
+                      {symbols.map((r) => (
+                        <tr key={r[0]} className="align-top">
+                          <td className="border-b border-line py-1.5 pr-3 font-mono whitespace-nowrap text-ink">{r[0]}</td>
+                          <td className="border-b border-line py-1.5 pr-3 text-ink-2">{t(r[1])}</td>
+                          <td className="border-b border-line py-1.5 text-muted">{t(r[2])}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </LessonPart>
+          )}
+          <LessonPart n={part()} title="Check yourself">
+            <div className="max-w-[860px] rounded-lg border border-accent-line bg-accent-bg px-4 py-3">
+              <ul className="m-0 list-none space-y-1.5 p-0 text-[14px] leading-relaxed text-ink-2">
+                {look.map((w) => (
+                  <li key={w} className="flex gap-2.5">
+                    <span aria-hidden className="mt-[3px] flex h-4 w-4 flex-none items-center justify-center rounded border border-accent-line text-[10px] text-accent-ink">✓</span>
+                    <span>{t(w)}</span>
+                  </li>
+                ))}
+              </ul>
+              {lookExtra}
+            </div>
+          </LessonPart>
+          {deeper && (
+            <details className="group mt-7">
+              <summary className="flex cursor-pointer list-none items-center gap-2.5 text-[16px] font-semibold text-ink [&::-webkit-details-marker]:hidden">
+                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-chip font-mono text-[12px] text-accent-ink">{part()}</span>
+                {t("Going deeper")}
+                <span className="text-[12.5px] font-normal text-muted">{t("derivation, assumptions, parameters, literature")}</span>
+                <span className="ml-auto text-muted transition-transform group-open:rotate-90">›</span>
+              </summary>
+              <div className="mt-3">{deeper}</div>
+            </details>
+          )}
+          {doc && <div className="mt-7 text-[12px] text-faint">{doc}</div>}
+          <nav className="mt-5 mb-8 grid gap-2 border-t border-line pt-4 sm:grid-cols-2">
+            {step > 0 ? (
+              <button type="button" onClick={() => onStep(step - 1)} className="rounded-lg border border-line px-4 py-2.5 text-left hover:border-line-2 hover:bg-panel">
+                <div className="text-[11px] text-faint">← {t("Previous")}</div>
+                <div className="text-[13.5px] font-semibold text-ink-2">{t(titles[step - 1])}</div>
+              </button>
+            ) : (
+              <span />
+            )}
+            {step < total - 1 && (
+              <button type="button" onClick={() => onStep(step + 1)} className="rounded-lg border border-accent-line bg-accent-bg px-4 py-2.5 text-right hover:bg-accent-bg-2">
+                <div className="text-[11px] text-accent-ink">{t("Next")} →</div>
+                <div className="text-[13.5px] font-semibold text-ink">{t(titles[step + 1])}</div>
+              </button>
+            )}
+          </nav>
+        </div>
+        {sidebar && <aside className="mt-7 space-y-3 xl:sticky xl:top-4 xl:self-start">{sidebar}</aside>}
+      </div>
+    </article>
   );
 }
 

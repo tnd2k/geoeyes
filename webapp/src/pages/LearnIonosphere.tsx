@@ -4,14 +4,13 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type LearnIonosphere, type Workspace } from "../api";
-import { ChapterNav } from "../components/LearnKit";
+import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
-import { Button, fmt } from "../ui";
-import { Section } from "./LearnHazard";
+import { fmt } from "../ui";
 
-const AZ = "#4cc2ff";
-const RG = "#f5b84b";
+const AZ = "var(--c-accent)";
+const RG = "var(--c-warn)";
 const STEP = "#d6604d";
 
 /** Blue (negative) … grey … red (positive) for v in [-1, 1]. */
@@ -32,15 +31,15 @@ function LocalTimeFigure({ all, sel }: { all: LearnIonosphere[]; sel: LearnIonos
   const X = (h: number) => 20 + ((W - 40) * h) / 24;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[640px]">
-      <rect x={X(14)} y={10} width={X(23) - X(14)} height={H - 40} fill="#3a1f1f" opacity={0.6} />
+      <rect x={X(14)} y={10} width={X(23) - X(14)} height={H - 40} fill="var(--c-bad-bg)" opacity={0.6} />
       <text x={(X(14) + X(23)) / 2} y={24} fill="#f4a582" fontSize="11" textAnchor="middle">{t("afternoon, dusk, early night: high TEC, fast changes")}</text>
       {[0, 6, 12, 18, 24].map((h) => (
         <g key={h}>
-          <line x1={X(h)} x2={X(h)} y1={H - 32} y2={H - 26} stroke="#93a4bf" />
-          <text x={X(h)} y={H - 12} fill="#93a4bf" fontSize="11" textAnchor="middle">{`${h}:00`}</text>
+          <line x1={X(h)} x2={X(h)} y1={H - 32} y2={H - 26} stroke="var(--c-muted)" />
+          <text x={X(h)} y={H - 12} fill="var(--c-muted)" fontSize="11" textAnchor="middle">{`${h}:00`}</text>
         </g>
       ))}
-      <line x1={X(0)} x2={X(24)} y1={H - 30} y2={H - 30} stroke="#93a4bf" />
+      <line x1={X(0)} x2={X(24)} y1={H - 30} y2={H - 30} stroke="var(--c-muted)" />
       {all.map((s, i) => {
         const hs = s.dates.map((d) => d.local_hour).filter((h): h is number => h != null);
         const h = hs.length ? hs.reduce((a, b) => a + b, 0) / hs.length : null;
@@ -48,8 +47,8 @@ function LocalTimeFigure({ all, sel }: { all: LearnIonosphere[]; sel: LearnIonos
         const on = s.stack_id === sel.stack_id;
         return h == null ? null : (
           <g key={s.stack_id}>
-            <circle cx={X(h)} cy={y} r={on ? 6 : 4.5} fill={s.pass_direction === "ascending" ? AZ : RG} stroke={on ? "#e6edf7" : "none"} strokeWidth="1.5" />
-            <text x={X(h) + (h < 12 ? 10 : -10)} y={y + 4} fill={on ? "#e6edf7" : "#93a4bf"} fontSize="11.5" textAnchor={h < 12 ? "start" : "end"}>
+            <circle cx={X(h)} cy={y} r={on ? 6 : 4.5} fill={s.pass_direction === "ascending" ? AZ : RG} stroke={on ? "var(--c-ink)" : "none"} strokeWidth="1.5" />
+            <text x={X(h) + (h < 12 ? 10 : -10)} y={y + 4} fill={on ? "var(--c-ink)" : "var(--c-muted)"} fontSize="11.5" textAnchor={h < 12 ? "start" : "end"}>
               {s.track} · {Math.floor(h)}:{String(Math.round((h % 1) * 60)).padStart(2, "0")}
             </text>
           </g>
@@ -73,8 +72,8 @@ function GradientChart({ s }: { s: LearnIonosphere }) {
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[660px]">
         {[-lim, -lim / 2, 0, lim / 2, lim].map((v) => (
           <g key={v}>
-            <line x1={m.l} x2={W - m.r} y1={Y(v)} y2={Y(v)} stroke={v === 0 ? "#93a4bf" : "#22324d"} strokeDasharray={v === 0 ? undefined : "3 3"} />
-            <text x={m.l - 6} y={Y(v) + 4} fill="#93a4bf" fontSize="10.5" textAnchor="end">{v.toFixed(1)}</text>
+            <line x1={m.l} x2={W - m.r} y1={Y(v)} y2={Y(v)} stroke={v === 0 ? "var(--c-muted)" : "var(--c-line-2)"} strokeDasharray={v === 0 ? undefined : "3 3"} />
+            <text x={m.l - 6} y={Y(v) + 4} fill="var(--c-muted)" fontSize="10.5" textAnchor="end">{v.toFixed(1)}</text>
           </g>
         ))}
         {rows.map((d, i) =>
@@ -91,8 +90,8 @@ function GradientChart({ s }: { s: LearnIonosphere }) {
             );
           }),
         )}
-        {rows.map((d, i) => (i % 3 === 0 ? <text key={d.date} x={X(i)} y={H - 18} fill="#93a4bf" fontSize="10.5" textAnchor="middle">{short(d.date)}</text> : null))}
-        <text x={14} y={H / 2} fill="#93a4bf" fontSize="11" transform={`rotate(-90 14 ${H / 2})`} textAnchor="middle">mm/km</text>
+        {rows.map((d, i) => (i % 3 === 0 ? <text key={d.date} x={X(i)} y={H - 18} fill="var(--c-muted)" fontSize="10.5" textAnchor="middle">{short(d.date)}</text> : null))}
+        <text x={14} y={H / 2} fill="var(--c-muted)" fontSize="11" transform={`rotate(-90 14 ${H / 2})`} textAnchor="middle">mm/km</text>
       </svg>
       <div className="mt-1 flex flex-wrap gap-x-4 text-[12px] text-ink-2">
         <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: AZ }} />{t("along track (azimuth)")}</span>
@@ -127,7 +126,7 @@ function FieldMap({ project, s }: { project: string; s: LearnIonosphere }) {
   if (!s.has_field) return <p className="text-[13px] text-muted">{t("This stack has no ionospheric correction.")}</p>;
   return (
     <div>
-      <select value={date} onChange={(e) => setDate(e.target.value)} className="mb-2 h-8 rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+      <select value={date} onChange={(e) => setDate(e.target.value)} className="mb-2 h-8 rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
         {dates.map((d) => (
           <option key={d} value={d}>{d}</option>
         ))}
@@ -165,16 +164,16 @@ function SeamChart({ s }: { s: LearnIonosphere }) {
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[660px]">
       {[-lim, 0, lim].map((v) => (
         <g key={v}>
-          <line x1={m.l} x2={W - m.r} y1={Y(v)} y2={Y(v)} stroke={v === 0 ? "#93a4bf" : "#22324d"} strokeDasharray={v === 0 ? undefined : "3 3"} />
-          <text x={m.l - 6} y={Y(v) + 4} fill="#93a4bf" fontSize="10.5" textAnchor="end">{v.toFixed(1)}</text>
+          <line x1={m.l} x2={W - m.r} y1={Y(v)} y2={Y(v)} stroke={v === 0 ? "var(--c-muted)" : "var(--c-line-2)"} strokeDasharray={v === 0 ? undefined : "3 3"} />
+          <text x={m.l - 6} y={Y(v) + 4} fill="var(--c-muted)" fontSize="10.5" textAnchor="end">{v.toFixed(1)}</text>
         </g>
       ))}
       {rows.map((d, i) => {
         const v = Object.values(d.seam_rad!)[0];
-        return <rect key={d.date} x={X(i) - bw / 2} width={bw} y={Math.min(Y(0), Y(v))} height={Math.abs(Y(v) - Y(0))} fill={Math.abs(v) > 1 ? STEP : "#7f8ba0"} />;
+        return <rect key={d.date} x={X(i) - bw / 2} width={bw} y={Math.min(Y(0), Y(v))} height={Math.abs(Y(v) - Y(0))} fill={Math.abs(v) > 1 ? STEP : "var(--c-faint)"} />;
       })}
-      {rows.map((d, i) => (i % 3 === 0 ? <text key={d.date} x={X(i)} y={H - 18} fill="#93a4bf" fontSize="10.5" textAnchor="middle">{short(d.date)}</text> : null))}
-      <text x={14} y={H / 2} fill="#93a4bf" fontSize="11" transform={`rotate(-90 14 ${H / 2})`} textAnchor="middle">rad</text>
+      {rows.map((d, i) => (i % 3 === 0 ? <text key={d.date} x={X(i)} y={H - 18} fill="var(--c-muted)" fontSize="10.5" textAnchor="middle">{short(d.date)}</text> : null))}
+      <text x={14} y={H / 2} fill="var(--c-muted)" fontSize="11" transform={`rotate(-90 14 ${H / 2})`} textAnchor="middle">rad</text>
     </svg>
   );
 }
@@ -388,30 +387,14 @@ export function IonosphereChapter({ ws, step }: { ws: Workspace | undefined; ste
     <div className="flex h-full min-h-0">
       <ChapterNav current="ionosphere" steps={STEPS.map((s) => s.title)} step={k} onStep={go} />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[1180px] px-6 py-5">
-          <div className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</div>
-          <h1 className="m-0 mt-1 text-[26px] font-bold tracking-tight">{t(S.title)}</h1>
-          <p className="mt-1.5 max-w-[860px] text-[15px] leading-relaxed text-ink-2">{t(S.goal)}</p>
-          <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <Section title="Principle">
-                <div className="flex max-w-[860px] flex-col gap-3 text-[14px] leading-relaxed text-ink-2">
-                  {S.what.map((w) => (
-                    <p key={w} className="mt-0 mb-0">
-                      {t(w)}
-                    </p>
-                  ))}
-                </div>
-                {S.formula && (
-                  <div className="mt-4 max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose whitespace-pre text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-              {S.figures.length > 0 && (
-                <Section title="Illustrated on real data">
+        <Lesson
+          chapter={6}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          idea={S.what}
+          figures={S.figures.length > 0 ? <>
                   {!data ? (
                     <p className="text-[13px] text-muted">{t("No stack in the workspace yet: run a processing up to the stack, then come back.")}</p>
                   ) : (
@@ -432,34 +415,20 @@ export function IonosphereChapter({ ws, step }: { ws: Workspace | undefined; ste
                       })}
                     </div>
                   )}
-                </Section>
-              )}
-              <Section title="What to look for">
-                <div className="max-w-[860px] rounded-lg border border-[#2b4a73] bg-[#0f1d33] px-4 py-3">
-                  <ul className="m-0 list-disc space-y-1 pl-4 text-[13.5px] leading-relaxed text-ink-2">
-                    {S.look.map((w) => (
-                      <li key={w}>{t(w)}</li>
-                    ))}
-                  </ul>
-                </div>
-              </Section>
-              <div className="mt-6 text-[12px] text-faint">
+                </> : undefined}
+          formula={S.formula}
+          look={S.look}
+          lookExtra={undefined}
+          doc={<>
                 {t("Full method, diagnosis and acceptance criteria:")} docs/{lang()}/guide/ionosphere.md
-              </div>
-              <nav className="mt-4 mb-8 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {k > 0 ? t(STEPS[k - 1].title) : t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {k < STEPS.length - 1 ? t(STEPS[k + 1].title) : t("Next")} →
-                </Button>
-              </nav>
-            </div>
-            <aside className="mt-6 space-y-3 xl:sticky xl:top-4 xl:self-start">
+              </>}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={<>
               <div className="rounded-xl border border-line bg-panel p-3">
                 <div className="text-[10.5px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Data of the illustrations")}</div>
                 {ready.length ? (
-                  <select value={sel ? `${sel.project}/${sel.stack}` : ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+                  <select value={sel ? `${sel.project}/${sel.stack}` : ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                     {ready.map((s) => (
                       <option key={`${s.project}/${s.stack}`} value={`${s.project}/${s.stack}`}>
                         {s.project} · {s.stack}
@@ -483,9 +452,8 @@ export function IonosphereChapter({ ws, step }: { ws: Workspace | undefined; ste
                   </div>
                 </div>
               )}
-            </aside>
-          </div>
-        </article>
+            </>}
+        />
       </div>
     </div>
   );

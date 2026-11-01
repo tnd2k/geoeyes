@@ -8,6 +8,7 @@ import { api, type GnssSeries, type GnssStation } from "../api";
 import { t, ts } from "../i18n";
 import { useWarnings } from "../notify";
 import { Button, Chip, fmt, Panel } from "../ui";
+import { themeColor } from "../theme";
 
 type Mode = "vertical" | "full";
 
@@ -25,7 +26,7 @@ function StationChart({ s, mode }: { s: GnssSeries; mode: Mode }) {
       return out;
     };
     const insar = mode === "vertical" ? s.insar_vertical_mm : s.insar_full_mm;
-    const axis = { stroke: "#93a4bf", grid: { stroke: "#1a2740", width: 1 }, ticks: { stroke: "#22324d", width: 1 }, font: "11px Inter, system-ui, sans-serif" };
+    const axis = { stroke: themeColor("muted"), grid: { stroke: themeColor("chip"), width: 1 }, ticks: { stroke: themeColor("line-2"), width: 1 }, font: "11px 'Lexend Variable', system-ui, sans-serif" };
     const plot = new uPlot(
       {
         width: el.clientWidth,
@@ -36,13 +37,13 @@ function StationChart({ s, mode }: { s: GnssSeries; mode: Mode }) {
         scales: { x: { time: true } },
         axes: [
           { ...axis, values: (_u, v) => v.map((x) => new Date(x * 1000).toISOString().slice(0, 7)) },
-          { ...axis, size: 48, label: t("mm (LOS, + toward the satellite)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
+          { ...axis, size: 48, label: t("mm (LOS, + toward the satellite)"), labelSize: 14, labelFont: "11px 'Lexend Variable', sans-serif" },
         ],
         series: [
           {},
           { stroke: "rgba(245,184,75,0.35)", width: 1, points: { show: false }, spanGaps: false },
-          { stroke: "#f5b84b", width: 0, points: { show: true, size: 7, fill: "#0b1220", stroke: "#f5b84b", width: 2 } },
-          { stroke: "#4cc2ff", width: 1.8, points: { show: true, size: 6, fill: "#4cc2ff", stroke: "#0b1220" }, spanGaps: true },
+          { stroke: themeColor("warn"), width: 0, points: { show: true, size: 7, fill: themeColor("bg"), stroke: themeColor("warn"), width: 2 } },
+          { stroke: themeColor("accent"), width: 1.8, points: { show: true, size: 6, fill: themeColor("accent"), stroke: themeColor("bg") }, spanGaps: true },
         ],
       },
       [tm.map((d) => Date.parse(d) / 1000), col(s.day, s[mode].daily_mm), col(s.dates, s[mode].gnss_mm), col(s.dates, insar)] as uPlot.AlignedData,
@@ -60,10 +61,10 @@ function StationChart({ s, mode }: { s: GnssSeries; mode: Mode }) {
       <div ref={box} className="w-full" />
       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted">
         <span className="flex items-center gap-1">
-          <span className="h-0.5 w-4 bg-[#4cc2ff]" /> {t("InSAR, median of the points around the antenna")}
+          <span className="h-0.5 w-4 bg-accent" /> {t("InSAR, median of the points around the antenna")}
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full border-2 border-[#f5b84b]" /> {t("GNSS at the InSAR epochs (± window)")}
+          <span className="h-2 w-2 rounded-full border-2 border-warn" /> {t("GNSS at the InSAR epochs (± window)")}
         </span>
         <span className="flex items-center gap-1">
           <span className="h-0.5 w-4 bg-[rgba(245,184,75,0.35)]" /> {t("GNSS daily")}
@@ -162,7 +163,7 @@ export function Gnss({ name }: { name: string }) {
             value={product}
             onChange={(e) => setPid(e.target.value)}
             aria-label={t("Product")}
-            className="h-8 rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink"
+            className="h-8 rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink"
           >
             {products.map((p) => (
               <option key={p.id} value={p.id}>
@@ -181,7 +182,7 @@ export function Gnss({ name }: { name: string }) {
               <select
                 value={String(params[p.key] ?? p.options[p.key === "radius_m" ? 1 : 0])}
                 onChange={(e) => setParams((v) => ({ ...v, [p.key]: typeof p.options[0] === "number" ? Number(e.target.value) : e.target.value }))}
-                className="h-7 rounded-md border border-line-2 bg-[#0a1322] px-1.5 text-[12px] text-ink"
+                className="h-7 rounded-md border border-line-2 bg-sunken px-1.5 text-[12px] text-ink"
               >
                 {p.options.map((o) => (
                   <option key={o} value={String(o)}>
@@ -195,14 +196,14 @@ export function Gnss({ name }: { name: string }) {
         </div>
         {err && <div className="mt-2 text-[12.5px] text-bad">{err}</div>}
         {(q.data?.running || q.data?.failed) && q.data.log.length > 0 && (
-          <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-[#070c16] p-2 font-mono text-[11.5px] text-[#a9b8cf]">{q.data.log.join("\n")}</pre>
+          <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-deep p-2 font-mono text-[11.5px] text-ink-3">{q.data.log.join("\n")}</pre>
         )}
       </Panel>
 
       {s && (
         <>
           {s.warnings.length > 0 && (
-            <div className="rounded-lg bg-[#2a2110] px-3 py-2 text-[12.5px] text-[#f5d08b]">{t("{n} warning(s): see the notifications", { n: s.warnings.length })}</div>
+            <div className="rounded-lg bg-warn-bg px-3 py-2 text-[12.5px] text-warn-ink">{t("{n} warning(s): see the notifications", { n: s.warnings.length })}</div>
           )}
           <Panel className="overflow-x-auto p-0">
             <table className="w-full min-w-[720px] text-[12.5px]">
@@ -222,7 +223,7 @@ export function Gnss({ name }: { name: string }) {
                     <tr
                       key={st.site}
                       onClick={() => st.used && setSite(st.site)}
-                      className={`border-b border-line/60 ${st.used ? "cursor-pointer hover:bg-[#131f35]" : ""} ${pick?.site === st.site ? "bg-raised" : ""}`}
+                      className={`border-b border-line/60 ${st.used ? "cursor-pointer hover:bg-panel-3" : ""} ${pick?.site === st.site ? "bg-raised" : ""}`}
                     >
                       <td className="px-3 py-2 font-mono">{st.site}</td>
                       <td className="px-3 py-2">{st.used ? <Chip status="ok" label={t("compared")} /> : <span className="text-muted">{ts(st.reason ?? "")}</span>}</td>

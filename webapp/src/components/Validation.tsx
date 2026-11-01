@@ -55,9 +55,9 @@ export function Validation({ name }: { name: string }) {
           {polling ? t("Report running…") : t("Build CR report")}
         </Button>
       </Panel>
-      {run.error && <div className="rounded-lg bg-[#2a1414] px-3 py-2 text-[13px] text-bad">{(run.error as Error).message}</div>}
+      {run.error && <div className="rounded-lg bg-bad-bg px-3 py-2 text-[13px] text-bad">{(run.error as Error).message}</div>}
       {polling && v.log.length > 0 && (
-        <pre className="max-h-48 overflow-auto rounded-xl border border-line bg-[#070c16] p-3 font-mono text-[11.5px] text-[#a9b8cf]">{v.log.join("\n")}</pre>
+        <pre className="max-h-48 overflow-auto rounded-xl border border-line bg-deep p-3 font-mono text-[11.5px] text-ink-3">{v.log.join("\n")}</pre>
       )}
 
       {v.reports.length === 0 ? (
@@ -70,7 +70,7 @@ export function Validation({ name }: { name: string }) {
                 key={r.id}
                 type="button"
                 onClick={() => setSel(r.id)}
-                className={`block w-full rounded-md px-3 py-2 text-left text-[12.5px] ${rep?.id === r.id ? "bg-raised" : "hover:bg-[#131f35]"}`}
+                className={`block w-full rounded-md px-3 py-2 text-left text-[12.5px] ${rep?.id === r.id ? "bg-raised" : "hover:bg-panel-3"}`}
               >
                 <div className="font-mono">{r.id.split("_")[0]}</div>
                 <div className="text-muted">{r.id.split("_").slice(1).join("_")}</div>
@@ -95,7 +95,7 @@ export function Validation({ name }: { name: string }) {
                 )}
               </div>
               {rep.report.warnings.map((w) => (
-                <div key={w} className="rounded-lg bg-[#2a2110] px-3 py-2 text-[12.5px] text-[#f5d08b]">{ts(w)}</div>
+                <div key={w} className="rounded-lg bg-warn-bg px-3 py-2 text-[12.5px] text-warn-ink">{ts(w)}</div>
               ))}
               <Panel className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-[12.5px]">

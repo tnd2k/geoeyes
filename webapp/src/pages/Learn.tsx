@@ -6,16 +6,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
-import { Box, ChapterNav } from "../components/LearnKit";
+import { Box, ChapterNav, Lesson } from "../components/LearnKit";
 import { api, type LearnPairMeta, type LearnParams, type LearnSeries, type LearnStack, type Workspace } from "../api";
-import { t, ts } from "../i18n";
+import { lang, t, ts } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
 import { BehaviourChapter } from "./LearnBehaviour";
 import { GeometryChapter } from "./LearnGeometry";
+import { REFS, SCIENCE, type Science } from "./learnScience";
 import { IonosphereChapter } from "./LearnIonosphere";
 import { LinesChapter } from "./LearnLines";
 import { HazardChapter } from "./LearnHazard";
+import { themeColor } from "../theme";
 
 type RGB = [number, number, number];
 type Cmap = "gray" | "phase" | "viridis" | "terrain" | "sink_red" | "sink_red_rad";
@@ -203,7 +205,7 @@ function Panel({
           </>
         )}
         {mark(refPix, "border-white bg-black/40")}
-        {mark(sel, "border-[#ffd34d] bg-transparent")}
+        {mark(sel, "border-highlight bg-transparent")}
       </div>
       <ColorBar spec={spec} range={spec.points && pts ? symmetric(pts.range) : range} />
     </figure>
@@ -484,38 +486,144 @@ const STEPS: Step[] = [
 ];
 
 // ------------------------------------------------------------------ setup widgets
+/** Round tick values covering [lo, hi]. */
+function niceTicks(lo: number, hi: number, n = 5): number[] {
+  const span = hi - lo || 1;
+  const raw = span / n;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => span / k <= n) ?? 10 * mag;
+  const out: number[] = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(Number(v.toFixed(6)));
+  return out;
+}
+
+/** Perpendicular baseline of every acquisition against time: the reference of the stack (ringed) and its
+ * interferograms (faint lines), the chosen pair (thick, with its time and baseline differences); click a date to
+ * set a scene of the pair, hover for its numbers. */
 function BaselinePlot({ s, first, second, onPick }: { s: LearnStack; first: string; second: string; onPick: (d: string) => void }) {
-  const W = 760;
-  const H = 210;
-  const pad = { l: 48, r: 12, t: 12, b: 26 };
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 680;
+  const H = 270;
+  const pad = { l: 58, r: 14, t: 14, b: 44 };
+  const day = 86_400_000;
   const ts = s.dates.map((d) => Date.parse(d));
-  const t0 = Math.min(...ts);
-  const t1 = Math.max(...ts);
-  const b0 = Math.min(...s.bperp_m);
-  const b1 = Math.max(...s.bperp_m);
-  const X = (v: number) => pad.l + ((v - t0) / (t1 - t0 || 1)) * (W - pad.l - pad.r);
-  const Y = (v: number) => pad.t + (1 - (v - b0) / (b1 - b0 || 1)) * (H - pad.t - pad.b);
+  const tMin = Math.min(...ts);
+  const tMax = Math.max(...ts);
+  const t0 = tMin - (tMax - tMin) * 0.03;
+  const t1 = tMax + (tMax - tMin) * 0.03;
+  const bLo = Math.min(0, ...s.bperp_m);
+  const bHi = Math.max(0, ...s.bperp_m);
+  const bPad = Math.max(10, (bHi - bLo) * 0.08);
+  const yTicks = niceTicks(bLo - bPad, bHi + bPad, 5);
+  const b0 = Math.min(bLo - bPad, yTicks[0]);
+  const b1 = Math.max(bHi + bPad, yTicks[yTicks.length - 1]);
+  const X = (v: number) => pad.l + ((v - t0) / (t1 - t0)) * (W - pad.l - pad.r);
+  const Y = (v: number) => pad.t + (1 - (v - b0) / (b1 - b0)) * (H - pad.t - pad.b);
+  // time ticks: years when the series is long, else months (every 1, 2 or 3)
+  const years = (tMax - tMin) / (365.25 * day);
+  const xTicks: { t: number; label: string; major: boolean }[] = [];
+  const y0 = new Date(t0).getUTCFullYear();
+  const y1 = new Date(t1).getUTCFullYear();
+  if (years > 2.5) {
+    for (let y = y0; y <= y1; y++)
+      for (const m of [0, 6]) {
+        const tt = Date.UTC(y, m, 1);
+        if (tt >= t0 && tt <= t1) xTicks.push({ t: tt, label: m === 0 ? String(y) : "", major: m === 0 });
+      }
+  } else {
+    const every = years > 1.2 ? 3 : years > 0.6 ? 2 : 1;
+    for (let y = y0; y <= y1; y++)
+      for (let m = 0; m < 12; m += every) {
+        const tt = Date.UTC(y, m, 1);
+        if (tt >= t0 && tt <= t1)
+          xTicks.push({ t: tt, label: m === 0 ? String(y) : `${String(m + 1).padStart(2, "0")}/${String(y).slice(2)}`, major: m === 0 });
+      }
+  }
+  const ri = s.dates.indexOf(s.reference_date);
   const i1 = s.dates.indexOf(first);
   const i2 = s.dates.indexOf(second);
+  const pair = i1 >= 0 && i2 >= 0;
+  const dt = pair ? Math.round((ts[i2] - ts[i1]) / day) : 0;
+  const db = pair ? s.bperp_m[i2] - s.bperp_m[i1] : 0;
+  const mono = "'JetBrains Mono Variable', monospace"; // an SVG attribute: no CSS variable
+  const pairLabel = () => {
+    // beside the pair, clear of its two points: right of the later one, at the height of the higher one
+    const label = `Δt ${dt} ${t("days")} · ΔB⊥ ${db >= 0 ? "+" : ""}${db.toFixed(0)} m`;
+    const w = label.length * 6.6 + 14;
+    const right = Math.max(X(ts[i1]), X(ts[i2])) + 14;
+    const left = Math.min(X(ts[i1]), X(ts[i2])) - 14 - w;
+    const x = right + w <= W - pad.r ? right : Math.max(left, pad.l + 2);
+    const top = Math.min(Y(s.bperp_m[i1]), Y(s.bperp_m[i2]));
+    const y = Math.min(Math.max(top - 26, pad.t), H - pad.b - 24);
+    return (
+      <g pointerEvents="none">
+        <rect x={x} y={y} width={w} height={20} rx={5} fill="var(--c-warn-bg)" stroke="var(--c-highlight)" strokeOpacity="0.6" />
+        <text x={x + w / 2} y={y + 14} fill="var(--c-highlight)" fontSize="12" textAnchor="middle" fontFamily={mono}>{label}</text>
+      </g>
+    );
+  };
+  const hoverCard = (i: number) => {
+    const hx = X(ts[i]);
+    const hy = Y(s.bperp_m[i]);
+    const lines = [
+      s.dates[i] + (i === ri ? ` · ${t("stack reference")}` : ""),
+      `B⊥ ${s.bperp_m[i].toFixed(0)} m`,
+      ri >= 0 && i !== ri ? `${t("vs reference")}: ${Math.round((ts[i] - ts[ri]) / day)} ${t("days")}` : "",
+    ].filter(Boolean);
+    const w = Math.max(...lines.map((l) => l.length)) * 6.6 + 16;
+    const x = hx + 14 + w > W - pad.r ? hx - 14 - w : hx + 14;
+    const y = Math.min(Math.max(hy - 30, pad.t), H - pad.b - 18 * lines.length - 8);
+    return (
+      <g pointerEvents="none">
+        <rect x={x} y={y} width={w} height={18 * lines.length + 8} rx={6} fill="var(--c-bg)" stroke="var(--c-line-3)" />
+        {lines.map((l, k) => (
+          <text key={k} x={x + 8} y={y + 17 + 18 * k} fill={k === 0 ? "var(--c-ink)" : "var(--c-ink-3)"} fontSize="12" fontFamily={mono}>{l}</text>
+        ))}
+      </g>
+    );
+  };
+  const midY = (pad.t + H - pad.b) / 2;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={t("Baseline plot")}>
-      <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke="#22324d" />
-      <line x1={pad.l} x2={pad.l} y1={pad.t} y2={H - pad.b} stroke="#22324d" />
-      <text x={6} y={pad.t + 8} fill="#93a4bf" fontSize="12">B⊥ m</text>
-      <text x={pad.l} y={H - 6} fill="#93a4bf" fontSize="12">{s.dates[0]}</text>
-      <text x={W - pad.r} y={H - 6} fill="#93a4bf" fontSize="12" textAnchor="end">{s.dates[s.dates.length - 1]}</text>
-      <text x={pad.l - 4} y={Y(b1) + 3} fill="#93a4bf" fontSize="12" textAnchor="end">{b1.toFixed(0)}</text>
-      <text x={pad.l - 4} y={Y(b0) + 3} fill="#93a4bf" fontSize="12" textAnchor="end">{b0.toFixed(0)}</text>
-      {i1 >= 0 && i2 >= 0 && <line x1={X(ts[i1])} y1={Y(s.bperp_m[i1])} x2={X(ts[i2])} y2={Y(s.bperp_m[i2])} stroke="#ffd34d" strokeWidth="2" />}
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full select-none" role="img" aria-label={t("Baseline plot")} onMouseLeave={() => setHover(null)}>
+      {yTicks.map((v) => (
+        <g key={`y${v}`}>
+          <line x1={pad.l} x2={W - pad.r} y1={Y(v)} y2={Y(v)} stroke={v === 0 ? "var(--c-line-3)" : "var(--c-chip)"} strokeDasharray={v === 0 ? undefined : "3 4"} />
+          <text x={pad.l - 8} y={Y(v) + 4} fill="var(--c-muted)" fontSize="12" textAnchor="end" fontFamily={mono}>{v}</text>
+        </g>
+      ))}
+      {xTicks.map((k) => (
+        <g key={`x${k.t}`}>
+          <line x1={X(k.t)} x2={X(k.t)} y1={pad.t} y2={H - pad.b} stroke={k.major ? "var(--c-line-2)" : "var(--c-line)"} />
+          <line x1={X(k.t)} x2={X(k.t)} y1={H - pad.b} y2={H - pad.b + (k.major ? 6 : 3)} stroke="var(--c-muted)" />
+          {k.label && <text x={X(k.t)} y={H - pad.b + 20} fill="var(--c-muted)" fontSize="12" textAnchor="middle">{k.label}</text>}
+        </g>
+      ))}
+      <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke="var(--c-line-3)" />
+      <text x={16} y={midY} fill="var(--c-muted)" fontSize="12" textAnchor="middle" transform={`rotate(-90 16 ${midY})`}>{t("perpendicular baseline B⊥ (m)")}</text>
+      <text x={(pad.l + W - pad.r) / 2} y={H - 6} fill="var(--c-muted)" fontSize="12" textAnchor="middle">{t("acquisition date")}</text>
+      {ri >= 0 &&
+        s.dates.map((d, i) =>
+          i === ri ? null : <line key={`n${d}`} x1={X(ts[ri])} y1={Y(s.bperp_m[ri])} x2={X(ts[i])} y2={Y(s.bperp_m[i])} stroke="var(--c-accent)" strokeOpacity="0.14" />,
+        )}
+      {pair && <line x1={X(ts[i1])} y1={Y(s.bperp_m[i1])} x2={X(ts[i2])} y2={Y(s.bperp_m[i2])} stroke="var(--c-highlight)" strokeWidth="3" strokeLinecap="round" />}
       {s.dates.map((d, i) => {
-        const on = d === first || d === second;
+        const on = i === i1 || i === i2;
+        const isRef = i === ri;
         return (
-          <g key={d} className="cursor-pointer" onClick={() => onPick(d)}>
-            <title>{`${d} · B⊥ ${s.bperp_m[i].toFixed(0)} m${d === s.reference_date ? ` · ${t("stack reference")}` : ""}`}</title>
-            <circle cx={X(ts[i])} cy={Y(s.bperp_m[i])} r={on ? 6 : 4.5} fill={on ? "#ffd34d" : d === s.reference_date ? "#4cc2ff" : "#93a4bf"} stroke="#0b1220" />
+          <g key={d} className="cursor-pointer" onClick={() => onPick(d)} onMouseEnter={() => setHover(i)}>
+            <circle cx={X(ts[i])} cy={Y(s.bperp_m[i])} r={12} fill="transparent" />
+            {isRef && <circle cx={X(ts[i])} cy={Y(s.bperp_m[i])} r={10} fill="none" stroke="var(--c-accent)" strokeWidth="2" />}
+            <circle cx={X(ts[i])} cy={Y(s.bperp_m[i])} r={on ? 7.5 : hover === i ? 6.5 : 5} fill={on ? "var(--c-highlight)" : isRef ? "var(--c-accent)" : "var(--c-ink-3)"} stroke="var(--c-bg)" strokeWidth="1.5" />
+            {on && (
+              <text x={X(ts[i])} y={Y(s.bperp_m[i]) + 3.5} fill="var(--c-bg)" fontSize="9.5" fontWeight="bold" textAnchor="middle" pointerEvents="none">
+                {i === i1 ? 1 : 2}
+              </text>
+            )}
           </g>
         );
       })}
+      {pair && pairLabel()}
+      {hover != null && hoverCard(hover)}
     </svg>
   );
 }
@@ -555,7 +663,7 @@ function ThumbPicker({ name, s, p, onCentre }: { name: string; s: LearnStack; p:
     >
       <canvas ref={cv} className="block h-full w-full" />
       <span
-        className="pointer-events-none absolute border-2 border-[#ffd34d]"
+        className="pointer-events-none absolute border-2 border-highlight"
         style={{ left: `${(p.col0 / (w * f)) * 100}%`, top: `${(p.row0 / (h * f)) * 100}%`, width: `${(p.cols / (w * f)) * 100}%`, height: `${(p.rows / (h * f)) * 100}%` }}
       />
     </div>
@@ -579,21 +687,21 @@ function Profile({ g, row, ex }: { g: Grid; row: number; ex: boolean }) {
     <div className="rounded-lg border border-line bg-panel-2 p-2">
       <div className="mb-1 flex flex-wrap gap-3 text-[11px] text-muted">
         <span className="font-semibold text-ink">{t("Profile along row {r}", { r: row })}</span>
-        <span className="flex items-center gap-1"><span className="h-0.5 w-4 bg-[#93a4bf]" /> {t("wrapped")}</span>
-        <span className="flex items-center gap-1"><span className="h-0.5 w-4 bg-[#ffd34d]" /> {t("unwrapped")}</span>
+        <span className="flex items-center gap-1"><span className="h-0.5 w-4 bg-muted" /> {t("wrapped")}</span>
+        <span className="flex items-center gap-1"><span className="h-0.5 w-4 bg-highlight" /> {t("unwrapped")}</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
         {[-Math.PI, Math.PI].map((v) => (
           <g key={v}>
-            <line x1={36} x2={W - 10} y1={Y(v)} y2={Y(v)} stroke="#22324d" strokeDasharray="3 3" />
-            <text x={30} y={Y(v) + 3} fill="#93a4bf" fontSize="12" textAnchor="end">{v < 0 ? "−π" : "+π"}</text>
+            <line x1={36} x2={W - 10} y1={Y(v)} y2={Y(v)} stroke="var(--c-line-2)" strokeDasharray="3 3" />
+            <text x={30} y={Y(v) + 3} fill="var(--c-muted)" fontSize="12" textAnchor="end">{v < 0 ? "−π" : "+π"}</text>
           </g>
         ))}
-        {Y(Math.PI) - Y(hi) > 14 && <text x={30} y={Y(hi) + 8} fill="#93a4bf" fontSize="12" textAnchor="end">{hi.toFixed(0)}</text>}
-        {Y(lo) - Y(-Math.PI) > 14 && <text x={30} y={Y(lo)} fill="#93a4bf" fontSize="12" textAnchor="end">{lo.toFixed(0)}</text>}
-        <path d={path(wr)} fill="none" stroke="#93a4bf" strokeWidth="1" />
-        <path d={path(un)} fill="none" stroke="#ffd34d" strokeWidth="1.6" />
-        <text x={W - 10} y={H - 2} fill="#93a4bf" fontSize="12" textAnchor="end">{t("range →")} · rad</text>
+        {Y(Math.PI) - Y(hi) > 14 && <text x={30} y={Y(hi) + 8} fill="var(--c-muted)" fontSize="12" textAnchor="end">{hi.toFixed(0)}</text>}
+        {Y(lo) - Y(-Math.PI) > 14 && <text x={30} y={Y(lo)} fill="var(--c-muted)" fontSize="12" textAnchor="end">{lo.toFixed(0)}</text>}
+        <path d={path(wr)} fill="none" stroke="var(--c-muted)" strokeWidth="1" />
+        <path d={path(un)} fill="none" stroke="var(--c-highlight)" strokeWidth="1.6" />
+        <text x={W - 10} y={H - 2} fill="var(--c-muted)" fontSize="12" textAnchor="end">{t("range →")} · rad</text>
       </svg>
     </div>
   );
@@ -605,7 +713,7 @@ function SeriesChart({ s, pairRate }: { s: LearnSeries; pairRate: number | null 
     const el = box.current;
     if (!el) return;
     const x = s.dates.map((d) => Date.parse(d) / 1000);
-    const axis = { stroke: "#93a4bf", grid: { stroke: "#1a2740", width: 1 }, ticks: { stroke: "#22324d", width: 1 }, font: "11px Inter, system-ui, sans-serif" };
+    const axis = { stroke: themeColor("muted"), grid: { stroke: themeColor("chip"), width: 1 }, ticks: { stroke: themeColor("line-2"), width: 1 }, font: "11px 'Lexend Variable', system-ui, sans-serif" };
     const plot = new uPlot(
       {
         width: el.clientWidth,
@@ -616,12 +724,12 @@ function SeriesChart({ s, pairRate }: { s: LearnSeries; pairRate: number | null 
         scales: { x: { time: true } },
         axes: [
           { ...axis, values: (_u, v) => v.map((z) => new Date(z * 1000).toISOString().slice(0, 7)) },
-          { ...axis, size: 46, label: t("mm (LOS)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
+          { ...axis, size: 46, label: t("mm (LOS)"), labelSize: 14, labelFont: "11px 'Lexend Variable', sans-serif" },
         ],
         series: [
           {},
-          { stroke: "#4cc2ff", width: 1.2, points: { show: true, size: 6, fill: "#4cc2ff", stroke: "#0b1220" } },
-          { stroke: "#ffd34d", width: 2, points: { show: false } },
+          { stroke: themeColor("accent"), width: 1.2, points: { show: true, size: 6, fill: themeColor("accent"), stroke: themeColor("bg") } },
+          { stroke: themeColor("highlight"), width: 2, points: { show: false } },
         ],
       },
       [x, s.disp_mm, s.fit_mm] as uPlot.AlignedData,
@@ -638,8 +746,8 @@ function SeriesChart({ s, pairRate }: { s: LearnSeries; pairRate: number | null 
     <div className="rounded-lg border border-line bg-panel-2 p-2">
       <div ref={box} className="w-full" />
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
-        <span className="flex items-center gap-1 text-muted"><span className="h-2 w-2 rounded-full bg-[#4cc2ff]" /> {t("displacement of the point (0 at the first date)")}</span>
-        <span className="flex items-center gap-1 text-muted"><span className="h-0.5 w-4 bg-[#ffd34d]" /> {t("line fitted to all dates")}</span>
+        <span className="flex items-center gap-1 text-muted"><span className="h-2 w-2 rounded-full bg-accent" /> {t("displacement of the point (0 at the first date)")}</span>
+        <span className="flex items-center gap-1 text-muted"><span className="h-0.5 w-4 bg-highlight" /> {t("line fitted to all dates")}</span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px]">
         <span className="text-muted">{t("Velocity from the series")}</span>
@@ -661,7 +769,7 @@ function Select({ label, value, options, onChange, title }: { label: string; val
   return (
     <label className="flex items-center justify-between gap-2 text-[12px]" title={title ? t(title) : undefined}>
       <span className="text-muted">{t(label)}</span>
-      <select className="h-7 min-w-0 max-w-[150px] rounded-md border border-line-2 bg-[#0f1828] px-1.5 text-[12px] text-ink" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="h-7 min-w-0 max-w-[150px] rounded-md border border-line-2 bg-panel-3 px-1.5 text-[12px] text-ink" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -806,35 +914,40 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
         </div>
       </ChapterNav>
 
-      <div className="min-w-0 flex-1 overflow-y-auto p-4">
-        <header className="flex flex-wrap items-baseline gap-3">
-          <span className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</span>
-          <h1 className="m-0 text-[20px] font-bold tracking-tight">{t(S.title)}</h1>
-          {g && (
-            <span className="text-[12px] text-muted">
-              {g.meta.params.first} → {g.meta.params.second} · {g.meta.days} {t("days")} · B⊥ {g.meta.bperp_m.toFixed(0)} m
-              {k >= 7 && k <= 9 && ` · γ ≥ ${g.meta.params.coh_thr}`}
-            </span>
-          )}
-          {pairQ.isFetching && <span className="text-[12px] text-accent">{t("computing…")}</span>}
-        </header>
-        <p className="mt-1 max-w-[900px] text-[13.5px] text-ink-2">{t(S.goal)}</p>
-
-        {!name || stacksQ.isLoading ? (
-          <div className="mt-6 text-muted">{t("Loading…")}</div>
-        ) : !st ? (
-          <div className="mt-6 max-w-[640px] rounded-xl border border-line bg-panel p-4 text-[13px] text-muted">
-            {t("This project has no stack yet: run its processing up to the stack, or choose another project.")}
-          </div>
-        ) : (
-          <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="min-w-0 space-y-3">
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <Lesson
+          chapter={1}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          status={
+            <>
+              {g && (
+                <span className="text-muted">
+                  {g.meta.params.first} → {g.meta.params.second} · {g.meta.days} {t("days")} · B⊥ {g.meta.bperp_m.toFixed(0)} m
+                  {k >= 7 && k <= 9 && ` · γ ≥ ${g.meta.params.coh_thr}`}
+                </span>
+              )}
+              {pairQ.isFetching && <span className="text-accent">{t("computing…")}</span>}
+            </>
+          }
+          idea={S.what}
+          figures={
+            !name || stacksQ.isLoading ? (
+              <div className="text-muted">{t("Loading…")}</div>
+            ) : !st ? (
+              <div className="max-w-[640px] rounded-xl border border-line bg-panel p-4 text-[13px] text-muted">
+                {t("This project has no stack yet: run its processing up to the stack, or choose another project.")}
+              </div>
+            ) : (
+              <div className="space-y-3">
               {S.id === "setup" && p && (
                 <div className="grid max-w-[1000px] gap-4">
                   <Box title="Pairs of the stack">
                     <BaselinePlot s={st} first={p.first} second={p.second} onPick={pickDate} />
                     <div className="mt-1 text-[11.5px] text-muted">
-                      {t("Next click sets scene {n}.", { n: pickSlot + 1 })} <span className="text-[#4cc2ff]">●</span> {t("stack reference")} <span className="text-[#ffd34d]">●</span> {t("chosen pair")}
+                      {t("Next click sets scene {n}.", { n: pickSlot + 1 })} <span className="text-accent">●</span> {t("stack reference")} <span className="text-highlight">●</span> {t("chosen pair")}
                     </div>
                   </Box>
                   <Box title="Area">
@@ -864,7 +977,7 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
                 </div>
               )}
 
-              {pairQ.error && <div className="rounded-lg border border-[#5c2424] bg-[#2a1414] px-3 py-2 text-[12.5px] text-[#ffb3b3]">{(pairQ.error as Error).message}</div>}
+              {pairQ.error && <div className="rounded-lg border border-bad-line bg-bad-bg px-3 py-2 text-[12.5px] text-bad-ink">{(pairQ.error as Error).message}</div>}
 
               {g && panels.length > 0 && (
                 <div className={`grid gap-3 ${panels.length === 1 ? "max-w-[760px]" : panels.length === 2 ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
@@ -926,18 +1039,19 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {t("Next")} →
-                </Button>
               </div>
-            </div>
-
-            {/* explanation and controls */}
-            <aside className="space-y-3">
+            )
+          }
+          formula={S.formula}
+          symbols={S.formula ? SCIENCE[S.id]?.symbols : undefined}
+          look={S.look}
+          deeper={SCIENCE[S.id] ? <ScienceDeeper sc={SCIENCE[S.id]} withSymbols={!S.formula} /> : undefined}
+          doc={`${t("The whole learning path:")} docs/${lang()}/guide/learn-insar-pair.md`}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={
+            st ? (
+              <>
               {p && S.controls?.includes("coh") && (
                 <Box title="Adjust">
                   <div className="space-y-2">
@@ -994,29 +1108,6 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
                   </label>
                 </Box>
               )}
-              <Box title="What happens">
-                <ul className="m-0 list-disc space-y-1 pl-4 text-[12.5px] leading-snug text-ink-2">
-                  {S.what.map((w) => (
-                    <li key={w}>{t(w)}</li>
-                  ))}
-                </ul>
-              </Box>
-              {S.formula && (
-                <Box title="Formula">
-                  <div className="space-y-1 font-mono text-[12.5px] text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                </Box>
-              )}
-              <Box title="What to look for">
-                <ul className="m-0 list-disc space-y-1 pl-4 text-[12.5px] leading-snug text-ink-2">
-                  {S.look.map((w) => (
-                    <li key={w}>{t(w)}</li>
-                  ))}
-                </ul>
-              </Box>
               {g && S.metrics && (
                 <Box title="Numbers">
                   <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[12px]">
@@ -1029,9 +1120,70 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
                   </div>
                 </Box>
               )}
-            </aside>
-          </div>
-        )}
+              </>
+            ) : undefined
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/** "Going deeper" of a step: derivation and assumptions, parameters, literature (pages/learnScience.ts); the symbols
+ * when the step has no formula to list them under. */
+function ScienceDeeper({ sc, withSymbols }: { sc: Science; withSymbols: boolean }) {
+  const table = (head: string[], rows: [string, string, string][], mono0 = true) => (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[12.5px]">
+        <thead>
+          <tr>
+            {head.map((h) => (
+              <th key={h} className="border-b border-line-2 px-2 py-1.5 text-left font-semibold text-ink">{t(h)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r[0]} className="align-top">
+              <td className={`border-b border-line px-2 py-1.5 whitespace-nowrap text-ink ${mono0 ? "font-mono" : "font-semibold"}`}>{mono0 ? r[0] : t(r[0])}</td>
+              <td className="border-b border-line px-2 py-1.5 text-ink-2">{t(r[1])}</td>
+              <td className="border-b border-line px-2 py-1.5 text-muted">{t(r[2])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+  const h3 = "m-0 mb-2 text-[11px] font-semibold tracking-[1.2px] text-muted uppercase";
+  return (
+    <div className="max-w-[860px] space-y-6 rounded-xl border border-line bg-panel/60 p-4">
+      {withSymbols && (
+        <div>
+          <h3 className={h3}>{t("Symbols")}</h3>
+          {table(["Symbol", "Meaning", "Unit · typical value"], sc.symbols)}
+        </div>
+      )}
+      <div>
+        <h3 className={h3}>{t("Derivation and assumptions")}</h3>
+        <div className="flex flex-col gap-2.5 text-[13.5px] leading-relaxed text-ink-2">
+          {sc.theory.map((x) => (
+            <p key={x} className="m-0">{t(x)}</p>
+          ))}
+        </div>
+      </div>
+      {sc.params && (
+        <div>
+          <h3 className={h3}>{t("Parameters")}</h3>
+          {table(["Parameter", "Effect", "In GeoEyes"], sc.params, false)}
+        </div>
+      )}
+      <div>
+        <h3 className={h3}>{t("Literature")}</h3>
+        <ol className="m-0 space-y-1 pl-5 text-[12px] leading-snug text-muted">
+          {sc.refs.map((r) => (
+            <li key={r}>{REFS[r]}</li>
+          ))}
+        </ol>
       </div>
     </div>
   );

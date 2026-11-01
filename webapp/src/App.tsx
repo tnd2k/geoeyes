@@ -8,15 +8,31 @@ import { Ai } from "./pages/Ai";
 import { Hazard } from "./pages/Hazard";
 import { Learn } from "./pages/Learn";
 import { NewProject } from "./pages/NewProject";
+import { OpenData } from "./pages/OpenData";
 import { Overview } from "./pages/Overview";
 import { Project } from "./pages/Project";
 import { LangSwitch, t, ts } from "./i18n";
 import { ActivityWatcher, Bell } from "./notify";
 import { href, useApp } from "./state";
+import { ThemeSwitch } from "./theme";
+import { AskHost } from "./ui";
+import { PageTabs } from "./components/PageTabs";
+import type { Route } from "./state";
+
+// the tabs of the Projects page and of the In-depth analysis page
+const PROJECT_TABS: [Route["page"], string][] = [
+  ["overview", "My projects"],
+  ["opendata", "Open data"],
+];
+const INSIGHT_TABS: [Route["page"], string][] = [
+  ["hazard", "Thematic analysis"],
+  ["ai", "Machine learning research"],
+  ["learn", "Principles"],
+];
 
 function Logo() {
   return (
-    <svg width="24" height="24" viewBox="0 0 26 26" fill="none" stroke="#4cc2ff" strokeWidth="1.8" aria-hidden>
+    <svg width="24" height="24" viewBox="0 0 26 26" fill="none" stroke="var(--c-accent)" strokeWidth="1.8" aria-hidden>
       <circle cx="13" cy="13" r="11" />
       <ellipse cx="13" cy="13" rx="5" ry="11" />
       <path d="M2 13h22" />
@@ -50,10 +66,10 @@ function Login({ onDone }: { onDone: () => void }) {
           value={token}
           onChange={(e) => setToken(e.target.value)}
           aria-label={t("Login token")}
-          className="mt-4 h-10 w-full rounded-md border border-line-2 bg-[#0a1322] px-3 font-mono text-[13px] focus:border-accent focus:outline-none"
+          className="mt-4 h-10 w-full rounded-md border border-line-2 bg-sunken px-3 font-mono text-[13px] focus:border-accent focus:outline-none"
         />
         {error && <div className="mt-2 text-[12.5px] text-bad">{error}</div>}
-        <button type="submit" className="mt-4 h-10 w-full rounded-lg bg-accent-2 text-[14px] font-semibold text-white hover:bg-[#4b9dff]">
+        <button type="submit" className="mt-4 h-10 w-full rounded-lg bg-accent-2 text-[14px] font-semibold text-white hover:bg-accent-2">
           {t("Sign in")}
         </button>
       </form>
@@ -86,15 +102,15 @@ function Shell() {
   const lastProject =
     route.page === "project" ? route.name : Object.values(ws.data?.projects ?? {}).find((p) => p.status === "running")?.name;
   const nav: { label: string; to: string; on: boolean; title?: string }[] = [
-    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" },
+    // the open data (stacks to start a project from) is a tab of the Projects page
+    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" || route.page === "opendata" },
     ...(lastProject
       ? [{ label: t("Processing"), to: href({ page: "project", name: lastProject }), on: route.page === "project", title: lastProject }]
       : []),
     { label: t("Results"), to: href({ page: "explorer" }), on: route.page === "explorer" },
-    { label: t("Thematic analysis"), to: href({ page: "hazard" }), on: route.page === "hazard" },
-    { label: t("Machine learning research"), to: href({ page: "ai" }), on: route.page === "ai" },
+    // thematic analysis, machine learning and principles are the tabs of one page
+    { label: t("In-depth analysis"), to: href({ page: "hazard" }), on: INSIGHT_TABS.some(([p]) => p === route.page) },
     { label: t("Map export"), to: href({ page: "compose" }), on: route.page === "compose" },
-    { label: t("Principles"), to: href({ page: "learn" }), on: route.page === "learn" },
   ];
 
   return (
@@ -133,6 +149,7 @@ function Shell() {
           <a href="/api/docs" target="_blank" rel="noopener" className="text-muted hover:text-ink">
             API
           </a>
+          <ThemeSwitch />
           <LangSwitch />
           <Bell />
           <ActivityWatcher ws={ws.data} />
@@ -145,16 +162,25 @@ function Shell() {
           </aside>
         )}
         <main className="min-w-0 flex-1">
-          {route.page === "overview" && <Overview ws={ws.data} />}
+          {PROJECT_TABS.some(([p]) => p === route.page) && (
+            <PageTabs tabs={PROJECT_TABS} route={route}>
+              {route.page === "overview" ? <Overview ws={ws.data} /> : <OpenData ws={ws.data} />}
+            </PageTabs>
+          )}
           {route.page === "explorer" && <Explorer ws={ws.data} />}
           {route.page === "project" && <Project name={route.name} tab={route.tab} />}
           {route.page === "new" && <NewProject ws={ws.data} />}
           {route.page === "compose" && <Compose ws={ws.data} />}
-          {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
-          {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
-          {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} layer={route.view} />}
+          {INSIGHT_TABS.some(([p]) => p === route.page) && (
+            <PageTabs tabs={INSIGHT_TABS} route={route}>
+              {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} layer={route.view} />}
+              {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
+              {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
+            </PageTabs>
+          )}
         </main>
       </div>
+      <AskHost />
     </div>
   );
 }

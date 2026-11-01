@@ -48,10 +48,10 @@ function save(key: string, v: unknown) {
 }
 
 export const LEVEL: Record<Level, { color: string; bg: string; icon: string }> = {
-  info: { color: "#7cd2ff", bg: "#102033", icon: "i" },
-  success: { color: "#3ecf8e", bg: "#0f2a1f", icon: "✓" },
-  warning: { color: "#f5b84b", bg: "#2a2110", icon: "!" },
-  error: { color: "#ff8a8a", bg: "#2a1414", icon: "×" },
+  info: { color: "var(--c-accent-ink)", bg: "var(--c-accent-bg)", icon: "i" },
+  success: { color: "var(--c-good)", bg: "var(--c-good-bg)", icon: "✓" },
+  warning: { color: "var(--c-warn)", bg: "var(--c-warn-bg)", icon: "!" },
+  error: { color: "var(--c-bad)", bg: "var(--c-bad-bg)", icon: "×" },
 };
 
 export function NotifyProvider({ children }: { children: ReactNode }) {
@@ -162,7 +162,7 @@ export function Bell() {
           <path d="M8 2a4 4 0 0 0-4 4v2.5L2.8 11h10.4L12 8.5V6a4 4 0 0 0-4-4ZM6.5 13a1.5 1.5 0 0 0 3 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
         </svg>
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-[#ff6b6b] px-1 text-center text-[10px] leading-4 font-bold text-white">{unread > 99 ? "99+" : unread}</span>
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-bad px-1 text-center text-[10px] leading-4 font-bold text-white">{unread > 99 ? "99+" : unread}</span>
         )}
       </button>
       {open && (
@@ -193,7 +193,7 @@ export function Bell() {
             {notes.map((n) => {
               const l = LEVEL[n.level];
               return (
-                <div key={n.id} className={`flex gap-2.5 border-b border-line/60 px-3 py-2.5 ${n.read ? "" : "bg-[#0f1a2e]"}`}>
+                <div key={n.id} className={`flex gap-2.5 border-b border-line/60 px-3 py-2.5 ${n.read ? "" : "bg-panel-3"}`}>
                   <span className="mt-0.5 flex h-4.5 w-4.5 flex-none items-center justify-center rounded-full text-[10px] font-bold" style={{ background: l.bg, color: l.color }}>
                     {l.icon}
                   </span>
@@ -275,13 +275,14 @@ export function ActivityWatcher({ ws }: { ws: Workspace | undefined }) {
       changed = true;
       if (first) return;                               // already finished before this browser watched it
       const ok = j.state === "done";
-      const what = { hazard: "Hazard zoning", gnss: "GNSS comparison", susceptibility: "Susceptibility model", forecast: "Deformation forecast" }[j.kind];
+      const what = { hazard: "Hazard zoning", gnss: "GNSS comparison", susceptibility: "Susceptibility model", forecast: "Deformation forecast", atmosphere: "Weather model comparison" }[j.kind];
       const p = `${encodeURIComponent(j.project)}/${encodeURIComponent(j.product)}`;
       const href = {
         hazard: `#/hazard/${p}`,
         gnss: `#/project/${encodeURIComponent(j.project)}/validation`,
         susceptibility: `#/ai/${p}/susceptibility`,
         forecast: `#/ai/${p}/forecast`,
+        atmosphere: `#/project/${encodeURIComponent(j.project)}/atmosphere`,
       }[j.kind];
       notify(
         { id: `${j.kind}:${j.project}:${j.started}`, level: ok ? "success" : "error", title: t(`${what} ${ok ? "finished" : "failed"}: {project}`, { project: j.project }), body: j.product, href },

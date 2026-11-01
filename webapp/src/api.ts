@@ -52,7 +52,7 @@ export interface ProjectSummary {
   bbox?: [number, number, number, number] | null;
   status: Status;
   error?: string;
-  running?: { pid: number; started: string; run_id: string | null } | null;
+  running?: { pid: number; started: string; run_id: string | null; stage?: "planning" | "running" } | null;
   date_range?: [string, string] | null;
   last_run?: RunRecord | null;
   alerts?: number;
@@ -635,6 +635,143 @@ export interface GnssStatus {
   log: string[];
 }
 
+export interface WeatherModel {
+  key: string;
+  name: string;
+  provider: string;
+  region: string;
+  resolution_km: number;
+  step_h: number;
+  start: string;
+  latency_days: number;
+  access: "auto" | "manual" | "planned";
+  note: string;
+  covers_area: boolean | null;
+  covers_dates: boolean;
+  usable: boolean;
+}
+
+export interface AtmosphereModelStats {
+  std_mm: number[];
+  r_height: (number | null)[];
+  aps_std_mm: number[] | null;
+  coverage: number | null;
+  median_std_mm: number;
+  reduction_pct: number;
+  best_ifgs: number;
+}
+
+export interface AtmosphereSummary {
+  created: string;
+  product: string;
+  ps_run: string;
+  points: number;
+  points_total: number;
+  reference_date: string;
+  ifg_dates: string[];
+  acquisition_utc: Record<string, string>;
+  current_method: string;
+  tried: string[];
+  errors: Record<string, string>;
+  models: Record<string, AtmosphereModelStats>;
+  grid: { size: number; bounds: [number, number, number, number]; layers: string[] };
+  span_days: number;
+}
+
+// reported flood locations (workspace inventory, `geoeyes floods`), located on OSM
+export type FloodLocated = "exact" | "approx" | "place" | "manual" | "ambiguous" | "none";
+export interface FloodFeature {
+  type: "Feature";
+  id: string;
+  geometry: { type: "Point"; coordinates: number[] } | { type: "LineString"; coordinates: number[][] } | { type: "MultiLineString"; coordinates: number[][][] } | null;
+  properties: {
+    region: string;
+    cause: "rain" | "tide" | "rain_tide" | "";
+    kind: string;
+    street: string;
+    ward: string;
+    text: string;
+    reported: string;
+    source: string;
+    url: string;
+    depth_m: string;
+    notes: string;
+    located: FloodLocated;
+  };
+}
+export interface FloodCollection {
+  type: "FeatureCollection";
+  regions: { region: string; n: number; stale: boolean }[];
+  features: FloodFeature[];
+}
+export interface FloodRowStats {
+  n: number;
+  vel_median?: number;
+  vel_p10?: number;
+  rank?: number;
+  ring_n?: number;
+  ring_median?: number;
+  contrast?: number;
+}
+export interface FloodStats {
+  radius_m: number;
+  ring_m: number;
+  product_median: number;
+  n_located: number;
+  n_with_points: number;
+  median_of_rows: number | null;
+  rows: Record<string, FloodRowStats>;
+}
+
+export type FloodLevel = "low" | "watch" | "high" | "very_high";
+export interface FloodAssessment {
+  score: number;
+  level: FloodLevel;
+  depth: "unlikely" | "lt20" | "20_40" | "gt40";
+  window: [string, string] | null;
+  rain_24h_mm: number;
+  rain_max_mm_h: number;
+  rain_prob_max: number;
+  tide_peak_m: number | null;
+  tide_peak_time: string | null;
+  parts: { rain: number; tide: number; w_rain: number; w_tide: number; subsidence_bonus: number };
+  velocity_mm_yr: number | null;
+  hours: { time: string[]; mm: number[]; prob: number[] };
+}
+export interface FloodTide {
+  time: string[];
+  level: (number | null)[];
+  median_daily_high: number;
+  highest: number;
+  point: number[];
+  source: string;
+}
+export interface FloodArea {
+  name: string;
+  centre: [number, number];
+  city: FloodAssessment;
+  // the city's subsidence: median velocity at its reported flood locations the product covers (>= 3), else null
+  subsidence?: { locations: number; sinking_over_5: number; median_mm_yr: number | null };
+  tide: FloodTide | null; // inland cities (Hanoi): rain only
+}
+export interface FloodOutlook {
+  generated: string;
+  areas: Record<string, FloodArea>;
+  rows: Record<string, FloodAssessment>;
+  sources: { rain: string; tide: string };
+}
+
+export interface AtmosphereStatus {
+  summary: AtmosphereSummary | null;
+  bbox: [number, number, number, number];
+  catalogue: WeatherModel[];
+  outlines: Record<string, [number, number][]>;
+  current_method: string;
+  running: boolean;
+  failed: boolean;
+  log: string[];
+}
+
 export interface GnssSeries {
   site: string;
   dates: string[];
@@ -659,6 +796,8 @@ export interface ProjectDetail extends ProjectSummary {
   products: ProductBrief[];
   exports: Record<string, string[]>;
   web_run_log: string[];
+  /** download rate of the live run: bytes per second over the last seconds, bytes so far, seconds since updated */
+  net?: { rate_bps: number; bytes: number; updated: number; age_s: number } | null;
 }
 
 export interface PlanStep {
@@ -675,6 +814,8 @@ export interface LogLine {
   track?: string | null;
   msg: string;
   event?: string | null;
+  done?: number;        // progress events: steps done of total
+  total?: number;
 }
 
 export interface VelClass {
@@ -686,6 +827,7 @@ export interface VelClass {
 
 export interface LayerMeta {
   tiles: { available: boolean; recommended: boolean; min_zoom?: number; max_zoom?: number };
+  hex_sizes?: number[]; // m: hexagon levels of the zoomed-out view
   product_id: string;
   n: number;
   origin: [number, number];
@@ -724,6 +866,29 @@ export interface AreaInfo {
   mean_scn_mm?: (number | null)[];
 }
 
+export interface DispMeta {
+  dates: string[];
+  scale: number;          // frames: int16 in 1/scale mm, −32768 = no value
+  min: number;
+  max: number;
+  classes: VelClass[];
+}
+
+export interface ProfileData {
+  n: number;
+  shown: number;
+  length_m: number;
+  half_width_m: number;
+  bin_m: number;
+  index: number[];
+  dist_m: number[];
+  offset_m: number[];
+  vel: number[];
+  vel_std: (number | null)[] | null;
+  height_m: (number | null)[] | null;
+  median: [number, number, number][];   // [distance m, median velocity, points]
+}
+
 export interface ReportDate {
   date: string;
   bperp_m?: number | null;
@@ -756,6 +921,7 @@ export interface FieldSpec {
   value: unknown;
   default: unknown;
   own: boolean;
+  used?: { track: string; value: unknown; auto: boolean }[] | null;   // [ps]: what the last run of a track used
 }
 
 export interface SettingsSpec {
@@ -793,7 +959,52 @@ export interface NewProject {
   date_range?: [string, string] | null;
   max_per_month?: number;
   archive?: string;
+  opendata?: string;
   atmosphere?: string;
+}
+
+export interface OpenDataSource {
+  source: string;
+  title: string;
+  homepage: string;
+  license: string;
+  sensor: string | null;
+  synced: string | null;
+  scenes: number;
+}
+
+export interface OpenDataSync {
+  running: boolean;
+  log: string[];
+  result: Record<string, { scenes: number; new: number; removed: number; failed: number }> | null;
+  error: string | null;
+  started: string | null;
+  finished: string | null;
+}
+
+export interface OpenDataStack {
+  id: string;
+  source: string;
+  sensor: string | null;
+  supported: boolean;
+  product: string;
+  platforms: string[];
+  track: string;
+  mode: string;
+  orbit_state: string;
+  look: string;
+  polarization: string;
+  incidence: [number, number] | null;
+  n_dates: number;
+  first: string;
+  last: string;
+  span_days: number;
+  median_gap_days: number | null;
+  min_gap_days: number | null;
+  bbox: [number, number, number, number];
+  footprint: [number, number][];
+  scenes: { id: string; date: string; datetime: string; platform: string; incidence: number | null; item: string }[];
+  place?: string;
 }
 
 export interface CompareMeta {
@@ -841,7 +1052,7 @@ export interface CrReport {
 
 export interface AlertRule {
   name: string;
-  kind: "velocity_below" | "velocity_above";
+  kind: "velocity_below" | "velocity_above" | "deviation_below" | "deviation_above";
   threshold: number;
   min_points: number;
   bbox?: number[];
@@ -929,15 +1140,21 @@ export const api = {
   saveFolders: (tree: FolderTree) =>
     request<FolderTree>("/api/folders", { ...json(tree), method: "PUT" }),
   project: (name: string) => request<ProjectDetail>(P(name)),
-  plan: (name: string, force: string[] = []) =>
-    request<{ steps: PlanStep[] }>(`${P(name)}/plan?force=${force.join(",")}`),
-  run: (name: string, body: { tracks?: string[]; force?: string[]; only?: string } = {}) =>
+  plan: (name: string, force: string[] = [], skip: string[] = []) =>
+    request<{ steps: PlanStep[] }>(`${P(name)}/plan?force=${force.join(",")}&skip=${encodeURIComponent(skip.join(","))}`),
+  psSteps: (name: string) => request<Record<string, { step: number; name: string; saved: string | null }[]>>(`${P(name)}/ps-steps`),
+  run: (name: string, body: { tracks?: string[]; force?: string[]; only?: string; from?: string; skip?: string[]; ps_from?: number; ps_to?: number } = {}) =>
     request<{ pid: number }>(`${P(name)}/run`, json(body)),
   stop: (name: string) => request<{ stopped: boolean }>(`${P(name)}/stop`, json({})),
   log: (name: string, run: string, after: number) =>
     request<{ lines: LogLine[]; next: number }>(`${P(name)}/runs/${run}/log?after=${after}`),
   product: (name: string, pid: string) => request<ProductReport>(`${P(name)}/products/${pid}`),
   layer: (name: string, pid: string) => request<LayerMeta>(`${P(name)}/products/${pid}/layer`),
+  layerHex: async (name: string, pid: string, size: number) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}`);
+    if (!r.ok) throw new Error(`hexagons: ${r.statusText}`);
+    return new Float32Array(await r.arrayBuffer()); // (dlon, dlat, median mm/yr, count) per hexagon
+  },
   layerPoints: async (name: string, pid: string) => {
     const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin`);
     if (!r.ok) throw new Error(`points: ${r.statusText}`);
@@ -951,6 +1168,14 @@ export const api = {
     request<PointInfo>(`${P(name)}/products/${pid}/layer/points/${i}`),
   area: (name: string, pid: string, ring: [number, number][]) =>
     request<AreaInfo>(`${P(name)}/products/${pid}/layer/area`, json({ ring })),
+  layerDisp: (name: string, pid: string) => request<DispMeta>(`${P(name)}/products/${pid}/layer/disp`),
+  layerDispFrame: async (name: string, pid: string, k: number) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/disp/${k}.bin`);
+    if (!r.ok) throw new Error(`displacement: ${r.statusText}`);
+    return new Int16Array(await r.arrayBuffer());
+  },
+  layerProfile: (name: string, pid: string, line: [number, number][], halfWidth: number) =>
+    request<ProfileData>(`${P(name)}/products/${pid}/layer/profile`, json({ line, half_width_m: halfWidth })),
   fileUrl: (name: string, pid: string, rel: string) => `${P(name)}/products/${pid}/files/${rel}`,
   exportUrl: (name: string, pid: string, file: string) => `${P(name)}/exports/${pid}/${file}`,
 
@@ -964,6 +1189,17 @@ export const api = {
   createProject: (spec: NewProject) => request<{ name: string }>("/api/projects", json(spec)),
   trashProjects: (names: string[]) =>
     request<{ trashed: { name: string; trash: string }[]; tree: FolderTree }>("/api/projects/trash", json({ names })),
+  opendataSources: () => request<{ sources: OpenDataSource[]; sync: OpenDataSync }>("/api/opendata/sources"),
+  opendataSyncState: () => request<OpenDataSync>("/api/opendata/sync"),
+  opendataSync: (sources?: string[]) => request<OpenDataSync>("/api/opendata/sync", json({ sources })),
+  opendataStacks: (q: { bbox?: number[] | null; start?: string; end?: string; source?: string; mode?: string; min_scenes?: number; supported?: boolean }) => {
+    const p = new URLSearchParams();
+    if (q.bbox) p.set("bbox", q.bbox.join(","));
+    for (const k of ["start", "end", "source", "mode"] as const) if (q[k]) p.set(k, q[k]!);
+    if (q.min_scenes) p.set("min_scenes", String(q.min_scenes));
+    if (q.supported) p.set("supported", "true");
+    return request<{ stacks: OpenDataStack[] }>(`/api/opendata/stacks?${p}`);
+  },
   asfTracks: (bbox: number[]) => request<{ tracks: AsfTrack[] }>("/api/asf/tracks", json({ bbox })),
   asfPreview: (spec: { bbox: number[]; direction: string; relative_orbit: number; date_range: [string, string]; max_per_month: number; subswaths?: string[] }) =>
     request<AsfPreview>("/api/asf/preview", json(spec)),
@@ -983,15 +1219,31 @@ export const api = {
       }`,
     ),
   activity: () =>
-    request<{ jobs: { project: string; kind: "hazard" | "gnss" | "susceptibility" | "forecast"; product: string; started: string; finished: string | null; state: "running" | "done" | "failed" }[] }>(
+    request<{ jobs: { project: string; kind: "hazard" | "gnss" | "susceptibility" | "forecast" | "atmosphere"; product: string; started: string; finished: string | null; state: "running" | "done" | "failed" }[] }>(
       "/api/activity",
     ),
   rainfall: (name: string, pid: string) =>
     request<{ source: string; months: { month: string; mm: number | null }[] }>(`${P(name)}/products/${pid}/rainfall`),
+  floods: () => request<FloodCollection>("/api/floods"),
+  floodOutlook: (project?: string, product?: string, radius = 100) =>
+    request<FloodOutlook>(`/api/floods/outlook${project && product ? `?project=${encodeURIComponent(project)}&product=${encodeURIComponent(product)}&radius=${radius}` : ""}`),
+  productFloods: (name: string, pid: string, radius = 100) => request<FloodStats>(`${P(name)}/products/${pid}/floods?radius=${radius}`),
   gnss: (name: string, pid: string) => request<GnssStatus>(`${P(name)}/products/${pid}/gnss`),
   gnssRun: (name: string, pid: string, params: Record<string, unknown>) =>
     request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/gnss`, json({ params })),
   gnssStation: (name: string, pid: string, site: string) => request<GnssSeries>(`${P(name)}/products/${pid}/gnss/stations/${site}`),
+  atmosphere: (name: string, pid: string) => request<AtmosphereStatus>(`${P(name)}/products/${pid}/atmosphere`),
+  atmosphereRun: (name: string, pid: string, params: Record<string, unknown>) =>
+    request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/atmosphere`, json({ params })),
+  atmosphereGrid: async (name: string, pid: string, layer: string, k: number) => {
+    const q = `layer=${encodeURIComponent(layer)}&k=${k}`;
+    const meta = await request<{ layer: string; k: number; date: string; size: number; bounds: number[]; min: number; max: number }>(
+      `${P(name)}/products/${pid}/atmosphere/grid?${q}`,
+    );
+    const r = await fetch(`${P(name)}/products/${pid}/atmosphere/grid.bin?${q}`);
+    if (!r.ok) throw new Error(`atmosphere grid: ${r.statusText}`);
+    return { meta, data: new Float32Array(await r.arrayBuffer()) };
+  },
   ai: (name: string, pid: string) => request<AiStatus>(`${P(name)}/products/${pid}/ai`),
   aiRun: (name: string, pid: string, task: "susceptibility" | "forecast", params: Record<string, unknown>) =>
     request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/ai/${task}`, json({ params })),

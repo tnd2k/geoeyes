@@ -9,7 +9,7 @@ import { Button, Panel } from "../ui";
 type Draft = Record<string, unknown>; // "section.key" -> new value (null = back to default)
 
 const input =
-  "h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
+  "h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
 
 function show(v: unknown): string {
   if (v == null) return "–";
@@ -37,7 +37,7 @@ function Widget({ f, value, onChange, id }: { f: FieldSpec; value: unknown; onCh
           role="switch"
           aria-checked={!!value}
           onClick={() => onChange(!value)}
-          className={`relative h-6 w-11 rounded-full transition-colors ${value ? "bg-accent-2" : "bg-[#22324d]"}`}
+          className={`relative h-6 w-11 rounded-full transition-colors ${value ? "bg-accent-2" : "bg-line-2"}`}
         >
           <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${value ? "left-[22px]" : "left-0.5"}`} />
         </button>
@@ -74,7 +74,7 @@ function Widget({ f, value, onChange, id }: { f: FieldSpec; value: unknown; onCh
             <label key={o} className="flex items-center gap-1.5 text-[13px]">
               <input
                 type="checkbox"
-                className="accent-[#4cc2ff]"
+                className="accent-accent"
                 checked={cur.has(o)}
                 onChange={(e) => {
                   const n = new Set(cur);
@@ -225,9 +225,9 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
           )}
         </div>
       </div>
-      {error && <div className="rounded-lg bg-[#2a1414] px-3 py-2 text-[13px] whitespace-pre-wrap text-bad">{error.message}</div>}
+      {error && <div className="rounded-lg bg-bad-bg px-3 py-2 text-[13px] whitespace-pre-wrap text-bad">{error.message}</div>}
       {(save.isSuccess || saveToml.isSuccess) && !changed && !error && (
-        <div className="rounded-lg bg-[#0f2a1f] px-3 py-2 text-[13px] text-good">
+        <div className="rounded-lg bg-good-bg px-3 py-2 text-[13px] text-good">
           {t("Saved (previous file kept in .state/). Check the plan to see which phases the change re-runs.")}
         </div>
       )}
@@ -256,7 +256,7 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
               >
                 <span className="text-[14px] font-semibold">{ts(sec.title)}</span>
                 <span className="font-mono text-[11.5px] text-faint">[{sec.name}]</span>
-                {own > 0 && <span className="text-[11.5px] text-[#7cd2ff]">{t("{n} set in project.toml", { n: own })}</span>}
+                {own > 0 && <span className="text-[11.5px] text-accent-ink">{t("{n} set in project.toml", { n: own })}</span>}
                 <span className="ml-auto text-muted">{isOpen ? "–" : "+"}</span>
               </button>
               {isOpen && (
@@ -268,12 +268,12 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                     const own = has ? draft[k] !== null : f.own;
                     const id = `f-${k.replace(/\./g, "-")}`;
                     return (
-                      <div key={k} className={`rounded-lg ${has ? "bg-[#102033] ring-1 ring-[#2f6fb0]" : ""} -m-1.5 p-1.5`}>
+                      <div key={k} className={`rounded-lg ${has ? "bg-accent-bg ring-1 ring-accent-line" : ""} -m-1.5 p-1.5`}>
                         <div className="mb-1 flex items-center gap-2">
                           <label htmlFor={id} className="font-mono text-[12.5px] text-ink-2">
                             {f.key}
                           </label>
-                          <span className={`text-[11px] ${own ? "text-[#7cd2ff]" : "text-faint"}`}>{own ? "project.toml" : t("preset / default")}</span>
+                          <span className={`text-[11px] ${own ? "text-accent-ink" : "text-faint"}`}>{own ? "project.toml" : t("preset / default")}</span>
                           {own && !same(value, f.default) && (
                             <button
                               type="button"
@@ -299,6 +299,13 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                           }
                         />
                         {f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>}
+                        {f.used?.map((u) => (
+                          <div key={u.track} className="mt-1 text-[11.5px] leading-snug text-warn">
+                            {u.auto
+                              ? t("Last run of {track}: set from the data to {v}", { track: u.track, v: show(typeof u.value === "number" ? Number(u.value.toPrecision(4)) : u.value) })
+                              : t("Last run of {track} used {v}: run it again to apply the value above", { track: u.track, v: show(u.value) })}
+                          </div>
+                        ))}
                         {!own && f.default != null && <div className="sr-only">{t("default {v}", { v: show(f.default) })}</div>}
                       </div>
                     );

@@ -3,19 +3,19 @@
 // coupling); click a cell for its series in the motion direction, the rainfall of its pixel and the fitted models.
 // Method and sources: docs/en/research/rainfall-insar-hazard.md.
 import { LineLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from "@deck.gl/layers";
-import { MapboxOverlay } from "@deck.gl/mapbox";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import { api, type BehaviourCell, type AnalysisKind, type BehaviourStatus, type BehaviourSummary, type ConsolidationCell, type ConsolidationSummary, type DecomposeSummary, type GeologySummary, type HazardCell, type HazardCellsMeta, type HazardSummary, type LineProfile, type LinesSummary, type RiskBuilding, type RiskSummary, type Workspace } from "../api";
-import { BasemapPicker } from "../components/BasemapPicker";
+import type { LegendSpec } from "../legend";
+import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
+import { addTheme, composeTheme, type ThemeKind } from "../components/ThemeLayers";
 import { RainBars } from "../components/RainBars";
 import { t, ts } from "../i18n";
-import { mapStyle, type Base } from "../map";
 import { useWarnings } from "../notify";
 import { href, useApp } from "../state";
 import { Button, ColumnToggle, fmt, Fold, usePersisted } from "../ui";
+import { themeColor } from "../theme";
 
 export type RGB = [number, number, number];
 
@@ -31,8 +31,8 @@ export const NA_RGB: RGB = [75, 90, 115];
 const CLASS_RGB: RGB[] = [[75, 90, 115], [254, 224, 139], [252, 141, 89], [215, 48, 39]];
 const SEC_RGB: RGB[] = [[75, 90, 115], [194, 165, 207], [153, 112, 171], [118, 42, 131]];
 const RATE_BREAKS = [-30, -10, -2, 2, 10, 30];
-const RATE_RGB: RGB[] = [[33, 102, 172], [67, 147, 195], [146, 197, 222], [127, 139, 160], [244, 165, 130], [214, 96, 77], [178, 24, 43]];
-const LAG_RGB: RGB[] = [[68, 1, 84], [65, 68, 135], [42, 120, 142], [34, 168, 132], [122, 209, 81], [189, 223, 38], [253, 231, 37]];
+export const RATE_RGB: RGB[] = [[33, 102, 172], [67, 147, 195], [146, 197, 222], [127, 139, 160], [244, 165, 130], [214, 96, 77], [178, 24, 43]];
+export const LAG_RGB: RGB[] = [[68, 1, 84], [65, 68, 135], [42, 120, 142], [34, 168, 132], [122, 209, 81], [189, 223, 38], [253, 231, 37]];
 export const DEFAULT_MATRIX = [
   [0, 0, 1, 1],
   [1, 1, 2, 3],
@@ -262,7 +262,7 @@ export function rgb(c: RGB, a = 1) {
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
 
-function bin(v: number, breaks: number[]) {
+export function bin(v: number, breaks: number[]) {
   let k = 0;
   while (k < breaks.length && v >= breaks[k]) k++;
   return k;
@@ -376,7 +376,7 @@ export function MatrixFigure({ matrix }: { matrix: number[][] }) {
               <span
                 key={s}
                 title={`I${i} × S${s} → ${t(LEVELS[lv])}`}
-                className="flex h-6 items-center justify-center rounded-[4px] font-mono text-[11.5px] font-semibold text-[#0b1220]"
+                className="flex h-6 items-center justify-center rounded-[4px] font-mono text-[11.5px] font-semibold text-on-accent"
                 style={{ background: rgb(LEVEL_RGB[lv]) }}
               >
                 {lv}
@@ -425,119 +425,146 @@ function Swatches({ items }: { items: { color: RGB; label: string; alpha?: numbe
   );
 }
 
-export function Legend({ view, s }: { view: View; s: HazardSummary }) {
+/** The legend of a view of the zoning as data (the page and the map export draw it); null: the view has its own
+ * legend (behaviour, buildings, lines...). */
+export function hazardLegendSpec(view: View, s: HazardSummary): LegendSpec | null {
   if (view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil") return null; // BehaviourLegend
+  const title = t(VIEWS.find((x) => x.id === view)?.label ?? view);
   const p = s.params as Record<string, number[] | number>;
   const sb = p.subsidence_breaks as number[];
   const lb = p.landslide_breaks as number[];
   const db = p.distortion_breaks as number[];
   const slb = p.slope_breaks as number[];
   const frac = (x: number) => `1/${Math.round(1 / x)}`;
+  const na = (label: string) => ({ rgb: NA_RGB, label, alpha: 0.35 });
   if (view === "hazard")
-    return (
-      <>
-        <div className="mt-1 flex items-start justify-between gap-3">
-          <Swatches items={[...LEVELS.map((l, i) => ({ color: LEVEL_RGB[i], label: t(l) })).reverse(), { color: NA_RGB, label: t("not assessed") }]} />
-          <MatrixFigure matrix={(s.params.matrix as number[][]) ?? DEFAULT_MATRIX} />
-        </div>
-      </>
-    );
+    return {
+      title,
+      items: [...LEVELS.map((l, i) => ({ rgb: LEVEL_RGB[i], label: t(l) })).reverse(), { rgb: NA_RGB, label: t("not assessed") }],
+      matrix: (s.params.matrix as number[][]) ?? DEFAULT_MATRIX,
+      matrixRgb: LEVEL_RGB,
+    };
   if (view === "intensity")
-    return (
-      <>
-        <Swatches
-          items={[
-            { color: CLASS_RGB[3], label: `I3 · ${t("subsidence")} ≥ ${sb[1]} · ${t("landslide")} ≥ ${lb[1]} mm/yr` },
-            { color: CLASS_RGB[2], label: `I2 · ${sb[0]}–${sb[1]} · ${lb[0]}–${lb[1]} mm/yr` },
-            { color: CLASS_RGB[1], label: `I1 · ${t("above stability")} · < ${sb[0]} · < ${lb[0]} mm/yr` },
-            { color: CLASS_RGB[0], label: `I0 · ${t("stable")}: < max(${p.stable_floor_mm_yr} mm/yr, ${p.stable_sigma}σ)` },
-          ]}
-        />
-              </>
-    );
+    return {
+      title,
+      items: [
+        { rgb: CLASS_RGB[3], label: `I3 · ${t("subsidence")} ≥ ${sb[1]} · ${t("landslide")} ≥ ${lb[1]} mm/yr` },
+        { rgb: CLASS_RGB[2], label: `I2 · ${sb[0]}–${sb[1]} · ${lb[0]}–${lb[1]} mm/yr` },
+        { rgb: CLASS_RGB[1], label: `I1 · ${t("above stability")} · < ${sb[0]} · < ${lb[0]} mm/yr` },
+        { rgb: CLASS_RGB[0], label: `I0 · ${t("stable")}: < max(${p.stable_floor_mm_yr} mm/yr, ${p.stable_sigma}σ)` },
+      ],
+    };
   if (view === "secondary")
-    return (
-      <>
-        <div className="mt-1 text-[11.5px] text-muted">{t("Subsidence: angular distortion in {n} years", { n: String(p.horizon_yr) })}</div>
-        <Swatches
-          items={[
-            { color: SEC_RGB[3], label: `S3 ≥ ${frac(db[2])} · ${t("structural damage")}` },
-            { color: SEC_RGB[2], label: `S2 ${frac(db[1])}–${frac(db[2])} · ${t("cracking")}` },
-            { color: SEC_RGB[1], label: `S1 ${frac(db[0])}–${frac(db[1])} · ${t("beyond the safe limit")}` },
-            { color: SEC_RGB[0], label: `S0 < ${frac(db[0])}` },
-          ]}
-        />
-        <div className="mt-2 text-[11.5px] text-muted">{t("Landslide: susceptibility map, else slope classes {s}°", { s: slb.join(" / ") })}</div>
-      </>
-    );
+    return {
+      title,
+      head: t("Subsidence: angular distortion in {n} years", { n: String(p.horizon_yr) }),
+      items: [
+        { rgb: SEC_RGB[3], label: `S3 ≥ ${frac(db[2])} · ${t("structural damage")}` },
+        { rgb: SEC_RGB[2], label: `S2 ${frac(db[1])}–${frac(db[2])} · ${t("cracking")}` },
+        { rgb: SEC_RGB[1], label: `S1 ${frac(db[0])}–${frac(db[1])} · ${t("beyond the safe limit")}` },
+        { rgb: SEC_RGB[0], label: `S0 < ${frac(db[0])}` },
+      ],
+      notes: [t("Landslide: susceptibility map, else slope classes {s}°", { s: slb.join(" / ") })],
+    };
   if (view === "rate")
-    return (
-      <Swatches
-        items={RATE_RGB.map((c, i) => ({
-          color: c,
-          // colour i holds the rates r with −r in [B(i−1), B(i)): sinking (r < 0) is red
-          label:
-            (i === 0 ? `> ${-RATE_BREAKS[0]}` : i === RATE_RGB.length - 1 ? `≤ ${signed(-RATE_BREAKS[i - 1])}` : `${signed(-RATE_BREAKS[i])} … ${signed(-RATE_BREAKS[i - 1])}`) +
-            " mm/yr" +
-            (i === RATE_RGB.length - 1 ? ` · ${t("sinking / downslope, fast")}` : i === 3 ? ` · ${t("about stable")}` : i === 0 ? ` · ${t("rising / upslope")}` : ""),
-        })).reverse()}
-      />
-    );
+    return {
+      title,
+      items: RATE_RGB.map((c, i) => ({
+        rgb: c,
+        // colour i holds the rates r with −r in [B(i−1), B(i)): sinking (r < 0) is red
+        label:
+          (i === 0 ? `> ${-RATE_BREAKS[0]}` : i === RATE_RGB.length - 1 ? `≤ ${signed(-RATE_BREAKS[i - 1])}` : `${signed(-RATE_BREAKS[i])} … ${signed(-RATE_BREAKS[i - 1])}`) +
+          " mm/yr" +
+          (i === RATE_RGB.length - 1 ? ` · ${t("sinking / downslope, fast")}` : i === 3 ? ` · ${t("about stable")}` : i === 0 ? ` · ${t("rising / upslope")}` : ""),
+      })).reverse(),
+    };
   if (view === "coupling")
-    return (
-      <>
-        <Swatches
-          items={[
-            { color: RATE_RGB[6], label: `r < −0.8 · ${t("more rain, more motion")}` },
-            { color: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
-            { color: RATE_RGB[2], label: "0 < r ≤ 0.6" },
-            { color: RATE_RGB[0], label: `r > 0.8 · ${t("more rain, less sinking / uplift")}` },
-            { color: NA_RGB, label: t("not significant / not assessed"), alpha: 0.35 },
-          ]}
-        />
-        <p className="mt-2 text-[11px] leading-snug text-faint">d = a + b·t + k·CRD(t − τ) · FDR {String(p.alpha)}</p>
-      </>
-    );
+    return {
+      title,
+      items: [
+        { rgb: RATE_RGB[6], label: `r < −0.8 · ${t("more rain, more motion")}` },
+        { rgb: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
+        { rgb: RATE_RGB[2], label: "0 < r ≤ 0.6" },
+        { rgb: RATE_RGB[0], label: `r > 0.8 · ${t("more rain, less sinking / uplift")}` },
+        na(t("not significant / not assessed")),
+      ],
+      notes: [`d = a + b·t + k·CRD(t − τ) · FDR ${String(p.alpha)}`],
+    };
   if (view === "groundwater") {
     const gw = s.groundwater;
     if (!gw?.used)
-      return (
-        <p className="mt-1 text-[12px] leading-snug text-muted">
-          {gw?.reason === "no EARTHDATA_TOKEN"
+      return {
+        title,
+        text:
+          gw?.reason === "no EARTHDATA_TOKEN"
             ? t("Groundwater needs an Earthdata login: set EARTHDATA_TOKEN and run the zoning again.")
             : gw?.reason === "off"
               ? t("Groundwater coupling is off in the parameters.")
-              : t("No groundwater in this zoning: run it again.")}
-        </p>
-      );
-    return (
-      <>
-        <Swatches
-          items={[
-            { color: RATE_RGB[6], label: `r < −0.8 · ${t("more storage, more motion")}` },
-            { color: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
-            { color: RATE_RGB[2], label: "0 < r ≤ 0.6" },
-            { color: RATE_RGB[0], label: `r > 0.8 · ${t("less storage, more sinking (aquifer)")}` },
-            { color: NA_RGB, label: t("not significant / not assessed"), alpha: 0.35 },
-          ]}
-        />
-        <p className="mt-2 text-[11px] leading-snug text-faint">
-          d = a + b·t + g·GWS(t − τ) · {t("{n} of {m} cells significant", { n: gw.cells_significant ?? 0, m: gw.cells_tested ?? 0 })}
-          {gw.trend_mm_yr != null && <> · {t("storage trend {v} mm/yr", { v: fmt.vel(gw.trend_mm_yr) })}</>}
-        </p>
-      </>
-    );
+              : t("No groundwater in this zoning: run it again."),
+      };
+    return {
+      title,
+      items: [
+        { rgb: RATE_RGB[6], label: `r < −0.8 · ${t("more storage, more motion")}` },
+        { rgb: RATE_RGB[4], label: "−0.6 ≤ r < 0" },
+        { rgb: RATE_RGB[2], label: "0 < r ≤ 0.6" },
+        { rgb: RATE_RGB[0], label: `r > 0.8 · ${t("less storage, more sinking (aquifer)")}` },
+        na(t("not significant / not assessed")),
+      ],
+      notes: [
+        `d = a + b·t + g·GWS(t − τ) · ${t("{n} of {m} cells significant", { n: gw.cells_significant ?? 0, m: gw.cells_tested ?? 0 })}` +
+          (gw.trend_mm_yr != null ? ` · ${t("storage trend {v} mm/yr", { v: fmt.vel(gw.trend_mm_yr) })}` : ""),
+      ],
+    };
   }
   if (view === "lag")
-    return <Swatches items={[...LAG_RGB.map((c, i) => ({ color: c, label: t(i === 1 ? "{n} month" : "{n} months", { n: i }) })), { color: NA_RGB, label: t("not significant"), alpha: 0.35 }]} />;
+    return { title, items: [...LAG_RGB.map((c, i) => ({ rgb: c, label: t(i === 1 ? "{n} month" : "{n} months", { n: i }) })), na(t("not significant"))] };
+  return {
+    title,
+    items: [
+      { rgb: [91, 155, 213], label: t("subsidence (vertical motion)") },
+      { rgb: [192, 138, 62], label: t("landslide (slope ≥ {s}°, motion down the slope)", { s: String(p.landslide_min_slope_deg) }) },
+    ],
+  };
+}
+
+/** A legend described by a ``LegendSpec`` (without its title: the page shows the title elsewhere). */
+export function SpecLegend({ spec }: { spec: LegendSpec }) {
+  if (spec.text) return <p className="mt-1 text-[12px] leading-snug text-muted">{spec.text}</p>;
+  const sw = spec.items && <Swatches items={spec.items.map((x) => ({ color: x.rgb as RGB, label: x.label, alpha: x.alpha }))} />;
   return (
-    <Swatches
-      items={[
-        { color: [91, 155, 213], label: t("subsidence (vertical motion)") },
-        { color: [192, 138, 62], label: t("landslide (slope ≥ {s}°, motion down the slope)", { s: String(p.landslide_min_slope_deg) }) },
-      ]}
-    />
+    <>
+      {spec.head && <div className="mt-1 text-[11.5px] text-muted">{spec.head}</div>}
+      {spec.matrix ? (
+        <div className="mt-1 flex items-start justify-between gap-3">
+          {sw}
+          <MatrixFigure matrix={spec.matrix} />
+        </div>
+      ) : (
+        sw
+      )}
+      {spec.ramp && (
+        <div className="mt-2">
+          <div className="h-2.5 rounded" style={{ background: `linear-gradient(90deg, ${spec.ramp.stops.map((c) => `rgb(${c.join(",")})`).join(",")})` }} />
+          <div className="mt-0.5 flex justify-between font-mono text-[10.5px] text-ink-2">
+            <span>{spec.ramp.lo}</span>
+            <span className="font-sans text-faint">{spec.ramp.unit}</span>
+            <span>{spec.ramp.hi}</span>
+          </div>
+        </div>
+      )}
+      {spec.notes?.map((n) => (
+        <p key={n} className="mt-2 text-[11px] leading-snug text-faint">
+          {n}
+        </p>
+      ))}
+    </>
   );
+}
+
+export function Legend({ view, s }: { view: View; s: HazardSummary }) {
+  const spec = hazardLegendSpec(view, s);
+  return spec ? <SpecLegend spec={spec} /> : null;
 }
 
 /** The series of a cell with its models; ``compact``: the series, the line and ``model`` only (no rainfall). */
@@ -547,15 +574,15 @@ export function CellChart({ c, model, compact = false }: { c: HazardCell; model?
     const el = box.current;
     if (!el) return;
     const x = c.dates.map((d) => Date.parse(d) / 1000);
-    const axis = { stroke: "#93a4bf", grid: { stroke: "#1a2740", width: 1 }, ticks: { stroke: "#22324d", width: 1 }, font: "11px Inter, system-ui, sans-serif" };
+    const axis = { stroke: themeColor("muted"), grid: { stroke: themeColor("chip"), width: 1 }, ticks: { stroke: themeColor("line-2"), width: 1 }, font: "11px 'Lexend Variable', system-ui, sans-serif" };
     const series: uPlot.Series[] = [
       {},
-      { stroke: "#4cc2ff", width: 1.5, points: { show: true, size: 5, fill: "#4cc2ff", stroke: "#0b1220" }, spanGaps: true },
-      { stroke: "#93a4bf", width: 1.2, dash: [4, 4], points: { show: false } },
+      { stroke: themeColor("accent"), width: 1.5, points: { show: true, size: 5, fill: themeColor("accent"), stroke: themeColor("bg") }, spanGaps: true },
+      { stroke: themeColor("muted"), width: 1.2, dash: [4, 4], points: { show: false } },
     ];
     const data: (number | null)[][] = [x, c.series_mm, c.linear_mm ?? c.series_mm.map(() => null)];
     if (c.rain_model_mm && !compact) {
-      series.push({ stroke: "#f5b84b", width: 1.8, points: { show: false } });
+      series.push({ stroke: themeColor("warn"), width: 1.8, points: { show: false } });
       data.push(c.rain_model_mm);
     }
     if (c.gw_model_mm && c.gw_coupled && !compact) {
@@ -576,7 +603,7 @@ export function CellChart({ c, model, compact = false }: { c: HazardCell; model?
         scales: { x: { time: true } },
         axes: [
           { ...axis, values: (_u, t) => t.map((v) => new Date(v * 1000).toISOString().slice(0, 7)) },
-          { ...axis, size: 48, label: c.mode === "subsidence" ? t("mm (up +)") : t("mm (upslope +)"), labelSize: 14, labelFont: "11px Inter, sans-serif" },
+          { ...axis, size: 48, label: c.mode === "subsidence" ? t("mm (up +)") : t("mm (upslope +)"), labelSize: 14, labelFont: "11px 'Lexend Variable', sans-serif" },
         ],
         series,
       },
@@ -596,14 +623,14 @@ export function CellChart({ c, model, compact = false }: { c: HazardCell; model?
       <div ref={box} className="w-full" />
       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted">
         <span className="flex items-center gap-1">
-          <span className="h-0.5 w-4 bg-[#4cc2ff]" /> {t("cell median")}
+          <span className="h-0.5 w-4 bg-accent" /> {t("cell median")}
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 border-t-2 border-dashed border-[#93a4bf]" /> {t("linear")}
+          <span className="w-4 border-t-2 border-dashed border-muted" /> {t("linear")}
         </span>
         {c.rain_model_mm && !compact && (
           <span className="flex items-center gap-1">
-            <span className="h-0.5 w-4 bg-[#f5b84b]" /> {t("trend + k·CRD(t − {n} mo)", { n: c.rain_lag_months })}
+            <span className="h-0.5 w-4 bg-warn" /> {t("trend + k·CRD(t − {n} mo)", { n: c.rain_lag_months })}
           </span>
         )}
         {c.gw_model_mm && c.gw_coupled && !compact && (
@@ -677,7 +704,7 @@ function BehaviourLegend({
           <Swatch key={c} color={BEH_RGB[i]} label={`${t(BEH_LABELS[c])} · ${fmt.int(s.counts[c] ?? 0)}`} />
         ))}
         {s.warnings.map((w) => (
-          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-warn-ink">{ts(w)}</p>
         ))}
         {again}
       </div>
@@ -694,7 +721,7 @@ function BehaviourLegend({
         </div>
         <p className="mt-1.5 mb-0 text-[12px] text-ink-2">{t("{n} cells change (onset or step)", { n: fmt.int((s.counts.onset ?? 0) + (s.counts.step ?? 0)) })}</p>
         {s.warnings.map((w) => (
-          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+          <p key={w} className="mt-1.5 mb-0 text-[11.5px] leading-snug text-warn-ink">{ts(w)}</p>
         ))}
         {again}
       </div>
@@ -759,7 +786,7 @@ function BehaviourLegend({
         {t("{n} buildings: hazard from their own InSAR points for {a}, from their cell for {b}.", { n: fmt.int(r.n_buildings), a: fmt.int(r.by_source.building ?? 0), b: fmt.int(r.by_source.cell ?? 0) })}
       </p>
       {r.warnings.map((w) => (
-        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-warn-ink">{ts(w)}</p>
       ))}
       {again}
     </div>
@@ -829,7 +856,7 @@ function DecomposeLegend({ s, view, again }: { s: DecomposeSummary; view: "up" |
         </p>
       )}
       {s.warnings.map((w) => (
-        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-warn-ink">{ts(w)}</p>
       ))}
       {again}
     </div>
@@ -870,7 +897,7 @@ function GeologyLegend({ s, again }: { s: GeologySummary; again: React.ReactNode
         </p>
       )}
       {s.warnings.map((w) => (
-        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-[#f5d08b]">{ts(w)}</p>
+        <p key={w} className="mt-1 mb-0 text-[11.5px] leading-snug text-warn-ink">{ts(w)}</p>
       ))}
       {again}
     </div>
@@ -894,19 +921,19 @@ export function ProfileChart({ p }: { p: LineProfile }) {
   const d = v.map((y, i) => (Number.isFinite(y) ? `${i && Number.isFinite(v[i - 1]) ? "L" : "M"}${X(p.chainage_m[i]).toFixed(1)},${Y(y).toFixed(1)}` : "")).join("");
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-      <line x1={34} x2={W - 8} y1={Y(0)} y2={Y(0)} stroke="#22324d" strokeDasharray="3 3" />
+      <line x1={34} x2={W - 8} y1={Y(0)} y2={Y(0)} stroke="var(--c-line-2)" strokeDasharray="3 3" />
       {p.beta.map((b, i) => (b != null && b >= 1 / 500 ? <rect key={i} x={X(p.chainage_m[i]) - 2} y={8} width={4} height={H - 26} fill={rgb(LINE_RGB[b >= 1 / 150 ? 3 : b >= 1 / 300 ? 2 : 1], 0.45)} /> : null))}
-      <path d={d} fill="none" stroke="#4cc2ff" strokeWidth="1.6" />
-      <text x={30} y={Y(hi) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
-      <text x={30} y={Y(lo) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
-      <text x={34} y={H - 4} fill="#93a4bf" fontSize="10">0</text>
-      <text x={W - 8} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="end">{(L / 1000).toFixed(1)} km</text>
-      <text x={(W + 26) / 2} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="middle">{t("vertical rate, mm/yr")}</text>
+      <path d={d} fill="none" stroke="var(--c-accent)" strokeWidth="1.6" />
+      <text x={30} y={Y(hi) + 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
+      <text x={30} y={Y(lo) + 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
+      <text x={34} y={H - 4} fill="var(--c-muted)" fontSize="10">0</text>
+      <text x={W - 8} y={H - 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">{(L / 1000).toFixed(1)} km</text>
+      <text x={(W + 26) / 2} y={H - 4} fill="var(--c-muted)" fontSize="10" textAnchor="middle">{t("vertical rate, mm/yr")}</text>
     </svg>
   );
 }
 
-function LinePanel({ p, onClose }: { p: LineProfile; onClose: () => void }) {
+export function LinePanel({ p, onClose }: { p: LineProfile; onClose: () => void }) {
   return (
     <div className="rounded-xl border border-line-2 bg-panel/95 p-3 shadow-xl shadow-black/30 backdrop-blur">
       <div className="flex items-center gap-2">
@@ -946,19 +973,19 @@ export function ConsolidationChart({ c }: { c: ConsolidationCell }) {
   const Y = (y: number) => 8 + ((y - lo) / (hi - lo || 1)) * (H - 26); // settlement drawn downwards
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-      <line x1={X(obs[obs.length - 1][0])} x2={X(obs[obs.length - 1][0])} y1={8} y2={H - 18} stroke="#22324d" strokeDasharray="3 3" />
+      <line x1={X(obs[obs.length - 1][0])} x2={X(obs[obs.length - 1][0])} y1={8} y2={H - 18} stroke="var(--c-line-2)" strokeDasharray="3 3" />
       {cur.length > 0 && <path d={cur.map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join("")} fill="none" stroke="#f46d43" strokeWidth="2" />}
-      {obs.map(([x, y], i) => (y == null ? null : <circle key={i} cx={X(x)} cy={Y(y)} r={2.6} fill="#4cc2ff" />))}
-      <text x={30} y={Y(lo) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
-      <text x={30} y={Y(hi) + 4} fill="#93a4bf" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
-      <text x={34} y={H - 4} fill="#93a4bf" fontSize="10">{c.dates[0].slice(0, 7)}</text>
-      <text x={W - 8} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="end">+{tmax.toFixed(1)} {t("yr")}</text>
-      <text x={(W + 26) / 2} y={H - 4} fill="#93a4bf" fontSize="10" textAnchor="middle">{t("settlement, mm (down)")}</text>
+      {obs.map(([x, y], i) => (y == null ? null : <circle key={i} cx={X(x)} cy={Y(y)} r={2.6} fill="var(--c-accent)" />))}
+      <text x={30} y={Y(lo) + 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">{lo.toFixed(0)}</text>
+      <text x={30} y={Y(hi) + 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
+      <text x={34} y={H - 4} fill="var(--c-muted)" fontSize="10">{c.dates[0].slice(0, 7)}</text>
+      <text x={W - 8} y={H - 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">+{tmax.toFixed(1)} {t("yr")}</text>
+      <text x={(W + 26) / 2} y={H - 4} fill="var(--c-muted)" fontSize="10" textAnchor="middle">{t("settlement, mm (down)")}</text>
     </svg>
   );
 }
 
-function RiskPanel({ b, onClose }: { b: RiskBuilding; onClose: () => void }) {
+export function RiskPanel({ b, onClose }: { b: RiskBuilding; onClose: () => void }) {
   const lv = b.risk;
   const cls = (k: number) => ["", t("low"), t("medium"), t("high")][k] ?? "–";
   return (
@@ -996,7 +1023,7 @@ function Row({ k, v, title }: { k: string; v: string; title?: string }) {
   );
 }
 
-function CellPanel({ c, beh, cons, onClose }: { c: HazardCell; beh?: BehaviourCell; cons?: ConsolidationCell; onClose: () => void }) {
+export function CellPanel({ c, beh, cons, onClose }: { c: HazardCell; beh?: BehaviourCell; cons?: ConsolidationCell; onClose: () => void }) {
   const frac = (x: number | null) => (x == null || x <= 0 ? "–" : `1/${Math.round(1 / x)}`);
   const lv = c.hazard;
   return (
@@ -1026,7 +1053,7 @@ function CellPanel({ c, beh, cons, onClose }: { c: HazardCell; beh?: BehaviourCe
         <Row k={t("Acceleration")} v={`${fmt.vel(c.acc_mm_yr2)} mm/yr²${c.accelerating ? ` (${t("significant")})` : ""}`} />
       </div>
       {c.opposite_motion && (
-        <div className="mt-2 rounded-md bg-[#2a2110] px-2 py-1 text-[11.5px] leading-snug text-[#f5d08b]">
+        <div className="mt-2 rounded-md bg-warn-bg px-2 py-1 text-[11.5px] leading-snug text-warn-ink">
           {t("Moves against the hazard direction ({dir}): check the reference area before reading it as stable.", {
             dir: c.mode === "subsidence" ? t("uplift") : t("apparent upslope motion"),
           })}
@@ -1122,13 +1149,20 @@ const PARAMS: { key: string; label: string; options: (number | string)[]; unit?:
   { key: "groundwater", label: "Groundwater", options: ["auto", "gldas", "off"] },
 ];
 
+/** The thematic layer (and its view) of the results map that shows a view of this page. */
+function themeOfView(v: View): [ThemeKind, View | undefined] {
+  if (v === "behaviour" || v === "change") return ["behaviour", v];
+  if (v === "up" || v === "east") return ["decompose", v];
+  if (v === "soft_soil") return ["geology", undefined];
+  if (v === "consolidation" || v === "risk" || v === "lines") return [v, undefined];
+  return ["hazard", v];
+}
+
 export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Workspace | undefined; project?: string; product?: string; cell?: number; layer?: string }) {
-  const { go, layers } = useApp();
+  const { go, layers, showProduct } = useApp();
   const qc = useQueryClient();
-  const mapEl = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const overlay = useRef<MapboxOverlay | null>(null);
-  const [base, setBase] = useState<Base>("dark");
+  const shell = useBaseMap();
+  const { overlay } = shell;
   const asView = (v?: string): View => (VIEWS.some((x) => x.id === v) ? (v as View) : "hazard");
   const [view, setViewState] = useState<View>(asView(layer));
   useEffect(() => setViewState(asView(layer)), [layer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1341,40 +1375,7 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
   }, [s]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------ map
-  useEffect(() => {
-    if (!mapEl.current) return;
-    const m = new maplibregl.Map({
-      container: mapEl.current,
-      style: mapStyle("dark"),
-      center: [105.82, 21.02],
-      zoom: 10,
-      attributionControl: { compact: true },
-      dragRotate: false,
-      pitchWithRotate: false,
-    });
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
-    m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
-    const ov = new MapboxOverlay({ interleaved: false, layers: [] });
-    m.addControl(ov as unknown as maplibregl.IControl);
-    map.current = m;
-    overlay.current = ov;
-    return () => {
-      m.remove();
-      map.current = null;
-      overlay.current = null;
-    };
-  }, []);
-  const firstBase = useRef(true);
-  useEffect(() => {
-    if (firstBase.current) {
-      firstBase.current = false;
-      return;
-    }
-    map.current?.setStyle(mapStyle(base));
-  }, [base]);
-  useEffect(() => {
-    if (s && map.current) map.current.fitBounds(s.bounds, { padding: 60, duration: 600 });
-  }, [s?.product_id, s?.created]); // eslint-disable-line react-hooks/exhaustive-deps
+  useFitTo(shell, s?.bounds, s ? `${s.product_id}|${s.created}` : null);
 
   const polys = useMemo(() => {
     const c = cells.data;
@@ -1424,7 +1425,7 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
                 getPixelOffset: [12, 0],
                 getTextAnchor: "start",
                 getAlignmentBaseline: "center",
-                fontFamily: "JetBrains Mono, monospace",
+                fontFamily: "'JetBrains Mono Variable', monospace",
                 outlineWidth: 3,
                 outlineColor: [11, 18, 32, 255],
                 fontSettings: { sdf: true },
@@ -1530,20 +1531,20 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
               `${t("east-west")} ${fmt.vel(g("east"))} ± ${g("sigma_east").toFixed(1)} mm/yr`,
               ...prods.map((p, k) => `${t("{track} alone", { track: p.track })}: ${fmt.vel(g(`vert_only_${k}`))} mm/yr`),
             ].join("\n"),
-            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+            style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         }
         if (layer?.id === "infrastructure-lines" && linesData.data && index >= 0) {
           return {
             text: t("Click for the profile along the line"),
-            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+            style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         }
         if (layer?.id === "risk-buildings" && riskData.data && index >= 0) {
           const r = riskData.data.risk[index];
           return {
             text: r >= 0 ? t("{level} risk", { level: t(LEVELS[r]) }) : t("not assessed"),
-            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+            style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         }
         if (!object) return null;
@@ -1554,7 +1555,7 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
             text: `GNSS ${st.site}${st.used && v ? `
 GNSS − InSAR ${fmt.vel(v.rate_diff_mm_yr)} mm/yr (LOS)` : `
 ${ts(st.reason ?? "")}`}`,
-            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+            style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         }
         const F = c.meta.fields.length;
@@ -1564,11 +1565,11 @@ ${ts(st.reason ?? "")}`}`,
         if (Number.isFinite(h))
           return {
             text: `${t("soft soil")} ${h.toFixed(0)} m\n${fmt.vel(g("rate_mm_yr"))} mm/yr`,
-            style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+            style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         return {
           text: `${lv >= 0 ? t(LEVELS[lv]) : t("not assessed")} · I${g("intensity")} S${Math.max(0, g("secondary"))}\n${fmt.vel(g("rate_mm_yr"))} mm/yr${g("rain_coupled") > 0 ? ` · ${t("rain r {r}, lag {n} mo", { r: g("rain_r").toFixed(2), n: g("rain_lag_months") })}` : ""}`,
-          style: { background: "#0b1220", color: "#e6edf7", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "JetBrains Mono, monospace" },
+          style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
         };
       },
     });
@@ -1600,9 +1601,7 @@ ${ts(st.reason ?? "")}`}`,
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <div className="absolute inset-0">
-        <div ref={mapEl} className="h-full w-full" />
-      </div>
+      <MapCanvas m={shell} />
 
       {/* left: product, run, summary */}
       {!leftOpen && (
@@ -1620,7 +1619,7 @@ ${ts(st.reason ?? "")}`}`,
                 go({ page: "hazard", name: n, product: rest.join("/") });
               }}
               aria-label={t("Product")}
-              className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink"
+              className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink"
             >
               {choices.length === 0 && <option value="">{t("No product in the workspace")}</option>}
               {choices.map((c) => (
@@ -1636,7 +1635,7 @@ ${ts(st.reason ?? "")}`}`,
                   <select
                     value={String(params[p.key] ?? (p.key === "cell_m" ? 100 : p.key === "horizon_yr" ? 10 : p.key === "max_lag_months" ? 6 : p.key === "alpha" ? 0.05 : "auto"))}
                     onChange={(e) => setParams((v) => ({ ...v, [p.key]: typeof p.options[0] === "number" ? Number(e.target.value) : e.target.value }))}
-                    className="h-7 min-w-0 flex-1 rounded-md border border-line-2 bg-[#0a1322] px-1 text-[12px] text-ink"
+                    className="h-7 min-w-0 flex-1 rounded-md border border-line-2 bg-sunken px-1 text-[12px] text-ink"
                   >
                     {p.options.map((o) => (
                       <option key={o} value={String(o)}>
@@ -1657,7 +1656,7 @@ ${ts(st.reason ?? "")}`}`,
                 value={refBox}
                 onChange={(e) => setRefBox(e.target.value)}
                 placeholder={t("reference area: W, S, E, N (optional)")}
-                className="h-7 min-w-0 flex-1 rounded-md border border-line-2 bg-[#0a1322] px-2 font-mono text-[11.5px] text-ink placeholder:font-sans placeholder:text-faint"
+                className="h-7 min-w-0 flex-1 rounded-md border border-line-2 bg-sunken px-2 font-mono text-[11.5px] text-ink placeholder:font-sans placeholder:text-faint"
               />
             </label>
             <label
@@ -1667,7 +1666,7 @@ ${ts(st.reason ?? "")}`}`,
               )}
             >
               <span className="w-[76px] flex-none">GNSS</span>
-              <input type="checkbox" className="ml-0.5 flex-none accent-[#4cc2ff]" disabled={!calib} checked={tie && !!calib} onChange={(e) => setTie(e.target.checked)} />
+              <input type="checkbox" className="ml-0.5 flex-none accent-accent" disabled={!calib} checked={tie && !!calib} onChange={(e) => setTie(e.target.checked)} />
               <span className="flex-none whitespace-nowrap">{t("tie")}</span>
               <span className="min-w-0 truncate">
                 {calib
@@ -1677,10 +1676,16 @@ ${ts(st.reason ?? "")}`}`,
                     : `· ${t("no GNSS comparison of this product yet (Project → Validation → GNSS)")}`}
               </span>
             </label>
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2 [&>button]:whitespace-nowrap">
               <Button variant="primary" disabled={!product || running} onClick={run}>
                 {running ? t("Running…") : s ? t("Run again") : t("Run hazard zoning")}
               </Button>
+              {s && (
+                <>
+                  <Button onClick={() => (addTheme(project!, product!, ...themeOfView(view)), showProduct(project!, product!, { open: true }))}>{t("View on the results map")}</Button>
+                  <Button onClick={() => (composeTheme(project!, product!, ...themeOfView(view)), showProduct(project!, product!), go({ page: "compose" }))}>{t("Make a map")}</Button>
+                </>
+              )}
               {s && (
                 <a className="text-[12px] text-accent hover:underline" href={api.hazardFile(project!, product!, "hazard.gpkg")}>
                   GeoPackage
@@ -1694,7 +1699,7 @@ ${ts(st.reason ?? "")}`}`,
             </div>
             {busy && <div className="mt-2 text-[12px] text-bad">{busy}</div>}
             {(running || status.data?.failed) && status.data!.log.length > 0 && (
-              <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-[#070c16] p-2 font-mono text-[11px] text-[#a9b8cf]">
+              <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-line bg-deep p-2 font-mono text-[11px] text-ink-3">
                 {status.data!.log.join("\n")}
               </pre>
             )}
@@ -1775,7 +1780,7 @@ ${ts(st.reason ?? "")}`}`,
                   ` · ${t("{n} cells move against the hazard direction (uplift / upslope), flagged, not rated", { n: fmt.int(s.opposite_motion_cells) })}`}
               </div>
               {s.warnings.length > 0 && (
-                <div className="mt-2 flex items-center gap-1.5 rounded-md bg-[#2a2110] px-2 py-1 text-[11.5px] text-[#f5d08b]">
+                <div className="mt-2 flex items-center gap-1.5 rounded-md bg-warn-bg px-2 py-1 text-[11.5px] text-warn-ink">
                   <span aria-hidden>!</span> {t("{n} warning(s): see the notifications", { n: s.warnings.length })}
                 </div>
               )}
@@ -1784,8 +1789,6 @@ ${ts(st.reason ?? "")}`}`,
           <MethodLink />
         </div>
       )}
-
-      <BasemapPicker map={map} base={base} onChange={setBase} />
 
       {/* right: view, legend, cell */}
       {s && !rightOpen && (
@@ -1796,7 +1799,7 @@ ${ts(st.reason ?? "")}`}`,
       {s && rightOpen && (
         <div className="pointer-events-none absolute top-3 right-3 bottom-3 z-10 flex w-[min(370px,calc(100%-24px))] flex-col gap-3 overflow-y-auto pb-1 [&>*]:pointer-events-auto max-md:top-auto max-md:max-h-[45%]">
           <Fold id="hazard.legend" title={t("LAYERS")} extra={<ColumnToggle open side="right" label={t("legend")} onClick={() => setRightOpen(false)} />}>
-            <select value={view} onChange={(e) => setView(e.target.value as View)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+            <select value={view} onChange={(e) => setView(e.target.value as View)} aria-label={t("Map layer")} className="h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
               {VIEW_GROUPS.map(([grp, ids]) => (
                 <optgroup key={grp} label={t(grp)}>
                   {ids.map((id) => (
@@ -1812,7 +1815,7 @@ ${ts(st.reason ?? "")}`}`,
               <BehaviourLegend view={view} st={behStatus.data} first={behCells.data?.first} last={behCells.data?.last} onRun={runAnalysis} />
             )}
             <About view={view} />
-            {cells.isLoading && <div className="mt-2 text-[12px] text-[#7cd2ff]">{t("Loading cells…")}</div>}
+            {cells.isLoading && <div className="mt-2 text-[12px] text-accent-ink">{t("Loading cells…")}</div>}
           </Fold>
           {sel != null && cell.data && <CellPanel c={cell.data} beh={behCell.data} cons={consCell.data} onClose={() => setSel(null)} />}
           {selLine != null && lineProfile.data && <LinePanel p={lineProfile.data} onClose={() => setSelLine(null)} />}
