@@ -39,7 +39,8 @@ from geoeyes.processing.ps_lite import ps as psmod
 from geoeyes.processing.ps_lite import unwrap as uwmod
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-ps_lite/2"         # /2: height-error geolocation moves away from the sensor (sign fixed)
+ENGINE = "geoeyes-ps_lite/3"         # /2: height-error geolocation moves away from the sensor (sign fixed)
+#                                      /3: island linking of the unwrapped grid subtracts its 2π offsets (was adding)
 SIGN = 1.0          # flattened stack, SLC phase exp(-j 4 pi R / lambda) (stack attr phase_convention)
 
 STATE_SCHEMA = StateSchema.of("geoeyes.ps_lite", 1, [

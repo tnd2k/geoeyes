@@ -38,8 +38,9 @@ from geoeyes.processing.ps.params import DEFAULTS, auto_time_win, engine_params,
 from geoeyes.processing.ps.steps.correct_phase import correct_phase
 from geoeyes.processing.ps.steps.est_gamma import est_gamma
 from geoeyes.processing.ps.steps.load import load_initial
+from geoeyes.processing.ps.steps.ramp import RAMP_AUTO_VERSION, RampAutoParams, ramp_figure
 from geoeyes.processing.ps.steps.reference import reference_ps
-from geoeyes.processing.ps.steps.scla import calc_scla, smooth_scla
+from geoeyes.processing.ps.steps.scla import DerampAuto, calc_scla, smooth_scla
 from geoeyes.processing.ps.steps.scn_filt import scn_filt
 from geoeyes.processing.ps.steps.select import select
 from geoeyes.processing.ps.steps.unwrap import Scla, unwrap
@@ -127,11 +128,12 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
 
     # one checkpoint per step (checkpoints/): a run stopped or killed resumes from its last finished step
     import dataclasses
-    ck = Checkpoints(out, read_from=resume_from, from_step=from_step, stop_after=stop_after)
+    lean = str((table or {}).get("checkpoints", "all")).lower() == "lean"
+    ck = Checkpoints(out, read_from=resume_from, from_step=from_step, stop_after=stop_after, lean=lean)
     ck.key(1, args=args, stack=stack_identity(attrs, slc_var))
     L = C = None
-    rho = ck.meta(1).get("mean_range") if ck.valid(1) else None
-    if rho is None:
+
+    def step1():
         C = _candidates(ds, dates, mi, sec_ix, wl, args, log)
         L = load_initial(ij=np.column_stack([np.arange(C["n"]), C["r"], C["c"]]), lonlat=C["lonlat"], ph=C["ph"],
                          master=master, secondaries=secs, bperp_mat=C["bperp_mat"], inc=C["inc"],
@@ -139,16 +141,25 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                          da=C["da"], coh=C["coh"], log=log)
         for k in ("r", "c", "lonlat", "ph", "bperp_mat", "hgt", "da", "coh"):
             del C[k]                                 # kept in L
-        rho = C["mean_range"]
-        ck.save(1, {"L": L, "cand": C}, mean_range=rho)
+        ck.save(1, {"L": L, "cand": C}, mean_range=C["mean_range"])
         ck.reached(1)
+        return L, C
+
+    # the step-1 values the later keys need: from its .json (its data may be gone in a lean run)
+    rho = ck.meta(1).get("mean_range") if ck.known(1) else None
+    if rho is None:
+        L, C = step1()
+        rho = C["mean_range"]
     prm = engine_params(table, wavelength=wl, rho=rho)
     ck.key(2, est_gamma=prm.est_gamma)
     ck.key(3, select=prm.select)
     ck.key(4, weed=prm.weed)
     ck.key(5)
+    # "auto" adds its own parts, so the keys of the "y" / "n" runs (and their checkpoints) are unchanged
     ck.key(6, unwrap=prm.unwrap, reference=prm.reference, aps_non_defo=prm.aps_non_defo,
-           scla_deramp=prm.scla_deramp, legacy=prm.legacy, weather=weather)
+           scla_deramp=prm.scla_deramp, legacy=prm.legacy, weather=weather,
+           **({"deramp_auto": RAMP_AUTO_VERSION, "deramp_non_defo": prm.deramp_non_defo,
+               "deramp_allow_planar": prm.deramp_allow_planar} if prm.deramp_auto else {}))
     ck.key(7, two_pass=prm.two_pass)
     if resume_from is not None and not ck.valid(5):
         raise DataError(f"{resume_from}: no steps 1-5 checkpoint with these candidate / gamma / select / weed "
@@ -161,10 +172,12 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
             for n in range(1, 6):
                 ck.reached(n)
     else:
-        if L is None:
+        if L is None and ck.valid(1):
             d = ck.load(1)
             L, C = d["L"], d["cand"]
             ck.reached(1)
+        elif L is None:                              # lean run: step 1 deleted, step 5 not reusable
+            L, C = step1()
         ck.extra = {"L": dataclasses.replace(L, ph=np.zeros((0, 0), np.complex64)), "cand": C}
         est = estimate(L, prm, ck)
     inc, rng, is_ds = C["inc"], C["rng"], C["is_ds"]
@@ -180,6 +193,17 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
     s, w, ix, u, aps, sc, sm, vel, scn = P.select, P.weed, P.ix, P.unwrapped, P.aps, P.scla, P.scla_smooth, \
         P.velocity, P.scn
     bp_ix, hgt_ix = L.bperp_mat[ix], L.hgt[ix]
+    try:                                            # the wrapped phase the last pass unwrapped (Stack tab)
+        from geoeyes.processing.stack.qc import unwrap_grid_qc
+        drop = {d - 1 for d in prm.unwrap.drop_ifg_index}
+        uw_idx = [k for k in range(len(dates)) if k not in drop]
+        q = unwrap_grid_qc(u.grid, [d.isoformat() for d in dates], L.master_ix, uw_idx, out / "qc",
+                           label=f"pass {'2' if prm.two_pass else '1'}, grid {prm.unwrap.grid_size:g} m, "
+                                 f"prefilter {prm.unwrap.prefilter}")
+        log.info("unwrapping input: %d cells; phase jumps > pi/2 between neighbours %s", q["cells"],
+                 " ".join(f"{r['jump_frac']:.2f}" for r in q["dates"] if r["jump_frac"] is not None))
+    except Exception as exc:                        # the images never fail the run
+        log.warning("unwrapping input images not written: %s", exc)
 
     # ---------------------------------------------------------------- outputs
     line, sample = L.ij[ix, 1], L.ij[ix, 2]
@@ -230,6 +254,15 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                     ref=is_ref[sel] if P.ref_ps is not None else None, title=f"{track_id} {len(sel)} PS",
                     ifg_dates=secs, aps=np.delete(aps, L.master_ix, 1), aps_linear=np.delete(P.aps_linear,
                     L.master_ix, 1), aps_choice=P.aps_choice, epoch_dates=dates, ifg_std=P.ifg_std)
+    ramp = None
+    if sc.ramp_auto is not None:
+        ramp = sc.ramp_auto.summary()
+        log.info("ramp (scla_deramp auto): rest removed; trend %s (%s)",
+                 "removed" if ramp["trend_removed"] else "kept", ramp["reason"])
+        try:
+            figs.append(ramp_figure(sc.ramp_auto, secs, out / "figures" / "ramp.png", title=track_id))
+        except Exception as exc:                    # the images never fail the run
+            log.warning("ramp figure not written: %s", exc)
     v = vel.v[sel]
     summary = {"engine": ENGINE, "reference_date": master.isoformat(), "epochs": len(dates),
                "ps": {"candidates": C["n"], "ds_candidates": int(is_ds.sum()), "selected": int(s.keep_ix.sum()),
@@ -241,6 +274,7 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                         if P.aps_choice is not None else "all"}),
                "reference": ({"n_ps": int(P.ref_ps.size), "lat": float(np.mean(lat_ps[P.ref_ps])),
                               "lon": float(np.mean(lon_ps[P.ref_ps]))} if P.ref_ps is not None else "scene mean"),
+               **({"ramp": ramp} if ramp is not None else {}),
                "velocity_mm_yr": {"min": float(np.nanmin(v)), "max": float(np.nanmax(v)),
                                   "p02": float(np.nanpercentile(v, 2)), "median": float(np.nanmedian(v)),
                                   "p98": float(np.nanpercentile(v, 98))},
@@ -430,6 +464,19 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
         if aps_mask.sum() < 10:
             log.warning("fewer than 10 PS in the non-deforming area: linear APS fitted on all PS")
             aps_mask = None
+    auto = None
+    if prm.deramp_auto:
+        stable = None
+        if prm.deramp_non_defo is not None:
+            stable = inside_polygon(L.lonlat[ix], prm.deramp_non_defo)
+            log.info("ramp auto: %d PS inside deramp_non_defo", int(stable.sum()))
+        wts = None
+        if not prm.legacy and cp.ifg_std is not None:
+            std = np.delete(np.asarray(cp.ifg_std, np.float64).ravel(), L.master_ix)
+            wts = 1.0 / np.maximum(std * np.pi / 180.0, 1e-6) ** 2      # as the velocity fit
+        auto = DerampAuto(t=np.delete(day_rel, L.master_ix) / 365.25, mm_per_rad=-wavelength / (4 * np.pi) * 1000.0,
+                          weights=wts, stable_mask=stable,
+                          params=RampAutoParams(allow_planar=prm.deramp_allow_planar))
     # steps 6 and 7 (the unwrapping passes): resumed from their checkpoints when valid
     h = max((n for n in (6, 7) if ck is not None and ck.valid(n)), default=5)
     if h >= 6:
@@ -458,18 +505,23 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
                 log.info("weather APS used for %.1f %% of the values (linear APS elsewhere)",
                          100.0 * (1.0 - filled[:, np.arange(wm.shape[1]) != L.master_ix].mean()))
         sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix,
-                       deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref)
+                       deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref, auto=auto)
         if ck is not None:
             ck.save(6, {"u": u, "sc": sc, "aps_lin": aps_lin, "aps": aps, "aps_choice": aps_choice})
         _reached(ck, 6)
     if h < 7:
         if prm.two_pass:
             sm = smooth_scla(sc, xy_ix, bp_ix)
-            scla1 = Scla(sm.K_uw, sm.C_uw, sm.ph_ramp if sm.ph_ramp.size else None)
+            # "auto": the ramp is removed after the unwrapping only (velocity, SCN). Taken out of the wrapped phase
+            # it flipped the cycle of weakly connected areas (ramp-selection.md §5.3). "y" keeps StaMPS' order.
+            keep_ramp = sm.ph_ramp.size and auto is None
+            scla1 = Scla(sm.K_uw, sm.C_uw, sm.ph_ramp if keep_ramp else None)
             del u, sc, sm                            # pass 1 is in its checkpoint: its arrays are not kept for pass 2
             u = unwrap(**common, scla=scla1, aps=aps)
+            # "auto": the pass-1 SCLA is taken out of the phase the ramp is estimated on (ramp-selection.md §5.3)
             sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix,
-                           aps=aps, deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref)
+                           aps=aps, deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref, auto=auto,
+                           scla_k_prior=scla1.K_uw if auto is not None else None)
         if ck is not None:
             ck.save(7, {"u": u, "sc": sc, "aps_lin": aps_lin, "aps": aps, "aps_choice": aps_choice})
         _reached(ck, 7)

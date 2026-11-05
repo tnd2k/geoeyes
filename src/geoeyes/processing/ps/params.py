@@ -38,7 +38,13 @@ DEFAULTS: dict[str, Any] = {
     # slips of interferograms whose mean phase is near ±π (Tenerife ICEYE); changes the validated CSK Hanoi result
     # (89.6 % of the points matched), so off by default until assessed (memory: ps_lite / ps congruence align)
     "unwrap_align_constant": "n",
-    "scla_deramp": "n", "scn_time_win": 365, "scn_wavelength": 100, "subtr_tropo": "y",
+    # scla_deramp: "n" | "y" (plane / quadratic of every interferogram removed) | "auto" (the part of the ramp that
+    # changes between acquisitions always, its steady trend only where a stable background anchors one plane over
+    # the whole frame; docs/en/research/ramp-selection.md). deramp_non_defo: lon/lat polygon of a user's stable
+    # area for "auto" (the trend plane is fitted there). ramp_auto_allow_planar: "y" lets "auto" remove a trend that
+    # passes the halves test without a stable area (a planar deformation field passes it too: off by default)
+    "scla_deramp": "n", "deramp_non_defo": None, "ramp_auto_allow_planar": "n",
+    "scn_time_win": 365, "scn_wavelength": 100, "subtr_tropo": "y",
     # SCN temporal low-pass: "linear" (local linear fit, keeps the deformation trend out of the noise) or "mean"
     # (StaMPS ps_scn_filt; leaks the trend into the SCN at the series ends and in series shorter than the window)
     "scn_time_fit": "linear",
@@ -114,6 +120,25 @@ class EngineParams:
     reference: ReferenceParams = field(default_factory=ReferenceParams)
     aps_non_defo: tuple | None = None   # lon/lat polygon of the linear-APS fit
     legacy: bool = False             # legacy bugs (parity): unweighted velocity, time-series epoch shift, ...
+    deramp_auto: bool = False        # scla_deramp = "auto" (scla_deramp is then True)
+    deramp_non_defo: tuple | None = None   # lon/lat polygon of the stable area for "auto"
+    deramp_allow_planar: bool = False      # "auto": remove a planar trend without a stable area
+
+
+def _polygon(v) -> tuple | None:
+    return None if v in (None, "", []) else tuple(tuple(float(c) for c in pt) for pt in v)
+
+
+def deramp_mode(v) -> str:
+    """``scla_deramp``: "auto", "y" or "n" (yes/no spellings accepted)."""
+    s = str(v).strip().lower()
+    if s == "auto":
+        return "auto"
+    if _yes(s):
+        return "y"
+    if s in ("n", "no", "0", "false", "off", "none", ""):
+        return "n"
+    raise ValueError(f"[ps] scla_deramp = {v!r}: expected \"y\", \"n\" or \"auto\"")
 
 
 def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float) -> EngineParams:
@@ -127,6 +152,8 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
         spatial_iters=int(pm["dem_error_spatial_iters"]))
     drop = _indices(pm.get("drop_ifg_index"))
     edge_cap = pm.get("weed_arc_edge_chunk_cap")
+    mode = deramp_mode(pm["scla_deramp"])
+    deramp_on = mode != "n"
     return EngineParams(
         est_gamma=EstGammaParams(
             wavelength=wavelength, rho=rho, max_topo_err=float(pm["max_topo_err"]),
@@ -157,19 +184,20 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
             gold_alpha=float(pm["unwrap_gold_alpha"]), coh_floor=float(pm["unwrap_gold_coh_floor"]),
             prefilter=str(pm["unwrap_grid_filter"]) if _yes(pm["unwrap_prefilter_flag"]) else "none",
             time_win=float(pm["unwrap_time_win"]),
-            la_flag=_yes(pm["unwrap_la_error_flag"]), scla_deramp=_yes(pm["scla_deramp"]), drop_ifg_index=drop,
+            la_flag=_yes(pm["unwrap_la_error_flag"]), scla_deramp=deramp_on, drop_ifg_index=drop,
             spatial=SpatialParams(irls_iter=int(pm["unwrap_irls_iter"]),
                                   irls_target_rms=float(pm["unwrap_irls_target_rms"]),
                                   irls_epsilon=float(pm["unwrap_irls_epsilon"]),
                                   align=_yes(pm.get("unwrap_align_constant", "n"))),
             legacy=_yes(pm["legacy_quirks"])),
-        scla_deramp=_yes(pm["scla_deramp"]), two_pass=_yes(pm["subtr_tropo"]),
+        scla_deramp=deramp_on, two_pass=_yes(pm["subtr_tropo"]),
         scn_time_win=float(pm["scn_time_win"]), scn_wavelength=float(pm["scn_wavelength"]),
         # the legacy engine (parity) has the StaMPS weighted mean
         scn_time_fit="mean" if _yes(pm["legacy_quirks"]) else str(pm["scn_time_fit"]),
         reference=ReferenceParams(lon=_pair(pm["ref_lon"]), lat=_pair(pm["ref_lat"]),
                                   centre_lonlat=_pair(pm["ref_centre_lonlat"]), radius=float(pm["ref_radius"]),
                                   auto=_yes(pm["ref_auto"])),
-        aps_non_defo=None if pm["aps_non_defo"] in (None, "", []) else
-        tuple(tuple(float(c) for c in pt) for pt in pm["aps_non_defo"]),
-        legacy=_yes(pm["legacy_quirks"]))
+        aps_non_defo=_polygon(pm["aps_non_defo"]),
+        legacy=_yes(pm["legacy_quirks"]),
+        deramp_auto=mode == "auto", deramp_non_defo=_polygon(pm.get("deramp_non_defo")),
+        deramp_allow_planar=_yes(pm.get("ramp_auto_allow_planar", "n")))

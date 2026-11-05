@@ -25,6 +25,8 @@ def _dct_solve(rho: np.ndarray, ev: np.ndarray) -> np.ndarray:
     h, w = rho.shape
     pad = np.zeros(ev.shape, np.float32)
     pad[:h, :w] = rho
+    # float64 transforms: float32 ones (tried 2026-11-03) gave no measurable speed-up on the L5b grids and moved one
+    # point of the CSK Hanoi golden product by 1.65 mm/yr (a different cycle), so the results stay as before
     spec = (dctn(pad.astype(np.float64), type=2, norm=None).astype(np.float32) / ev)
     return idctn(spec.astype(np.float64), type=2, norm=None).astype(np.float32)[:h, :w]
 

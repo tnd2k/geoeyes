@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -25,6 +26,17 @@ class SclaResult:
     ph_scla: np.ndarray        # (n, n_sec) K·bperp
     ph_ramp: np.ndarray        # (n, n_sec) removed ramp (empty when not deramped)
     deramp_degree: int | None
+    ramp_auto: Any = None      # RampAuto.record() under scla_deramp = "auto" (steps/ramp.py)
+
+
+@dataclass(frozen=True)
+class DerampAuto:
+    """What ``scla_deramp = "auto"`` needs besides the phase (steps/ramp.py)."""
+    t: np.ndarray                         # (n_sec,) years from the master
+    mm_per_rad: float                     # -λ/4π in mm
+    weights: np.ndarray | None = None     # (n_sec,) velocity-fit weights
+    stable_mask: np.ndarray | None = None  # (n,) PS inside deramp_non_defo
+    params: Any = None                    # RampAutoParams (None = defaults)
 
 
 def nonlinear_improvement(xy: np.ndarray, ph: np.ndarray, max_ifg_sample: int = 12) -> float:
@@ -77,16 +89,38 @@ def deramp(xy: np.ndarray, ph: np.ndarray, degree: int = 1, weights: np.ndarray 
 
 def calc_scla(*, ph_uw: np.ndarray, bperp_mat: np.ndarray, ifgday: np.ndarray, master_ix: int, xy: np.ndarray,
               aps: np.ndarray | None = None, deramp_scla: bool = True, nonlinear_min_improve: float = 0.08,
-              ref_ps: np.ndarray | None = None, drop_ifg_index=(), legacy: bool = False) -> SclaResult:
+              ref_ps: np.ndarray | None = None, drop_ifg_index=(), legacy: bool = False,
+              auto: DerampAuto | None = None, scla_k_prior: np.ndarray | None = None) -> SclaResult:
     """``ph_uw`` (n, n_sec) step-6 output, ``bperp_mat`` (n, n_sec), ``ifgday`` (n_ifg, 2) ordinals including the
     master-master row, ``aps`` (n, n_ifg) with the master column (pass 2). ``ref_ps`` None = all PS.
-    ``legacy``: K fitted against the scene-mean B⊥ instead of each PS's own."""
+    ``legacy``: K fitted against the scene-mean B⊥ instead of each PS's own. ``auto`` (with ``deramp_scla``):
+    the ramp of ``scla_deramp = "auto"`` (rest always, trend only on a stable background) instead of the full
+    plane / quadratic. ``scla_k_prior`` (n,) rad/m, a first SCLA estimate (pass 1, smoothed): under ``auto`` its
+    K·B⊥ is taken out of the phase the ramp is estimated on (the D0 calibration's input, ramp-selection.md §5.3);
+    the phase the SCLA is fitted on below is unchanged."""
     ph = np.asarray(ph_uw, np.float64).copy()
     if aps is not None:
         ph = ph - np.delete(np.nan_to_num(np.asarray(aps, np.float64), nan=0.0), master_ix, axis=1)
     ph_ramp = np.array([])
     degree = None
-    if deramp_scla:
+    record = None
+    if deramp_scla and auto is not None:
+        from geoeyes.processing.ps.steps.ramp import auto_ramp
+        xy64 = np.asarray(xy, np.float64)
+        ph_in = ph
+        if scla_k_prior is not None:
+            with np.errstate(invalid="ignore"):
+                ph_in = ph - np.nan_to_num(np.asarray(scla_k_prior, np.float64))[:, None] * np.nan_to_num(
+                    np.asarray(bperp_mat, np.float64))
+        r = auto_ramp(xy64[:, 1] / 1000.0, xy64[:, 2] / 1000.0, ph_in, auto.t, mm_per_unit=auto.mm_per_rad,
+                      weights=auto.weights, params=auto.params, stable_mask=auto.stable_mask)
+        del ph_in
+        record = r.record()
+        ph -= np.nan_to_num(r.ph_ramp)
+        ph_ramp = r.ph_ramp.astype(np.float32)        # kept to step 8: float32 halves its memory (millions of PS)
+        del r
+        degree = 1
+    elif deramp_scla:
         degree = 2 if nonlinear_improvement(xy, ph) >= nonlinear_min_improve else 1
         ph, ph_ramp = deramp(xy, ph, degree)
     n_sec = ph.shape[1]
@@ -120,7 +154,7 @@ def calc_scla(*, ph_uw: np.ndarray, bperp_mat: np.ndarray, ifgday: np.ndarray, m
     gc = np.column_stack((np.ones(idx.size), day))
     wc = np.eye(idx.size)
     C = np.linalg.solve(gc.T @ wc @ gc, gc.T @ wc @ (phs - ph_scla).T)[0, :]
-    return SclaResult(K_uw=K, C_uw=C, ph_scla=ph_scla, ph_ramp=ph_ramp, deramp_degree=degree)
+    return SclaResult(K_uw=K, C_uw=C, ph_scla=ph_scla, ph_ramp=ph_ramp, deramp_degree=degree, ramp_auto=record)
 
 
 def smooth_scla(scla: SclaResult, xy: np.ndarray, bperp_mat: np.ndarray) -> SclaResult:
@@ -139,4 +173,5 @@ def smooth_scla(scla: SclaResult, xy: np.ndarray, bperp_mat: np.ndarray) -> Scla
     K, C = out
     with np.errstate(invalid="ignore"):
         ph_scla = np.nan_to_num(np.asarray(bperp_mat, np.float64) * K[:, None], nan=0.0)
-    return SclaResult(K_uw=K, C_uw=C, ph_scla=ph_scla, ph_ramp=scla.ph_ramp, deramp_degree=scla.deramp_degree)
+    return SclaResult(K_uw=K, C_uw=C, ph_scla=ph_scla, ph_ramp=scla.ph_ramp, deramp_degree=scla.deramp_degree,
+                      ramp_auto=scla.ramp_auto)

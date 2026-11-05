@@ -10,6 +10,8 @@ import numpy as np
 import scipy.fft as sfft
 from scipy.signal import fftconvolve, windows
 
+from geoeyes.core import compute
+
 
 def low_pass(n_win: int, grid_size: float, wavelength: float) -> np.ndarray:
     """(n_win, n_win) 5th-order Butterworth response (cut-off 1/wavelength), fft-shifted."""
@@ -227,10 +229,16 @@ def clap_at_points(ph_grid: np.ndarray, cells: np.ndarray, n_win: int, alpha, be
     from cell - n_win/2, kept inside the grid (``legacy``: only clipped at the top/left edge, zero-padded past
     the bottom/right edge), the point's own cell (±osf_r) zeroed so it does not filter itself. ``cells``
     (n, 2) 0-based grid (row, col). Returns (n, n_ifg) complex64; the result depends only on the cell, so
-    each distinct cell is filtered once."""
+    each distinct cell is filtered once. The windows are gathered on the host; the FFTs, the adaptive gain and
+    the median run on the backend of the current run (``geoeyes.core.compute``)."""
+    be = compute.current()
+    xp, fft, kw = be.xp, be.fft, be.fft_kw
     n_ifg = ph_grid.shape[2]
     if cells.shape[0] == 0:
         return np.zeros((0, n_ifg), np.complex64)
+    batch = be.batch(batch)
+    if be.gpu:                                        # (batch, n_ifg, n_win, n_win) complex64 x ~6 temporaries
+        batch = int(min(batch, max(256, be.memory_gb * 1e9 / 16 / (n_ifg * n_win * n_win * 8 * 6))))
     cells, inv = np.unique(cells, axis=0, return_inverse=True)
     n = cells.shape[0]
     out = np.zeros((n, n_ifg), np.complex64)
@@ -246,10 +254,10 @@ def clap_at_points(ph_grid: np.ndarray, cells: np.ndarray, n_win: int, alpha, be
     n_full = n_win + kh - 1
     k_full = np.zeros((n_full, n_full), np.float32)
     k_full[:kh, :kh] = kernel
-    k_rfft = sfft.rfft2(k_full, workers=-1)[None, None]
-    lp = np.asarray(low_pass_resp, np.float32)[None, None]
+    k_rfft = fft.rfft2(be.asarray(k_full), **kw)[None, None]
+    lp = be.asarray(np.asarray(low_pass_resp, np.float32))[None, None]
     off = np.arange(n_win, dtype=np.int64)
-    ifg = np.arange(n_ifg)
+    ifg = xp.arange(n_ifg)
     max_rows = 256                                   # rows of the grid read at once (the cells are sorted by row)
 
     s = 0
@@ -268,20 +276,20 @@ def clap_at_points(ph_grid: np.ndarray, cells: np.ndarray, n_win: int, alpha, be
         for di in range(-osf_r, osf_r + 1):
             for dj in range(-osf_r, osf_r + 1):
                 win[rows, np.clip(bi + di, 0, n_win - 1), np.clip(bj + dj, 0, n_win - 1), :] = 0
-        win = np.ascontiguousarray(win.transpose(0, 3, 1, 2))
-        spec = sfft.fft2(win.reshape(nb * n_ifg, n_win, n_win), workers=-1)
-        h = np.abs(spec).reshape(nb, n_ifg, n_win, n_win).astype(np.float32)
-        h_pad = np.zeros((nb, n_ifg, n_full, n_full), np.float32)
-        h_pad[:, :, :n_win, :n_win] = np.fft.fftshift(h, axes=(-2, -1))
-        h = sfft.irfft2(sfft.rfft2(h_pad, axes=(-2, -1), workers=-1) * k_rfft, s=(n_full, n_full), axes=(-2, -1),
-                        workers=-1)
+        win = be.asarray(np.ascontiguousarray(win.transpose(0, 3, 1, 2)))
+        spec = fft.fft2(win.reshape(nb * n_ifg, n_win, n_win), **kw)
+        h = xp.abs(spec).reshape(nb, n_ifg, n_win, n_win).astype(np.float32)
+        h_pad = xp.zeros((nb, n_ifg, n_full, n_full), np.float32)
+        h_pad[:, :, :n_win, :n_win] = xp.fft.fftshift(h, axes=(-2, -1))
+        h = fft.irfft2(fft.rfft2(h_pad, axes=(-2, -1), **kw) * k_rfft, s=(n_full, n_full), axes=(-2, -1), **kw)
         c = kh // 2
-        h = np.fft.ifftshift(h[:, :, c:c + n_win, c:c + n_win], axes=(-2, -1))
-        np.maximum(h, 0.0, out=h)
-        med = np.median(h.reshape(nb, n_ifg, -1), axis=-1, keepdims=True)[..., None]
-        h = np.where(med != 0, h / (med + 1e-10), h)
-        gain = (np.maximum(h**alpha - 1, 0.0) * beta + lp).astype(np.complex64)
-        filt = sfft.ifft2(spec.reshape(nb, n_ifg, n_win, n_win) * gain, axes=(-2, -1), workers=-1)
-        out[s:e] = filt[rows[:, None], ifg[None, :], bi[:, None], bj[:, None]].astype(np.complex64)
+        h = xp.fft.ifftshift(h[:, :, c:c + n_win, c:c + n_win], axes=(-2, -1))
+        xp.maximum(h, 0.0, out=h)
+        med = xp.median(h.reshape(nb, n_ifg, -1), axis=-1, keepdims=True)[..., None]
+        h = xp.where(med != 0, h / (med + 1e-10), h)
+        gain = (xp.maximum(h**alpha - 1, 0.0) * beta + lp).astype(np.complex64)
+        filt = fft.ifft2(spec.reshape(nb, n_ifg, n_win, n_win) * gain, axes=(-2, -1), **kw)
+        r_, bi_, bj_ = (be.asarray(a) for a in (rows, bi, bj))
+        out[s:e] = be.asnumpy(filt[r_[:, None], ifg[None, :], bi_[:, None], bj_[:, None]].astype(np.complex64))
         s = e
     return out[inv.reshape(-1)]
