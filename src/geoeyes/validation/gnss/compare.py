@@ -3,13 +3,19 @@
 Per station inside the product (NGL, ``ngl``):
 
 1. GNSS: cleaned daily ENU, averaged over ±``window_days`` around each InSAR epoch;
-2. InSAR: median series of the points within ``radius_m`` of the antenna (at least ``min_points``);
+2. InSAR: median series of the points within ``radius_m`` of the antenna (at least ``min_points``), from
+   ``disp_mm`` (``series = "raw"``, the default; also the fallback for products without the SCN column) or
+   ``disp_scn_mm`` (``series = "scn"``, a diagnostic: spatially correlated noise removed, incl. the scene-wide ramp
+   of each epoch; over a short stack it is close to the linear trend, so the shape check against GNSS becomes
+   circular — not for validation);
 3. GNSS in the line of sight, two ways:
    * ``full``: d = e·l_e + n·l_n + u·l_u (every component; includes the motion of the tectonic plate in IGS20);
    * ``vertical``: d = u·l_u (the horizontal motion is taken as the plate's, uniform over the scene, so it is
      part of the InSAR reference and cancels; what is compared is the local vertical motion);
 4. both series are put on a common zero (their mean over the shared epochs), then: rates and their difference,
-   RMSE, RMSE after removing the linear trend of the difference (agreement in shape), correlation.
+   RMSE, RMSE after removing the linear trend of the difference (agreement in shape), ``corr`` = correlation of
+   the two series after removing each one's own linear trend (shape), ``corr_with_trend`` = correlation of the
+   de-meaned series as they are (dominated by the trend).
 
 Calibration (``calibration``) of the InSAR with the stations' LOS (``los_mode``):
 
@@ -41,7 +47,7 @@ from geoeyes.validation.gnss import ngl
 
 log = logging.getLogger(__name__)
 
-SCHEMA = "geoeyes.gnss/1"
+SCHEMA = "geoeyes.gnss/2"     # /2 (2026-11-05): corr on detrended residuals, corr_with_trend added; series = raw
 M_PER_DEG_LAT = 110_540.0
 M_PER_DEG_LON = 111_320.0
 DAYS_PER_YEAR = 365.2425
@@ -59,6 +65,7 @@ class GnssParams:
     los_mode: str = "vertical"              # vertical | full (see the module docstring)
     calibration: str = "offset"             # offset | plane | epoch
     gnss_rate: str = "window"               # window (GNSS rate over the InSAR period) | midas (NGL long-term rate)
+    series: str = "raw"                     # raw (disp_mm) | scn (disp_scn_mm, SCN removed: diagnostic only)
     stations: tuple[str, ...] = ()          # only these stations (default: every NGL station in the product)
     exclude: tuple[str, ...] = ()           # stations left out (bad monument, moved antenna, ...)
 
@@ -84,6 +91,8 @@ class GnssParams:
             raise ConfigError("[validation.gnss] calibration: offset | plane | epoch")
         if p.gnss_rate not in ("window", "midas"):
             raise ConfigError("[validation.gnss] gnss_rate: window | midas")
+        if p.series not in ("scn", "raw"):
+            raise ConfigError("[validation.gnss] series: scn | raw")
         return p
 
 
@@ -107,14 +116,30 @@ def _stats(t: np.ndarray, insar: np.ndarray, gnss: np.ndarray) -> dict:
     vb, sb = _fit(t, b)
     diff = a - b
     vd, _ = _fit(t, diff)
-    detr = diff - np.polyval(np.polyfit(t, diff, 1), t)
-    corr = float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else None
+    detr = diff - _detrend_fit(t, diff)
+    ra, rb = a - _detrend_fit(t, a), b - _detrend_fit(t, b)                    # each series without its own trend
+    # corr: shape agreement, on the detrended residuals (a shared trend alone does not make it high);
+    # corr_with_trend: the de-meaned series as they are (dominated by the trend; the pre-2026-11-05 "corr")
+    corr = _corr(ra, rb)
+    corr_trend = _corr(a, b)
     return {"n_epochs": int(ok.sum()), "rate_insar_mm_yr": round(va, 2), "rate_insar_se": round(sa, 2),
             "rate_gnss_mm_yr": round(vb, 2), "rate_gnss_se": round(sb, 2),
             "rate_diff_mm_yr": round(vb - va, 2),
             "rmse_mm": round(float(np.sqrt(np.mean(diff ** 2))), 2),
             "rmse_detrended_mm": round(float(np.sqrt(np.mean(detr ** 2))), 2),
-            "corr": None if corr is None else round(corr, 3), "diff_rate_mm_yr": round(vd, 2)}
+            "corr": corr, "corr_with_trend": corr_trend, "diff_rate_mm_yr": round(vd, 2)}
+
+
+def _detrend_fit(t: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """The ordinary least-squares line of ``y`` over ``t``, evaluated at ``t``."""
+    return np.polyval(np.polyfit(t, y, 1), t)
+
+
+def _corr(a: np.ndarray, b: np.ndarray) -> float | None:
+    """Pearson correlation rounded to 3 decimals; None when either series is constant (to rounding)."""
+    if a.size < 3 or a.std() <= 1e-9 * (1 + np.abs(a).max()) or b.std() <= 1e-9 * (1 + np.abs(b).max()):
+        return None
+    return round(float(np.corrcoef(a, b)[0, 1]), 3)
 
 
 def _epoch_mean(day: np.ndarray, enu: np.ndarray, epochs: np.ndarray, window: int) -> np.ndarray:
@@ -139,8 +164,15 @@ def compare(product: Path, out: Path, params: GnssParams, cache: Path, progress=
     lon = pts["lon"].to_numpy().astype(np.float64)
     lat = pts["lat"].to_numpy().astype(np.float64)
     los = np.column_stack([pts[c].to_numpy().astype(np.float64) for c in ("los_e", "los_n", "los_u")])
-    dates, series = timeseries_arrays(product / "timeseries.parquet", pts["point_uid"].to_numpy(zero_copy_only=False))
-    ts = series["disp_mm"]
+    warnings: list[str] = []
+    column = "disp_scn_mm" if p.series == "scn" else "disp_mm"
+    if column not in pq.read_schema(product / "timeseries.parquet").names:
+        warnings.append(f"no {column} in the product: disp_mm (series = raw) compared instead")
+        column = "disp_mm"
+    dates, series = timeseries_arrays(product / "timeseries.parquet", pts["point_uid"].to_numpy(zero_copy_only=False),
+                                      columns=(column,))
+    ts = series[column]
+    del series
     t_yr = (dates - dates[0]).astype(np.float64) / DAYS_PER_YEAR
     bbox = [float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())]
     lat0 = float(np.median(lat))
@@ -150,7 +182,7 @@ def compare(product: Path, out: Path, params: GnssParams, cache: Path, progress=
     found = ngl.stations_in(cache, bbox, str(dates[0]), str(dates[-1]))
     if p.stations:
         found = found[found["site"].isin(p.stations)]
-    rows, arrays, warnings = [], {}, []
+    rows, arrays = [], {}
     for st in found.itertuples():
         info: dict[str, Any] = {"site": st.site, "lon": round(st.lon, 6), "lat": round(st.lat, 6),
                                 "first": str(st.first.date()), "last": str(st.last.date()), "used": False}
@@ -217,14 +249,15 @@ def compare(product: Path, out: Path, params: GnssParams, cache: Path, progress=
         warnings += calib.pop("warnings", [])
 
     out.mkdir(parents=True, exist_ok=True)
-    flat: dict[str, np.ndarray] = {"dates": dates.astype(str)}
+    flat: dict[str, np.ndarray] = {"dates": dates.astype(str), "insar_column": np.array(column)}
     for s, a in arrays.items():
         for k, v in a.items():
             flat[f"{s}__{k}"] = np.asarray(v)
     np.savez(out / "series.npz", **flat)
     summary = {"schema": SCHEMA, "product_id": product.name, "created": datetime.now(UTC).isoformat(timespec="seconds"),
                "params": {k: list(v) if isinstance(v, tuple) else v for k, v in asdict(p).items()},
-               "source": ngl.SOURCE, "frame": ngl.FRAME, "dates": [str(d) for d in dates], "bounds": bbox,
+               "insar_column": column, "source": ngl.SOURCE, "frame": ngl.FRAME, "dates": [str(d) for d in dates],
+               "bounds": bbox,
                "stations": rows, "calibration": calib, "warnings": warnings,
                "method": "docs/en/research/gnss-insar-calibration.md"}
     atomic_write_json(out / "comparison.json", summary)
