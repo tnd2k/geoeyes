@@ -40,21 +40,26 @@ def intensity_class(rate: np.ndarray, stable: np.ndarray, breaks) -> np.ndarray:
 
 def angular_distortion(kx: np.ndarray, ky: np.ndarray, rate: np.ndarray, cell_m: float, horizon_yr: float,
                        ok: np.ndarray | None = None) -> np.ndarray:
-    """Largest differential settlement over one cell spacing toward any of the 8 neighbours, accumulated over
-    ``horizon_yr``: β = max |v_i − v_j| · T / L (dimensionless; v in mm/yr, L in m). NaN without a neighbour."""
+    """Angular distortion of each cell accumulated over ``horizon_yr``: the change of slope across the cell, from
+    the second difference along the 4 directions (E–W, N–S and the two diagonals) through its two opposite
+    neighbours, β = max |(v₊ − v_i)/L − (v_i − v₋)/L| · T / 1000 = max |v₊ − 2v_i + v₋| · T / (1000 L) with L =
+    ``cell_m`` (E–W, N–S); on the diagonals (spacing √2·L) the second difference is divided by 2L so that every
+    direction gives the change of slope over one cell spacing (curvature × L). Dimensionless, v in mm/yr, L in m.
+    A uniform ground slope (rigid tilt) gives β = 0 (Burland & Wroth 1974). NaN without a pair of opposite
+    neighbours."""
     rate = np.asarray(rate, np.float64)
     ok = np.isfinite(rate) if ok is None else ok & np.isfinite(rate)
     index = {(int(a), int(b)): i for i, (a, b, good) in enumerate(zip(kx, ky, ok, strict=True)) if good}
     beta = np.full(len(rate), np.nan)
-    steps = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+    steps = [(1, 0), (0, 1), (1, 1), (1, -1)]
     for (a, b), i in index.items():
         best = np.nan
         for dx, dy in steps:
-            j = index.get((a + dx, b + dy))
-            if j is None:
+            jp, jm = index.get((a + dx, b + dy)), index.get((a - dx, b - dy))
+            if jp is None or jm is None:
                 continue
-            g = abs(rate[i] - rate[j]) / (cell_m * np.hypot(dx, dy))        # mm/yr per m
-            if not best >= g:                                                # NaN at first
+            g = abs(rate[jp] - 2 * rate[i] + rate[jm]) / (cell_m * (dx * dx + dy * dy))  # mm/yr per m
+            if not best >= g:                                                            # NaN at first
                 best = g
         beta[i] = best * horizon_yr / 1000.0
     return beta

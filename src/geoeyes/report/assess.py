@@ -366,8 +366,8 @@ def buildings(b_dir: Path, r_dir: Path, cmd_b: str, cmd_r: str) -> dict:
         out["text"].append(f"{s.get('buildings_with_points', 0):,} of {s.get('buildings_total', 0):,} building "
                            "footprints (Overture Maps) hold enough measurement points to rate their own motion.")
         out["text"].append(f"{sinking[f'sinking over {THRESHOLDS[0]} mm/yr']:,} of them sink faster than "
-                           f"{THRESHOLDS[0]} mm per year; {s.get('beta_over_1_500', 0):,} tilt enough to reach 1/500 "
-                           "in 10 years, the limit above which cracks may appear.")
+                           f"{THRESHOLDS[0]} mm per year; {s.get('beta_over_1_500', 0):,} reach an angular distortion "
+                           "of 1/500 in 10 years, the limit above which cracks may appear.")
     else:
         out["buildings_run"] = cmd_b
     if r is not None:
@@ -536,7 +536,7 @@ def recommendations(hot: list[dict], imp: dict, conf: dict, a: dict) -> list[dic
                     "why": f"{ln['flagged']} place(s) settle unevenly beyond 1/500"})
     bd = imp["buildings"]
     if bd.get("assessed") and bd.get("beta_over_1_500"):
-        out.append({"text": "Inspect the buildings whose tilt reaches 1/500 in 10 years (list in the building "
+        out.append({"text": "Inspect the buildings whose angular distortion reaches 1/500 in 10 years (list in the building "
                             "analysis).", "why": f"{bd['beta_over_1_500']} building(s)"})
     if conf["level"] != "high":
         out.append({"text": "Treat the rates as indicative until the points under 'How sure are we' are cleared; "

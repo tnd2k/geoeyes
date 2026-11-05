@@ -1,5 +1,6 @@
 """Infrastructure lines (geoeyes.ml.lines) and consolidation (geoeyes.ml.consolidation)."""
 import numpy as np
+import pytest
 
 from geoeyes.ml import consolidation as cs
 from geoeyes.ml import lines as ln
@@ -37,6 +38,26 @@ def test_stations_every_step_along_the_line():
     assert len(ch) == 21 and ch[-1] == 1000
     np.testing.assert_allclose(np.diff(pos[:, 0]) * kx, 50.0, rtol=1e-9)
     assert len(ln.stations(coords, 2000.0, lat0)[0]) == 0                 # shorter than one step
+
+
+def test_uniform_slope_along_a_line_is_no_distortion():
+    ch = np.arange(0.0, 1001.0, 50.0)
+    vv = -0.1 * ch                                                        # 5 mm/yr more every 50 m: a slope
+    tilt, beta = ln.distortion(ch, vv, np.full(ch.size, 0.5), 2, 10.0)
+    np.testing.assert_allclose(tilt[2:], 0.1 * 10 / 1000)                 # 1/1000 of slope in 10 years
+    np.testing.assert_allclose(beta[2:-2], 0.0, atol=1e-12)
+    assert np.isnan(beta[:2]).all() and np.isnan(beta[-2:]).all()
+
+
+def test_kink_along_a_line_is_distortion_above_noise():
+    ch = np.arange(0.0, 1001.0, 50.0)
+    vv = np.where(ch < 500, 0.0, -0.3 * (ch - 500))                       # flat, then sinking 30 mm/yr per 100 m
+    _, beta = ln.distortion(ch, vv, np.full(ch.size, 0.5), 2, 10.0)
+    i = int(np.flatnonzero(ch == 500)[0])
+    assert beta[i] == pytest.approx(0.3 * 10 / 1000)                      # change of slope 0.3 mm/yr/m: 1/333
+    assert np.nanmax(beta[np.abs(ch - 500) >= 100]) == 0.0                # straight on either side
+    _, small = ln.distortion(ch, 0.01 * np.abs(ch - 500), np.full(ch.size, 3.0), 2, 10.0)
+    assert np.nanmax(small) == 0.0                                        # within the noise: not counted
 
 
 def test_consolidation_curve_is_recovered():
