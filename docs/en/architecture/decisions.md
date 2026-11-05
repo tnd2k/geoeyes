@@ -34,8 +34,41 @@
 | 027 | Vietnamese: bilingual web app (EN / VI), Vietnamese translations of the docs; notification centre | Accepted |
 | 028 | Open-data hub (ICEYE, Capella, Umbra STAC) and the ICEYE SLC-COG reader; open-data stacks fetched by `acquire` | Accepted |
 | 029 | SICD (NITF) reader and slant-plane stack builder; Umbra processable (`ps_lite`) | Accepted |
+| 030 | Landslide studies: package `geoeyes.landslide`, study folders outside projects, labels from inventories | Proposed |
 
 ---
+
+### ADR-030 — Landslide studies from inventories *(Proposed 2026-11-01)*
+**Context.** The project owner started a separate study: susceptibility to rainfall-triggered landslides, with
+rainfall thresholds and pre-event InSAR
+([`docs/en/research/landslide-susceptibility.md`](../research/landslide-susceptibility.md)). Its labels come from
+landslide inventories, not from InSAR cells (`ml.susceptibility`). It spans several storms and possibly several
+InSAR products, so it does not belong to one project.
+**Decision.**
+- Package `geoeyes.landslide`:
+  - `study` (configuration);
+  - `inventory` (the workspace inventories, footprints, area–frequency);
+  - `labels`;
+  - later `terrain`, `predictors`, `model`, `thresholds`, `hindcast`, one per step of the plan.
+  - It reuses `ml.layers.Grid`, the model code of `ml.susceptibility`, `ancillary.rainfall` and the InSAR products.
+- A study is a folder `<workspace>/studies/<name>/` with `study.toml` (schema `geoeyes.landslide_study/1`):
+  - inventory and its citation;
+  - study area (one row of a GeoPackage);
+  - footprint variants;
+  - events;
+  - step parameters.
+  - Each step writes its outputs and a `Manifest` in a subfolder (`audit/`, `labels/`, …).
+  - InSAR stacks stay ordinary projects (`projects/<name>`).
+- Inventories stay workspace data (`inventories/landslide/`), rebuilt by `geoeyes landslide inventory` from the cached
+  sources; the reported-events CSV stays editable by hand.
+- CLI: `geoeyes landslide inventory | audit | labels [--study NAME] [--set KEY=VALUE]`.
+- Labels: positives at the initiation zone (scarp cell; variants upper third and centroid); negatives inside the
+  footprint, farther than a buffer from the event's polygons, drawn several times with seeded generators. The
+  footprint is approximated (`near` by default) because the mapping extents are not published.
+**Consequences.**
+- A study can run a step at a time and be reviewed between steps.
+- The pilot area (§3.4 of the plan) is just the study's `[area]`: extending it means changing that row, not the code.
+- Outputs of a study are not shown in the web app until a step is accepted (L7 gate).
 
 ### ADR-029 — SICD: NITF reader, image projections, slant-plane stacks *(Accepted 2026-10-28, completes ADR-028)*
 **Context.** Umbra (and other providers) deliver complex data as SICD (NGA Sensor Independent Complex Data): a NITF
@@ -222,8 +255,12 @@ triggering, risk) is open.
 **Decision (2026-10-21).** Sentinel-1, COSMO-SkyMed, ALOS-PALSAR, Capella, **TerraSAR-X (kept)**. TSX is refactored like the other sensors (the old TSX fork of `flow.py` is not carried over; TSX uses the unified PS engine and so gets SBAS/step 8 automatically).
 **ALOS generation (still open, not blocking).** ALOS-1 PALSAR (2006–2011, archive data only), ALOS-2 PALSAR-2 (2014–, CEOS L1.1), ALOS-4 PALSAR-3 (launched 2024; L1.1 format to be verified). The project owner **already has sample data**; ALOS is done **last** (Phase 4b, after S1/CSK/Capella/TSX are stable) — the specific generation will be determined from the sample data at that time. Readers are designed as per-generation plug-ins. ScanSAR is out of the initial scope.
 
-### ADR-014 — GPU *(Proposed)*
-**Proposed decision.** Array kernels: NumPy/Numba (CPU) ↔ CuPy (GPU) via `core.compute`. Torch only for ML models. Every kernel has a CPU path.
+### ADR-014 — GPU *(Accepted)*
+**Decision (2026-11-04).** Array kernels: NumPy/Numba (CPU) ↔ CuPy (GPU) via `core.compute`. Torch only for ML models. Every kernel has a CPU path.
+- `core.compute.Backend`: `xp` (numpy | cupy), `fft` (scipy.fft | cupyx.scipy.fft) with `fft_kw`, `asarray`/`asnumpy`, `batch()` (larger batches on the GPU). Chosen once per run in `pipeline.run` from `[compute] backend` (`auto` | `numpy` | `cupy`; env `GEOEYES_COMPUTE_BACKEND` wins) and set with a context variable (`compute.use`), so kernels need no extra argument. `auto` falls back to NumPy when CuPy is missing, sees no device or fails a test FFT; `cupy` without a usable GPU is an error before any phase runs. `geoeyes check` reports the backend; the run manifest records it.
+- **The CPU path stays bit-identical** to the code before the port (on the CPU `xp` *is* numpy, the copies are no-ops, `workers=-1` is kept); checked against snapshots when a kernel is ported. GPU results agree to rounding, not bit for bit.
+- Ported (2026-11-04): `ps.topofit.topofit`/`topofit_full` (steps 2 and 3) and `ps.clap.clap_at_points` (step 3). Next by expected gain: `clap.clap_filter` (step 2, needs the windows of a row batched first), `steps/velocity` high-pass and `scn_filt` (step 8), phase linking. Each port: snapshot the CPU outputs, port, check bit identity on the CPU and the stand-in GPU test (`tests/unit/core/test_compute.py`); the real-GPU test runs where CuPy sees a device.
+- Install: `pip install "geoeyes[gpu]"` (cupy-cuda12x, NVIDIA with a CUDA 12 driver); AMD needs a ROCm CuPy build on Linux. The owner's current machine (AMD Radeon integrated, Windows) has no usable GPU, so the GPU path is tested there only with the stand-in backend.
 
 ### ADR-015 — Language: English *(Accepted)*
 **Decision (2026-10-21).** Code, comments, docstrings, logs, CLI, documentation, PDF reports: **English**. Reports need no i18n (drop `report/i18n/`). The current architecture documents (in Vietnamese) will be translated into English after the project owner has finished reviewing v0.1.

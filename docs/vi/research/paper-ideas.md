@@ -40,6 +40,10 @@ một mục trong bài khác.
 **Kết quả tách thành phần đã có** (two-geometries-and-soft-soil.md §4.2, ngày 2026-10-27):
 - Sản phẩm quỹ đạo lên 128 có mặt nghiêng khoảng 27 mm/năm trên vùng; sau khi khử, thẳng đứng −10,3 … +5,9 mm/năm
   (p2–p98), lún tối đa −27 mm/năm.
+  - Đối chiếu số liệu (2026-11-05): 26,9 mm/năm là biên độ (max − min) của mặt phẳng khớp trên vùng chung 12.658 ô
+    của phép tách (v1, two-geometries-and-soft-soil.md §4.2). Con số 23,5 mm/năm ở mục 3 là của cùng sản phẩm v1
+    nhưng đo khác: độ lớn gradient × 14 km, √(0,75² + 1,50²) × 14 ≈ 23,5. Hai số không mâu thuẫn; khi viết bài chỉ
+    dùng một cách đo (gradient, mm/năm/km).
 - Phép chiếu một hướng nhìn sai khoảng 5 mm/năm ở 90 % số ô. Đây là cận trên, vì gồm cả nhiễu của phép tách.
 - Không đo được chuyển dịch ngang thật: phần đông–tây còn lại không hướng về các phễu lún. σ_e thực khoảng
   2,7 mm/năm, gấp bốn lần giá trị hình thức.
@@ -61,6 +65,16 @@ một mục trong bài khác.
 - Đối chiếu ngày khởi phát lún với ngày thi công thật (giấy phép xây dựng, ảnh vệ tinh quang học).
 - Khảo sát hư hại vài tuyến phố để kiểm chứng mức rủi ro.
 - So sánh với các nghiên cứu InSAR Hà Nội trước đây (tốc độ, vùng lún).
+
+**Đánh giá 2026-11-05.**
+- Sản phẩm quỹ đạo lên vẫn chưa sạch: tầng điện ly còn sót 15,3 mm/năm trên 14 km ở v4 (v6: gx −0,49, gy −0,77
+  mm/năm/km, khoảng 13 mm/năm trên 14 km), gradient Bắc–Nam khoảng −0,8 mm/năm/km mà quỹ đạo xuống không có, và bản
+  sửa chỗ nối dải con mới có từ v4/v6 (mục 3).
+- Chuỗi chỉ một năm nên phần theo mùa lẫn vào vận tốc. Vì vậy phép tách thành phần **chưa thể là kết quả chính** cho
+  tới khi kiểm bằng GNSS hoặc gương phản xạ góc.
+- Các mục rủi ro công trình và hạ tầng tuyến chưa được công bố dưới dạng "hư hại": β hiện là độ nghiêng (công trình)
+  hoặc tốc độ thay đổi độ dốc (tuyến), đang so với giới hạn góc biến dạng (behaviour-and-risk.md §3.1,
+  lines-and-consolidation.md §2.3). Phải sửa sang độ cong / độ võng trước.
 
 **Nơi đăng gợi ý.** *Remote Sensing* (MDPI), *Vietnam Journal of Earth Sciences*, *International Journal of Applied
 Earth Observation and Geoinformation*.
@@ -87,6 +101,14 @@ Earth Observation and Geoinformation*.
 - Bản đồ của Phi & Strokova (2017).
 
 Có số liệu này, bài 2 mạnh lên nhiều.
+
+**Đánh giá 2026-11-05.** Tính mới yếu nếu chưa có số liệu lỗ khoan Hà Nội.
+- Chênh lệch giữa kiểm định chéo ngẫu nhiên và kiểm định chéo không gian đã được công bố nhiều (Roberts và cs. 2017;
+  Ploton và cs. 2020; Meyer & Pebesma 2021).
+- Vai trò của bề dày lớp sét đối với sụt lún ở Mexico City cũng đã được biết (Chaussard và cs. 2014; Cigna & Tapete
+  2021).
+- Bài chỉ có đóng góp riêng khi có lớp đất yếu thật cho Hà Nội (lỗ khoan BGS / Đại học Mỏ – Địa chất) và kết quả
+  tổng quát hoá được sang vùng thứ ba.
 
 ## 3. Bài 3: Bậc pha giữa các dải con TOPS và tầng điện ly chạng vạng
 
@@ -161,7 +183,8 @@ quỹ đạo lên 128: mặt nghiêng do tầng điện ly và bậc pha ở ch�
   - Vẫn còn gradient Bắc–Nam khoảng −0,8 mm/năm/km mà quỹ đạo xuống không có (−0,2). Chuyển dịch Bắc–Nam gần như không
     vào hướng nhìn, nên phần này là sai số của quỹ đạo lên. Phân tích từng ngày cho thấy nó **không** phải tầng điện
     ly còn sót (r = 0,18 với gradient đã khử, dao động gấp 10 lần sai số hình thức, lớn nhất mùa hè), nhiều khả năng
-    là đối lưu chiều tối (`docs/vi/guide/ionosphere.md` §6). Đây là việc của bài 2 hơn là bài này.
+    là đối lưu chiều tối (`docs/vi/guide/ionosphere.md` §6). Đây là việc của bài 1 (hai quỹ đạo) hơn là bài này
+    (sửa 2026-11-05: trước ghi nhầm "bài 2", là bài học máy).
 
 **Điểm mới dự kiến (cần rà tài liệu).**
 - Ghi nhận và định lượng bậc pha giữa các dải con trong chuỗi Sentinel-1 gần đây (có S1D), kèm dấu hiệu chẩn đoán
@@ -270,6 +293,14 @@ chiếu bản đồ độc lập: Copernicus EMS / UNOSAT nếu có kích hoạt
 4. Rà tài liệu: ngập đô thị bằng độ nhất quán SAR; liên hệ sụt lún – ngập (Jakarta, Bangkok, TP.HCM); các nghiên cứu ngập
    Hà Nội.
 5. Đọc toàn văn bài gợi ý: cách họ đo chất lượng độ bất định (calibration, độ ổn định giữa các trận).
+
+**Đánh giá 2026-11-05.** Yagi chưa trả lời được câu hỏi của bài.
+- Ngập Yagi là lũ sông Hồng ở bãi sông, ngoài đê, không phải úng ngập do mưa trong đô thị. Nó không kiểm được "nơi
+  đô thị đang lún có ngập do mưa nhiều hơn không".
+- Các trận úng ngập nội thành rút trong vài giờ, nên Sentinel-1 12 ngày một lần thường bỏ lỡ (Bualoi, Matmo ở bảng
+  trên).
+- Một năm sụt lún (`hanoi_s1`) chưa đủ để gắn với thay đổi tần suất ngập.
+- Hướng 2 (điểm ngập lịch sử của thành phố đối chiếu với tốc độ lún) là phần khả thi; hướng 1 chỉ là minh hoạ.
 
 **Nơi đăng gợi ý.** *Natural Hazards and Earth System Sciences*, *International Journal of Disaster Risk
 Reduction*, *Remote Sensing*.

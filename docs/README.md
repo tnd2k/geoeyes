@@ -5,6 +5,7 @@
 | Index · Mục lục | [en/README.md](en/README.md) | [vi/README.md](vi/README.md) |
 | Rainfall and InSAR hazard zoning · Mưa và InSAR trong phân vùng nguy cơ | [en/research/rainfall-insar-hazard.md](en/research/rainfall-insar-hazard.md) | [vi/research/rainfall-insar-hazard.md](vi/research/rainfall-insar-hazard.md) |
 | GNSS validation and calibration · Kiểm định và hiệu chỉnh bằng GNSS | [en/research/gnss-insar-calibration.md](en/research/gnss-insar-calibration.md) | [vi/research/gnss-insar-calibration.md](vi/research/gnss-insar-calibration.md) |
+| Automatic ramp selection · Tự chọn deramp | [en/research/ramp-selection.md](en/research/ramp-selection.md) | [vi/research/ramp-selection.md](vi/research/ramp-selection.md) |
 | Groundwater and InSAR · Nước ngầm và InSAR | [en/research/groundwater-insar.md](en/research/groundwater-insar.md) | [vi/research/groundwater-insar.md](vi/research/groundwater-insar.md) |
 | Kinds of motion and risk to buildings · Kiểu chuyển dịch và rủi ro công trình | [en/research/behaviour-and-risk.md](en/research/behaviour-and-risk.md) | [vi/research/behaviour-and-risk.md](vi/research/behaviour-and-risk.md) |
 | Infrastructure lines and consolidation · Hạ tầng tuyến và lún cố kết | [en/research/lines-and-consolidation.md](en/research/lines-and-consolidation.md) | [vi/research/lines-and-consolidation.md](vi/research/lines-and-consolidation.md) |

@@ -66,6 +66,18 @@ A richer model always fits a little better. The models are compared with the Bay
   `edge_epochs` = 3 epochs kept on each side.
 - All cells are fitted at once (vectorised least squares): a few tenths of a second for 45,000 cells.
 
+**Caveat (2026-11-05): ΔBIC = 6 overstates the evidence for onsets and steps.** (`ml/behaviour.py`, ~l. 103–118.)
+- The change epoch is grid-searched over every epoch and charged as one ordinary parameter (k = 4). A searched
+  change point is a non-regular parameter: the best of ~n − 6 fits lowers the RSS more than one free parameter does,
+  so the BIC penalty is too small and onsets and steps are favoured.
+- The BIC assumes independent residuals. The atmosphere left in the series is correlated in space and time, so the
+  effective n is smaller than the number of epochs.
+- "Strong evidence" in Kass & Raftery's sense does not hold under either point. The classes are indicative.
+
+Plan: calibrate the ΔBIC threshold per model on null simulations (steady series plus noise with the series' own
+spatial and temporal correlation, e.g. from stable cells), or by permutation of the residuals, so that the
+false-alarm rate of each class is known.
+
 ### 2.3 Changes shared by many cells
 
 The ground rarely changes everywhere on one date. One acquisition with a strong atmosphere, or an unwrapping
@@ -92,9 +104,25 @@ Risk crosses the hazard with what is exposed and how much it suffers (UNDRR 2016
 - **From the building's own InSAR points** (geoeyes buildings), when it holds at least `min_points_own` = 5
   persistent scatterers on flat ground:
   - intensity from its vertical rate, with the classes of the zoning;
-  - damage potential from its own tilt β when significant, else from the angular distortion of its cell;
+  - damage potential S = the larger of the class of its own angular distortion β (1/500, 1/300, 1/150) and the class
+    of its own rigid tilt (`tilt_breaks` 1/500, 1/250, 1/100), each when significant; else the S of its cell;
   - the hazard matrix of the zoning.
 - **From its analysis cell** otherwise: the level of the cell that holds its centroid.
+
+**Fixed in code (2026-11-05): β is now an angular distortion, tilt is classed apart.** Before, the building β was
+the gradient of the plane fitted to its PS (a rigid-body tilt) and the cell β a ground slope, both classed with the
+angular-distortion limits of Bjerrum (1963) and Skempton & MacDonald (1956), which a uniform tilt does not reach
+(Burland & Wroth 1974; Boscardin & Cording 1989). Now:
+- *Building* (`ml/buildings.py::tilt_and_distortion`): the plane gives `tilt_10yr`; β (`beta_10yr`) is the P90 of the
+  relative rotation |r_i − r_j| / d_ij of the plane residuals over PS pairs ≥ 5 m apart, × 10 yr, kept only when it
+  is ≥ 2 × the P90 that PS noise alone gives (σ from `vel_std_mm_yr`, else the nearest-neighbour scatter).
+- *Risk* (`ml/risk.py`): β classed by `distortion_breaks`, tilt by `tilt_breaks` = 1/500, 1/250, 1/100 (Burland 1995:
+  tilt noticeable beyond ~1/250, serious near 1/100); S = the larger.
+- *Cell β* (`hazard/zoning.py::angular_distortion`): the change of slope across the cell, max of the second
+  difference |v₊ − 2v + v₋| over the 4 directions per cell spacing, × T; a uniform ground slope gives 0.
+
+The result tables in this document (§4) were computed with the old method and need a rerun. The classes stay
+screening classes, not a structural assessment.
 - **Not assessed:** buildings outside every cell.
 - Each building carries its `source`.
 
@@ -103,6 +131,10 @@ Risk crosses the hazard with what is exposed and how much it suffers (UNDRR 2016
 - Gross floor area = footprint × floors, a proxy of the people and value inside.
 - Floors come from the Overture height (3 m a floor). Without a height, the median number of floors of the buildings
   of the area that have one is used.
+- Heights missing in Overture are filled (2026-11-05, working tree, not yet committed) from the GlobalBuildingAtlas
+  footprint that holds the building's centroid (Source Cooperative; `gba_heights` = true by default, needs the
+  open-data cache; `opendata/coop.py::fill_heights`). `risk.parquet` gains `height_source` (overture / gba /
+  assumed). The §4 results predate this.
 - E1 < 300 m² ≤ E2 < 3,000 m² ≤ E3.
 
 ### 3.3 Vulnerability V (1–3)
@@ -166,14 +198,18 @@ Runs of 2026-10-26 with the default parameters.
 | Product | Buildings | Own points | From cell | Very high | High | Moderate | Low | Very low | Heights known |
 |---|---|---|---|---|---|---|---|---|---|
 | Hanoi S1 v4 | 450,198 | 8,268 | 350,904 | 1 | 6 | 1,023 | 16,470 | 341,672 | 2 % |
-| Mexico S1 v7 | 1,663,658 | 21,329 | 1,311,046 | 27,321 | 345,439 | 888,714 | 11,651 | 46,942 | 0 % |
+| Mexico S1 v7 | 1,663,658 | 21,329 | 1,311,046 ¹ | 27,321 | 345,439 | 888,714 | 11,651 | 46,942 | 0 % |
+
+¹ Checked 2026-11-05 in `risk.parquet` / `risk.json`: 12,308 of the Mexico buildings rated "from cell" lie in a cell
+without a hazard level (hazard −1), so they have no risk level. Assessed: 1,320,067 = the sum of the five levels.
+Hanoi adds up (359,172). Heights known: runs before the GlobalBuildingAtlas fill (§3.2).
 
 - **Mexico:** most buildings are at moderate or high risk. This follows from the hazard (steady sinking of 100 to
   350 mm/yr, after the GNSS tie) more than from the buildings.
 - **Hanoi:** the area of the product is stable relative to the scene mean, so almost every building is at very
   low risk.
-- **Heights:** they are almost never known in Overture over these areas, so the exposure rests on the footprint
-  alone.
+- **Heights:** they are almost never known in Overture over these areas, so in these runs the exposure rests on the
+  footprint alone (the GlobalBuildingAtlas fill of §3.2 came later; not yet rerun).
 
 ## 5. Limitations
 
@@ -186,6 +222,10 @@ Runs of 2026-10-26 with the default parameters.
   points (2 % in Hanoi, 1 % in Mexico) are rated individually.
 - **Exposure and vulnerability.** These are proxies: no heights, no structural type, no foundations, no
   occupancy. The risk map says where to inspect, not what will crack.
+- **β is tilt, not distortion (2026-11-05).** The damage-potential classes use angular-distortion limits on a tilt
+  (building) or a ground slope (cell); see §3.1. Indicative only until the curvature / deflection fix.
+- **Model selection (2026-11-05).** ΔBIC = 6 is under-penalised for the searched change epoch and assumes
+  independent residuals (§2.2); the onset / step counts are upper bounds until calibrated on null simulations.
 
 ## 6. Research sequence
 
@@ -207,6 +247,12 @@ Runs of 2026-10-26 with the default parameters.
   Scatterers Interferometry time series. *Natural Hazards and Earth System Sciences* 13, 1945–1958.
 - Bjerrum, L. (1963). Allowable settlement of structures. *Proceedings of the 3rd European Conference on Soil
   Mechanics and Foundation Engineering*, Wiesbaden, 2, 135–137.
+- Boscardin, M. D., Cording, E. J. (1989). Building response to excavation-induced settlement. *Journal of
+  Geotechnical Engineering* 115(1), 1–21.
+- Burland, J. B. (1995). Assessment of risk of damage to buildings due to tunnelling and excavation. Invited special
+  lecture, *1st International Conference on Earthquake Geotechnical Engineering* (IS-Tokyo '95).
+- Burland, J. B., Broms, B. B., de Mello, V. F. B. (1977). Behaviour of foundations and structures. *Proceedings of
+  the 9th International Conference on Soil Mechanics and Foundation Engineering*, Tokyo, 2, 495–546.
 - Burland, J. B., Wroth, C. P. (1974). Settlement of buildings and associated damage. *Proceedings of the
   Conference on Settlement of Structures*, Cambridge, 611–654.
 - Kass, R. E., Raftery, A. E. (1995). Bayes factors. *Journal of the American Statistical Association* 90(430),

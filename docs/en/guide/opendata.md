@@ -14,6 +14,7 @@ searches, how a repeat-pass stack is recognised, and the steps from a search to 
 6. [ICEYE SLC-COG](#6-iceye-slc-cog)
 6b. [Umbra SICD](#6b-umbra-sicd)
 7. [Known stacks (October 2026)](#7-known-stacks-october-2026)
+8. [Source Cooperative: flood and exposure layers](#8-source-cooperative-flood-and-exposure-layers)
 
 ## 1. The catalogs
 
@@ -56,7 +57,7 @@ geoeyes run tenerife_iceye
 
 Write `--bbox=` with the equals sign: a value starting with `-` (western longitude) would otherwise be taken for an
 option. `geoeyes opendata fetch <id> --bbox=...` downloads the scenes without creating a project
-(`<workspace>/archive/<sensor>/<sensor>-<asc|des>/`).
+(`<workspace>/archive/<sensor>/<sensor>-<asc|desc>/`).
 
 The project written by `opendata project`:
 
@@ -140,3 +141,62 @@ From `geoeyes opendata stacks` on 2026-10-28 (72 stacks of ≥ 3 dates: 65 Capel
 | Capella, 34.8° N 118.1° W | 95 | 2024-11 → 2025-11 | 3 d | spotlight, the longest open stack |
 | Capella, 19.4° N 155.3° W | 35–60 | 2025 | 3 d | Kīlauea, ascending and descending |
 | `capella:c14-sm-al-41-19.4n099.0w-…` | 18 | 2024-06-26 → 08-15 | 3 d | Mexico City, stripmap (the `mexico_capella` data) |
+
+## 8. Source Cooperative: flood and exposure layers
+
+[Source Cooperative](https://source.coop) hosts about 560 open products, all public over HTTPS
+(`https://data.source.coop/<account>/<product>/...`, no account or key). It holds no SAR stack GeoEyes can process,
+but several layers that set the motion against floods and against people and buildings. GeoEyes indexes the
+whole catalog (`<workspace>/cache/opendata/source_coop.json`, refreshed daily) and reads six layers over an area
+only (COG range requests; Parquet row groups filtered on their bbox), cached in `<workspace>/cache/sourcecoop/`:
+
+| Key | Product | Use in GeoEyes |
+|---|---|---|
+| `gsw-monthly` | `epoch/jrc-global-surface-water-monthly` (30 m, 2017-2024) | water of an event month against a dry month |
+| `glofas-depth` | `nlebovits/jrc-glofas` (90 m, RP 10-500 yr) | river flood depth scenario (no dykes: an upper bound in a diked delta) |
+| `chirps-daily` | `wfp/chirps-rnl-daily` (0.05°, 1981-) | daily rainfall of the event; the CHC server throttles, this mirror does not |
+| `imerg` | `dynamical/nasa-imerg-analysis-late` (0.1°, 30 min, 1998-) | rain intensity of the event, half hour by half hour (Icechunk store) |
+| `ghsl-pop` | `wfp/jrc-ghsl-pop` (3", 2025) | residents on subsiding ground and in the flood |
+| `gba-buildings` | `tge-labs/globalbuildingatlas-lod1` | a height for every building: fills the Overture heights in `geoeyes risk` |
+
+```
+geoeyes coop search lũ lụt                      # the catalog (Vietnamese words of the usual topics are understood)
+geoeyes coop layers
+geoeyes coop get gsw-monthly --bbox 105.7,20.95,105.95,21.1 --month 2024-09
+geoeyes coop get chirps-daily --bbox 105.7,20.95,105.95,21.1 --from 2024-09-05 --to 2024-09-12
+geoeyes coop get glofas-depth --bbox=-99.25,19.3,-99.0,19.5 --rp 100      # "=" when the bbox starts with "-"
+geoeyes coop get imerg --bbox 105.7,20.95,105.95,21.1 --from 2024-09-06 --to 2024-09-08
+geoeyes exposure hanoi_s1 --set flood_month=2024-09 --set glofas_rp=100
+```
+
+`geoeyes exposure` (`[postprocess.exposure]`) writes `analyses/exposure/<product>/exposure.json` and
+`exposure_cells.parquet`: people and buildings per class of vertical rate (breaks 5 / 10 / 20 / 50 mm/yr, on the
+GHS-POP cells, at least 3 points a cell), the people of cells without points apart; with `flood_month`, the flooded
+area (water that month where `dry_month`, default six months earlier, saw land), the people in it, the median rate
+of the points on flooded and dry ground and the month's rainfall; with `glofas_rp`, the people in the modelled
+river flood. `geoeyes risk` takes the missing heights from GlobalBuildingAtlas (`gba_heights = false` turns it
+off): in Hanoi Overture has a height for 1.4 % of the buildings, 67 % with GlobalBuildingAtlas.
+
+IMERG is published as an Icechunk 2 store, and icechunk 2 needs Python 3.12. When the GeoEyes environment is older,
+a small separate environment runs the reader (`geoeyes/opendata/imerg_reader.py`, no GeoEyes import) and
+`GEOEYES_ICECHUNK_PYTHON` points at it:
+
+```
+conda create -p <envs>/icechunk -c conda-forge python=3.12 "icechunk>=2.3" xarray zarr numpy
+GEOEYES_ICECHUNK_PYTHON=<envs>/icechunk/python.exe            # in .env
+```
+
+`geoeyes exposure` with `flood_month` adds the most intense half hour of the month (`rain_peak_30min`, AOI mean,
+UTC); without the interpreter it is left out and the daily CHIRPS rainfall stands alone. IMERG "late" is
+satellite-only (the gauge adjustment comes with the "final" run, months later): for Yagi over Hanoi it gives
+79 mm on 7 September against 226 mm for CHIRPS. Read it for the timing and the intensity pattern of the rain, and
+the daily totals from CHIRPS.
+
+What the layers can and cannot say. Global Surface Water is a monthly composite of Landsat and Sentinel-2: for
+Typhoon Yagi (Hanoi, September 2024) it maps 0.05 km² of new water over the city while CHIRPS gives 680 mm in the
+month (226 mm on 7 September); cloud and the short life of street flooding hide it. Urban floods need the SAR
+amplitude of the day (docs/vi/research/paper-ideas.md §4). GloFAS ignores the dykes: over Hanoi it floods the
+protected plain (1.3 million people for the 100-year flood), a bound, not a forecast.
+
+In the web app: Projects → Source Cooperative (search, the layers and their credits); In-depth analysis → Thematic analysis → layer "People and buildings exposed" (run with a flood month and a GloFAS return period, the cells on the map coloured by sinking class, flood share or river-flood depth, and the counts in the legend).
+

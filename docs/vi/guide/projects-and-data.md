@@ -61,7 +61,7 @@ method = "era5"                   # none (APS tuyến tính) | era5 | gacos
 | Mục | Khoá | Ghi chú |
 |---|---|---|
 | `[network]` | `reference` | `"auto"` (lấy ngày trung vị, rồi giữ cố định khi có cảnh mới) hoặc một ngày cụ thể |
-| `[stack]` | `dem` | `"srtm-1"` (mặc định: tile SRTM 1" trong `~/.snap/auxdata/dem/SRTM 1Sec HGT`, tile thiếu tự tải từ mirror của ESA), `"copernicus-30"` (Copernicus GLO-30 lấy từ dữ liệu mở trên AWS, lưu vào `<workspace>/cache/dem`; dùng được cả trên 60° N/S), một thư mục tile `.hgt`, hoặc một GeoTIFF (EPSG:4326, độ cao EGM2008) |
+| `[stack]` | `dem` | `"srtm-1"` (mặc định: tile SRTM 1" trong `~/.snap/auxdata/dem/SRTM 1Sec HGT`, tile thiếu tự tải từ mirror của ESA), `"copernicus-30"` (Copernicus GLO-30 lấy từ dữ liệu mở trên AWS, lưu vào `<workspace>/cache/dem`; dùng được cả trên 60° N/S), `"lidar-3dep"` (chỉ ở Mỹ: mặt trên cùng của đợt khảo sát lidar USGS 3DEP mới nhất phủ AOI cộng 500 m, ô 1 m, có cả công trình, đặt trong GLO-30; cần `pip install laspy[lazrs]`; dùng cho stack spotlight có độ cao mơ hồ dưới 1 m), một thư mục tile `.hgt`, hoặc một GeoTIFF (EPSG:4326, độ cao EGM2008) |
 | `[[tracks]]` | `subswaths` | Sentinel-1: chỉ xử lý dải con chỉ định, ví dụ `["IW2"]` |
 | `[phase_linking]` | `enabled`, `estimator`, `shp_test`, `half_window`, `gaussian_sigma` | bật `enabled = true` cho chồng ảnh băng X dài (COSMO-SkyMed); mặc định `adaptive`, `ad` |
 | `[selection]` | `da_threshold`, `ds_coherence_min` | PS chọn theo độ phân tán biên độ; DS lấy từ liên kết pha |
@@ -146,6 +146,18 @@ bước đã lưu và có hai lựa chọn tương ứng.
 geoeyes run hcm_hist_des --skip acquire --skip build_stack          # vào thẳng ps
 geoeyes run hcm_hist_des --skip acquire --ps-from 6 --ps-to 6       # giải gói pha lượt 1 lại rồi dừng
 ```
+
+**Kiểm tra stack trước khi chọn điểm.** Tab **Stack** của dự án (hoặc lệnh `geoeyes stack-qc <project>`) hiện từng
+ngày chụp của stack đã đồng đăng ký so với ảnh tham chiếu, đã multilook: biên độ, interferogram đã quấn (đã trừ pha
+hình học) và độ kết hợp. Bảng đi kèm liệt kê baseline vuông góc, độ cao mơ hồ, độ kết hợp trung bình, độ lệch còn lại
+sau đồng đăng ký và tương quan biên độ; hai chỉ số cuối tính trên vùng cắt giữa ảnh ở độ phân giải đầy đủ. Ảnh được
+ghi vào `stacks/<stack_id>/qc/`.
+
+Phần kiểm tra tự chạy sau `build_stack` với mọi cảm biến trừ Sentinel-1 (stack S1 rất lớn); khi cần thì chạy từ tab.
+Một stack tốt có độ lệch dưới 0,1 pixel, tương quan biên độ gần với cặp tốt nhất, và có vân hoặc pha trơn ở nơi độ
+kết hợp cao. Độ lệch hàng chục pixel, hoặc interferogram toàn nhiễu trong khi ảnh biên độ vẫn thấy rõ nhà cửa, nghĩa
+là đồng đăng ký đã hỏng ở ngày đó. Umbra từng như vậy trước khi có bước dò độ lệch thô: quỹ đạo đặt các lần chụp
+cách nhau 15–25 m.
 
 ## 6. Báo cáo
 

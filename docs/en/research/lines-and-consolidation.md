@@ -56,9 +56,11 @@ better.
 
 ### 2.3 Differential settlement
 
-Between stations `span_m` = 100 m apart, the angular distortion over the horizon T = `horizon_yr` = 10 years is:
+Over the horizon T = `horizon_yr` = 10 years, with stations `span_m` = L = 100 m apart, the slope gained (rigid
+tilt of the line) and the angular distortion (change of slope) at station x are:
 
-    β = |v(x + L) − v(x)| · T / L
+    tilt = |v(x) − v(x − L)| · T / L
+    β    = |(v(x + L) − v(x)) / L − (v(x) − v(x − L)) / L| · T
 
 β is compared with the damage limits of the zoning (Skempton & MacDonald 1956; Bjerrum 1963):
 
@@ -69,12 +71,20 @@ Between stations `span_m` = 100 m apart, the angular distortion over the horizon
 | 1/300 – 1/150 | cracking |
 | ≥ 1/150 | structural damage |
 
+**Fixed in code (2026-11-05): β along a line is now the change of slope.** Before, `ml/lines.py` gave β = |Δv| · T / L
+between two stations, a longitudinal slope rate that a uniformly tilting line reaches without harm. Now
+`ml/lines.py::distortion` takes the second difference over stations x − L, x, x + L (actual spacings), keeps the
+slope as the `tilt` column, and counts β only when |second difference| > `noise_k` = 2 × its standard error from
+the station medians (MAD of the PS around each station, floor `min_se_mm_yr` = 0.3 mm/yr); below, β = 0. The §4
+results were computed with the old method and need a rerun. The limits are still building limits: for track the
+relevant quantities are longitudinal level and twist (EN 13848), for a dyke the crest lost.
+
 For a dyke, the crest lost over T is |min v|·T. The freeboard against the design flood shrinks by as much.
 
 Outputs, in `analyses/lines/<product>/`:
 
-- `stations.parquet`: line, chainage, position, number of points, v_vert, β, β class;
-- `lines.parquet`: kind, name, length, covered share, lowest and median rate, largest β, flagged stations, crest
+- `stations.parquet`: line, chainage, position, number of points, v_vert and its standard error, tilt, β, β class;
+- `lines.parquet`: kind, name, length, covered share, lowest and median rate, largest β and tilt, flagged stations, crest
   lost;
 - `lines.json`: the summary by kind and the 20 lines with the largest β.
 
@@ -151,6 +161,13 @@ cross the edges of the subsidence bowl:
 | Calzada Ermita Iztapalapa | road | 1/150 | −93 mm/yr | 31 + 34 (two carriageways) |
 | Línea VK | railway | 1/154 | −204 mm/yr | 39 |
 
+**Caveat (2026-11-05): the largest β may be an artefact.** β = 1/127 over 100 m and 10 yr means Δv ≈ 79 mm/yr
+between two stations. With −62 mm/yr the lowest rate of the line, one station must be at ≥ +17 mm/yr. In
+`stations.parquet` (line 276) the pair is −28.6 → **+50.3 mm/yr** at chainage 4.9–5.0 km (6 PS; +25.5 at 5.05 km):
+uplift of 50 mm/yr in Mexico City is implausible, so this is likely an outlier or an unwrapping error in a few-PS
+median, on a 0.5-year series extrapolated to 10 years. A noise floor from the PS scatter at each station is now in
+the code (§2.3, 2026-11-05); the series length is not in it yet.
+
 These places are consistent with the damage reported along Zaragoza and Ermita Iztapalapa and on Line A of the
 Metro. A comparison with damage records is step L4 (§6).
 
@@ -188,6 +205,8 @@ In every product, the check favours the curve on all the selected cells. This is
   is missing data, not stability.
 - **Relative rates.** Rates are relative to the reference of the product. They are vertical only under the
   assumption of no horizontal motion.
+- **β (fixed 2026-11-05).** β is now the change of slope with a noise floor (§2.3); the §4 tables predate the fix.
+  The limits remain building limits, so the classes are indicative for lines.
 - **β is local.** β between two stations 100 m apart detects bends at that scale. A long, gentle bend over several
   kilometres is not flagged, even when it lowers a dyke crest; the crest lost covers that case.
 - **Short series.** Consolidation needs the bend of the curve to be inside the data. Final settlements and t90
