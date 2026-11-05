@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 SCHEMA = "geoeyes.consolidation/1"
 YEAR = 365.2425
 TAUS_YR = np.geomspace(0.05, 30.0, 80)
+SEASONAL_TAU_YR = 1.0                 # τ below: flagged tau_seasonal_suspect (docs/en/research/two-geometries-...)
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,8 @@ def run(product: Path, out: Path, params: ConsolidationParams, *, hazard_dir: Pa
         "final_mm": total.astype(np.float32), "remaining_mm": remaining.astype(np.float32),
         "t90_from_now_yr": t90.astype(np.float32), "c_mm": np.where(cons, f["c"], np.nan).astype(np.float32),
         "A_mm": np.where(cons, f["A"], np.nan).astype(np.float32), "delta_bic": gain.astype(np.float32),
+        # τ shorter than a year is the time scale of a season: possibly the seasonal signal, not consolidation
+        "tau_seasonal_suspect": cons & (f["tau"] < SEASONAL_TAU_YR),
     })
     out.mkdir(parents=True, exist_ok=True)
     table.to_parquet(out / "consolidation.parquet", index=False)
@@ -145,6 +148,7 @@ def run(product: Path, out: Path, params: ConsolidationParams, *, hazard_dir: Pa
         "schema": SCHEMA, "product_id": product.name, "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "hazard_created": hz.get("created"), "params": asdict(params), "dates": hz["dates"],
         "n_cells": len(table), "sinking_cells": int(sinking.sum()), "consolidating": int(cons.sum()),
+        "tau_seasonal_suspect": int(table["tau_seasonal_suspect"].sum()),
         "remaining_mm": {"median": round(float(np.median(rem)), 1), "p90": round(float(np.percentile(rem, 90)), 1),
                          "max": round(float(rem.max()), 1)} if cons.any() else None,
         "tau_yr_median": round(float(np.median(f["tau"][cons])), 2) if cons.any() else None,

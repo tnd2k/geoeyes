@@ -69,6 +69,7 @@ class HazardParams:
     landslide_min_slope_deg: float = 10.0       # steeper cells: landslide mode (ADAtools: landslide >= 5°,
                                                 # subsidence <= 10°; the upper bound keeps urban DSM edges out)
     min_sensitivity: float = 0.3                # |downslope · LOS| below: landslide motion not measurable
+    min_vertical_sensitivity: float = 0.1       # |l_u| below: subsidence motion not measurable (noise × 10)
     stable_floor_mm_yr: float = 2.0             # stability threshold: max(floor, stable_sigma × σ_rate)
     stable_sigma: float = 2.0                   # (Barra et al. 2017: 2σ; Cigna et al. 2013: ±2 mm/yr band)
     subsidence_breaks: tuple[float, float] = (10.0, 30.0)      # mm/yr vertical: upper bounds of I1, I2 (local
@@ -232,7 +233,7 @@ def assess(product: Path, out: Path, params: HazardParams, *, rain_cache: Path, 
 
     # ---------------------------------------------------------------- motion in the hazard direction
     sens = np.where(landslide, np.einsum("ij,ij->i", down, cells.los), cells.los[:, 2])
-    measurable = np.abs(sens) >= np.where(landslide, p.min_sensitivity, 0.1)
+    measurable = np.abs(sens) >= np.where(landslide, p.min_sensitivity, p.min_vertical_sensitivity)
     sign = np.where(landslide, 1.0, -1.0)                         # subsidence: sinking > 0; landslide: downslope > 0
     with np.errstate(divide="ignore", invalid="ignore"):
         y = np.where(measurable[:, None], sign[:, None] * cells.series / sens[:, None], np.nan)

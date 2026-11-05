@@ -1,7 +1,9 @@
 """Kinds of motion (geoeyes.ml.behaviour) and risk to buildings (geoeyes.ml.risk)."""
 import numpy as np
+import pytest
 
 from geoeyes.ml import behaviour as bh
+from geoeyes.ml import buildings as bd
 from geoeyes.ml import risk as rk
 
 
@@ -54,3 +56,34 @@ def test_risk_classes():
     c, r = rk.combine(np.array([4, 2, 3, -1]), e, v)
     assert list(c) == [1, 2, 3, 2]
     assert list(r) == [3, 2, 4, -1]                                           # very high hazard on a shed: high
+
+
+def _building(seed=0, n=40, size=30.0):
+    rng = np.random.default_rng(seed)
+    return rng.uniform(-size / 2, size / 2, n), rng.uniform(-size / 2, size / 2, n), rng
+
+
+def test_pure_tilt_gives_tilt_but_no_distortion():
+    x, y, rng = _building()
+    vv = -10.0 + 0.8 * x + 0.3 * y + rng.normal(0, 0.5, x.size)              # rigid tilt + PS noise
+    r = bd.tilt_and_distortion(x, y, vv, np.full(x.size, 0.5))
+    assert r["tilt_10yr"] == pytest.approx(np.hypot(0.8, 0.3) * 10 / 1000, rel=0.1)
+    assert np.isnan(r["beta_10yr"])                                           # the residuals are noise only
+    r = bd.tilt_and_distortion(x, y, -10.0 + 0.8 * x)                         # noise-free, no PS standard errors
+    assert r["tilt"] > 0 and np.isnan(r["beta_10yr"]) and r["distortion"] < 1e-9
+
+
+def test_bowl_gives_distortion():
+    x, y, rng = _building(1)
+    vv = -10.0 - 0.05 * (x ** 2 + y ** 2) + rng.normal(0, 0.5, x.size)       # sagging: 11 mm/yr centre to corner
+    r = bd.tilt_and_distortion(x, y, vv)
+    assert r["beta_10yr"] > 1 / 500
+    assert np.isnan(r["tilt"])                                                # symmetric bowl: no rigid tilt
+
+
+def test_own_secondary_is_the_larger_of_distortion_and_tilt():
+    p = rk.RiskParams()
+    beta = np.array([1 / 400, np.nan, 1 / 100, np.nan])
+    tilt = np.array([1 / 200, 1 / 50, np.nan, np.nan])
+    s = rk.own_secondary(beta, tilt, (1 / 500, 1 / 300, 1 / 150), p.tilt_breaks, np.array([0, 0, 0, 2]))
+    assert list(s) == [2, 3, 3, 2]                                            # last: the cell's S

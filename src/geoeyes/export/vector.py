@@ -44,18 +44,34 @@ def _embed_style(gpkg: Path, layer: str, qml: str, name: str) -> None:
                     "VALUES ('layer_styles', 'attributes', 'layer_styles')")
 
 
-def export_product(product: str | Path, out_dir: str | Path, formats=("gpkg",)) -> list[Path]:
+def export_product(product: str | Path, out_dir: str | Path, formats=("gpkg",), calibration: dict | None = None,
+                   ) -> list[Path]:
+    """``calibration`` (GNSS or a tie, ``validation.tie.active_calibration``): the files are named
+    ``<product_id>_calibrated.*``, with ``vel_los_cal_mm_yr`` next to the product's velocity and calibrated
+    ``DYYYYMMDD`` columns (gpkg, csv and the style only)."""
     product, out_dir = Path(product), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    pid = product.name
     gdf = read_points(product / "points.parquet")
     cols, disp = _wide(product, gdf["point_uid"].to_numpy())
+    pid, vel_col = product.name, "vel_los_mm_yr"
+    if calibration:
+        from geoeyes.validation.gnss import correction
+        dates = np.array([np.datetime64(f"{c[1:5]}-{c[5:7]}-{c[7:9]}") for c in cols], dtype="datetime64[D]")
+        corr = correction(calibration, dates, gdf["lon"].to_numpy(np.float64), gdf["lat"].to_numpy(np.float64))
+        disp = disp + corr.astype(np.float32)
+        t = (dates - dates[0]).astype(np.float64) / 365.2425
+        tc = t - t.mean()
+        rate = corr @ tc / float(tc @ tc) if t.size > 1 else np.zeros(len(gdf))
+        gdf["vel_los_cal_mm_yr"] = gdf["vel_los_mm_yr"].to_numpy(np.float64) + rate
+        gdf["cal_source"] = calibration.get("source", "")
+        pid, vel_col = f"{product.name}_calibrated", "vel_los_cal_mm_yr"
+        formats = [f for f in formats if f in ("gpkg", "csv")]
     wide = gdf.copy()
     for k, c in enumerate(cols):
         wide[c] = disp[:, k]
     if "type" in wide:
         wide["type"] = wide["type"].astype(str)
-    qml = velocity_qml(gdf["vel_los_mm_yr"].to_numpy(), size_m=marker_size_m(gdf["lon"], gdf["lat"]))
+    qml = velocity_qml(gdf[vel_col].to_numpy(), size_m=marker_size_m(gdf["lon"], gdf["lat"]))
     written = []
     (out_dir / f"{pid}.qml").write_text(qml, encoding="utf-8")
     written.append(out_dir / f"{pid}.qml")
