@@ -31,6 +31,7 @@ unwrap_grid_size = 10
 unwrap_gold_n_win = 64
 unwrap_irls_target_rms = 0.005
 unwrap_irls_epsilon = 0.0005
-# one-cycle region slips of interferograms with a mean phase near ±pi (Tenerife 2026-02-27): align before snapping
-unwrap_align_constant = "y"
+# one-cycle region slips of interferograms with a mean phase near ±pi (Tenerife 2026-02-27): aligning before
+# snapping fixes them, but it stays off until assessed against SNAP+StaMPS (set "y" in a project to try it)
+unwrap_align_constant = "n"
 scla_deramp = "y"

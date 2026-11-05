@@ -1,5 +1,6 @@
-"""Phase ``ps``: the point engine on a StackStore, ``ps`` (StaMPS-type, ``[ps]`` + ``[selection]``) or ``ps_lite``
-(``[ps_lite]``), on the phase-linked SLC when ``[phase_linking]`` is enabled."""
+"""Phase ``ps``: the point engine on a StackStore, ``ps`` (StaMPS-type, ``[ps]`` + ``[selection]``), ``ps_lite``
+(``[ps_lite]``) or ``sbas`` (``[sbas]`` + ``[network]``, method ``sbas``), on the phase-linked SLC when
+``[phase_linking]`` is enabled."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +11,11 @@ from geoeyes.core.errors import PhaseError
 
 
 def engine_of(cfg) -> str:
-    return "ps_lite" if cfg.project.method is Method.PS_LITE else "ps"
+    if cfg.project.method is Method.PS_LITE:
+        return "ps_lite"
+    if cfg.project.method is Method.SBAS:
+        return "sbas"
+    return "ps"
 
 
 def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: str = "", track_id: str = "",
@@ -21,6 +26,18 @@ def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: s
     ``stop_after``: the steps of the ``ps`` engine to compute again / to stop after (checkpoints kept)."""
     engine = engine or engine_of(cfg)
     slc_var = "slc"
+    if engine == "sbas":
+        from geoeyes.processing.sbas.runner import run as sbas_run
+        if from_step or stop_after:
+            raise PhaseError("ps", "PS steps (from / stop after) are steps of the ps engine, not of sbas")
+        src = cfg.sbas.source
+        if src == "linked" or (src == "auto" and cfg.phase_linking.enabled):
+            if not phase_linking.is_done(cfg, store):
+                raise PhaseError("sbas", f"{store.path}: [sbas] uses the phase-linked SLC but phase linking is not "
+                                         "done with the current [phase_linking] parameters")
+            slc_var = "slc_linked"
+        return sbas_run(store, out_dir, cfg.sbas, cfg.network, slc_var=slc_var, run_id=run_id, track_id=track_id,
+                        psrun_id=psrun_id)
     if cfg.phase_linking.enabled:
         if not phase_linking.is_done(cfg, store):
             raise PhaseError(engine, f"{store.path}: phase linking enabled but not done with the current "
@@ -33,7 +50,7 @@ def run(cfg, store, out_dir: str | Path, *, engine: str | None = None, run_id: s
         return ps_lite_run(store, out_dir, cfg.ps_lite, run_id=run_id, track_id=track_id, psrun_id=psrun_id,
                            slc_var=slc_var, weather=weather_params(cfg, cache_root))
     if engine != "ps":
-        raise PhaseError("ps", f"unknown point engine {engine!r} (ps, ps_lite)")
+        raise PhaseError("ps", f"unknown point engine {engine!r} (ps, ps_lite, sbas)")
     from geoeyes.processing.ps.runner import run as ps_run
     sel = cfg.selection
     return ps_run(store, out_dir, dict(cfg.ps), da_max=sel.da_threshold, run_id=run_id, track_id=track_id,

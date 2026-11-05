@@ -30,6 +30,22 @@ from geoeyes.workspace import ProjectLayout, WorkspaceLayout
 
 log = logging.getLogger(__name__)
 
+MIN_FREE_GB = 5.0           # floor of free disk before a phase starts; GEOEYES_MIN_FREE_GB overrides it (0: off)
+
+
+def check_disk(path, phase: str) -> float:
+    """Free space (GB) on the disk of ``path``; a phase is refused below the floor, before it writes anything (a
+    full disk in the middle of a run broke the run and its logs on 2026-11-03)."""
+    import os
+    import shutil
+    need = float(os.environ.get("GEOEYES_MIN_FREE_GB", MIN_FREE_GB))
+    free = shutil.disk_usage(path).free / 1e9
+    if free < need:
+        raise PhaseError(phase, f"{free:.1f} GB free on the disk of {path}, at least {need:g} GB needed: free space "
+                                "first (GEOEYES_MIN_FREE_GB sets the floor)")
+    log.info("disk: %.1f GB free", free)
+    return free
+
 
 def _store(ctx):
     from geoeyes.io.stack import StackStore
@@ -117,7 +133,7 @@ class PhaseLinking(Phase):
 
 
 class PointEngine(Phase):
-    """``ps`` engine or ``ps_lite`` (project method), output ``ps_runs/<track_id>/``."""
+    """``ps`` engine, ``ps_lite`` or ``sbas`` (project method), output ``ps_runs/<track_id>/``."""
 
     name = "ps"
 
@@ -141,6 +157,11 @@ class PointEngine(Phase):
         PS_VERSION = ENGINE if psp.weather_params(c, ctx.workspace.cache) is not None else UNCHANGED_WITHOUT_WEATHER
         # [ps] merged with the engine defaults: writing a default value explicitly does not change the result;
         # the engine version: a fix that changes the output re-runs the phase
+        if engine == "sbas":                    # its own keys only: the fingerprints of ps / ps_lite runs unchanged
+            from geoeyes.processing.sbas.runner import ENGINE as SBAS_VERSION
+            return {"engine": engine, "version": SBAS_VERSION, "sbas": c.sbas.model_dump(mode="json"),
+                    "network": c.network.model_dump(mode="json"),
+                    "phase_linking": c.phase_linking.model_dump(mode="json") if c.phase_linking.enabled else None}
         return {"engine": engine, "version": LITE_VERSION if engine == "ps_lite" else PS_VERSION,
                 # [ps] (with its defaults) only for the ps engine: a [ps] default change does not re-run ps_lite
                 "ps": {**DEFAULTS, **c.ps} if engine == "ps" else None,
@@ -411,8 +432,12 @@ def run(cfg: ProjectConfig, project: ProjectLayout, workspace: WorkspaceLayout, 
     man = Manifest(kind="run", id=run_id, run_id=run_id, extra={"project": cfg.project.name, "plan": str(p)})
     status = "ok"
     scope = sorted({s.ctx.track_id for s in p.steps}) or None
-    with ProjectLock(project.locks, scope=scope, info={"run_id": run_id}), log_context(run_id=run_id):
-        log.info("run %s: %d phase(s) to run\n%s", run_id, len(p.to_run()), p)
+    from geoeyes.core import compute
+    backend = compute.resolve(cfg.compute.backend)    # "cupy" without a usable GPU fails here, before any phase
+    man.extra["compute"] = backend.describe()
+    with ProjectLock(project.locks, scope=scope, info={"run_id": run_id}), log_context(run_id=run_id), \
+            compute.use(backend):
+        log.info("run %s: %d phase(s) to run, compute on %s\n%s", run_id, len(p.to_run()), backend.describe(), p)
         failed_tracks: set[str] = set()
         for s in p.to_run():
             if s.ctx.track_id in failed_tracks:
@@ -426,6 +451,7 @@ def run(cfg: ProjectConfig, project: ProjectLayout, workspace: WorkspaceLayout, 
                 event(log, "phase_start", f"{s.label}: start")
                 state.set(s.ctx.track_id, s.phase.name, status="running", run_id=run_id, fingerprint=fp)
                 try:
+                    check_disk(project.root, s.phase.name)
                     out = s.phase.run(s.ctx)
                 except PhasePaused as exc:               # stopped after a step as asked: resumed by the next run
                     log.info("%s", exc)

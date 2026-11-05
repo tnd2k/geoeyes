@@ -204,7 +204,7 @@ def _od_run(ctx) -> dict:
     dem = None
     if ctx.track.sensor in (Sensor.ICEYE, Sensor.UMBRA):     # range window: lowest and highest ground of the AOI
         dem = load_dem(None if ctx.cfg.stack.dem in ("", "srtm-1") else ctx.cfg.stack.dem, s - 0.05, n + 0.05,
-                       w - 0.05, e + 0.05, cache=ctx.workspace.cache_dir("dem"))
+                       w - 0.05, e + 0.05, cache=ctx.workspace.cache_dir("dem"), focus=(s, n, w, e))
     got = fetch_stack(st, load(ctx.workspace, [st["source"]]), scenes_root(ctx), aoi=(w, s, e, n), dem=dem,
                       margin_m=_od_margin(ctx) or 0.0,
                       progress=lambda i, k, sid: event(log, "progress", f"fetch {sid}", stage="acquire",

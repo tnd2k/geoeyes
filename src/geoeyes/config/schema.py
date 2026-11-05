@@ -141,7 +141,8 @@ class NetworkSection(_Section):
 class StackSection(_Section):
     engine: Literal["snap", "native"] = "native"          # snap: legacy configs only, not available (blocked)
     geometry: Literal["radar", "map"] | None = None       # None = sensor default (TSX: map; ADR-005)
-    dem: str = "srtm-1"         # srtm-1 | copernicus-30 (both downloaded when missing) | folder of .hgt | GeoTIFF
+    dem: str = "srtm-1"         # srtm-1 | copernicus-30 (both downloaded when missing) | lidar-3dep (USGS lidar DSM
+                                # over the AOI, US only) | folder of .hgt | GeoTIFF
     esd: bool = True
     multilook: tuple[int, int] = (1, 1)
     merge_subswaths: bool = False
@@ -182,6 +183,9 @@ class PhaseLinkingSection(_Section):
     gaussian_sigma: float = Field(0.0, ge=0)              # post-filter; 0 = off
     gaussian_scope: Literal["linked", "all"] = "linked"   # linked pixels only (PS untouched) | all (legacy)
     nlinsar: dict[str, Any] | None = None                 # None = off
+    # date pairs ["YYYY-MM-DD", "YYYY-MM-DD"] whose coherence over the SHP family, |C_ij|, is kept as
+    # pl_pair_coherence (change detection over distributed scatterers); a few pairs: each is one float per pixel
+    store_pairs: tuple[tuple[str, str], ...] = ()
     options: dict[str, Any] = {}
 
 
@@ -196,6 +200,32 @@ class SelectionSection(_Section):
     mask: str = ""
     water_mask: Literal["none", "model", "static"] = "none"
     water_model: dict[str, Any] = {}
+
+
+class SbasSection(_Section):
+    """``[sbas]``: small-baseline time series on a multilooked grid (``processing.sbas``; used when
+    ``[project] method = "sbas"``). The pair network comes from ``[network]`` (``max_perp_m``, ``max_temporal_days``)
+    and ``[network.sbas]`` (redundant short pairs)."""
+
+    looks_az: int = Field(2, ge=1)                  # Sentinel-1: 2 × 8 looks ≈ 28 × 30 m
+    looks_rg: int = Field(8, ge=1)
+    n_nearest: int = Field(3, ge=1)                 # with max_temporal_days = 0: the next n dates of each date
+    source: Literal["auto", "slc", "linked"] = "auto"   # auto: the phase-linked SLC when phase linking is enabled
+    coherence_window: int = Field(5, ge=1)
+    min_pair_coherence: float = Field(0.2, ge=0, le=1)      # a pixel of a pair below it: no value in that pair
+    goldstein_alpha: float = Field(0.5, ge=0, le=1)
+    goldstein_fft: int = Field(32, ge=8)
+    irls_iter: int = Field(50, ge=1)
+    closure_max_share: float = Field(0.3, ge=0, le=1)       # pairs with more bad-closure pixels are dropped
+    closure_pixel_mask: bool = True                         # mask a pair's value where it closes badly locally
+    troposphere: bool = True                                # per pair, remove the phase linear in height
+    link_islands: bool = True                               # tie disconnected islands by integer cycles
+    min_pair_fraction: float = Field(0.7, gt=0, le=1)       # a pixel needs this share of the pairs
+    min_mean_coherence: float = Field(0.3, ge=0, le=1)      # output mask: mean pair coherence
+    min_temporal_coherence: float = Field(0.7, ge=0, le=1)  # output mask: Pepe & Lanari temporal coherence
+    # lon, lat of a stable reference (3 × 3 pixels); None: the median of the most coherent 10 % of pixels, a scene
+    # reference that is biased when the deforming area covers much of the scene: set it for real work
+    reference: tuple[float, float] | None = None
 
 
 class PsLiteSection(_Section):
@@ -278,6 +308,8 @@ class PostprocessSection(_Section):
     # docs/en/research/behaviour-and-risk.md
     behaviour: dict[str, Any] = {}
     risk: dict[str, Any] = {}
+    # people and buildings on sinking ground / in an event's flood (Source Cooperative layers): geoeyes.hazard.exposure
+    exposure: dict[str, Any] = {}
     # linear infrastructure and consolidation: geoeyes.ml.lines / geoeyes.ml.consolidation and
     # docs/en/research/lines-and-consolidation.md
     lines: dict[str, Any] = {}
@@ -327,6 +359,7 @@ class ProjectConfig(_Section):
     selection: SelectionSection = SelectionSection()
     ps: dict[str, Any] = {}
     ps_lite: PsLiteSection = PsLiteSection()
+    sbas: SbasSection = SbasSection()
     ps_update: PsUpdateSection = PsUpdateSection()
     atmosphere: AtmosphereSection = AtmosphereSection()
     postprocess: PostprocessSection = PostprocessSection()
