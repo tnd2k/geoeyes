@@ -7,6 +7,8 @@
     geoeyes report <project> [--product ID]        (re)build the PDF report of the latest / given product
     geoeyes cr-report <project> [--track ID]       corner reflector identification report (Sentinel-1)
     geoeyes gacos-order <project> [--track ID]     GACOS troposphere order form: area, time, missing dates
+    geoeyes tie    <project> --reference P/ID      tie a product with no GNSS station to another product (calibration)
+    geoeyes stack-qc <project> [--stack ID]        interferograms, coherence and offsets of a coregistered stack
     geoeyes catalog build | search [--bbox W,S,E,N] [--from D] [--to D] [--vel-below V]   products of the workspace
     geoeyes serve  [--port 8765] [--open]          web app on http://localhost:8765
 
@@ -63,6 +65,10 @@ def cmd_check(args) -> int:
             report(True, mod)
         except Exception as exc:
             report(False, f"{mod}: {exc}")
+    from geoeyes.core import compute
+    gpu = compute.info("auto")
+    report(True, f"compute: {gpu['describe']}" + ("" if gpu["backend"] == "cupy" else
+                                                  " (no usable GPU: CuPy not installed or no device)"))
     ws = Path(args.workspace) if args.workspace else load_settings().workspace
     report(Path(ws).expanduser().exists(), f"workspace {ws}")
     if args.project:
@@ -73,6 +79,9 @@ def cmd_check(args) -> int:
             return 1
         print(f"project {cfg.project.name} ({cfg.project.method}, {len(cfg.tracks)} track(s))")
         report(True, "configuration valid")
+        if cfg.compute.backend != "auto":
+            want = compute.info(cfg.compute.backend)
+            report(want["ok"], f"[compute] backend = {cfg.compute.backend!r}: {want['describe']}")
         from geoeyes.controller.pipeline import plan
         p = plan(cfg, project, wsl, **_selection(args))
         for s in p.steps:
@@ -212,6 +221,51 @@ def cmd_gnss(args) -> int:
     return 0
 
 
+def cmd_tie(args) -> int:
+    """Tie a product to another product of the same ground: one rate correction (validation.tie)."""
+    from geoeyes.validation.tie import active_calibration, tie
+    cfg, project, ws = _open(args)
+    ids = _product_ids(args, cfg, project)
+    rp, _, rpid = args.reference.partition("/")
+    if not ids or not rpid:
+        print("no product yet, or --reference is not PROJECT/PRODUCT_ID", file=sys.stderr)
+        return 1
+    ref = ws.project(rp)
+    for pid in ids:
+        s = tie(project.product(pid), ref.product(rpid), project.analysis("tie", pid),
+                reference_calibration=active_calibration(ref, rpid), cell_m=args.cell)
+        c = s["calibration"]
+        print(f"{pid}: {s['n_cells']} common cells, correlation {s['corr']}, gain {s['slope']}; offset "
+              f"{c['rate_offset_mm_yr']:+.2f} mm/yr LOS ({c['vertical_offset_mm_yr']:+.2f} vertical)"
+              + (f", through {c['reference_calibration']}" if c["reference_calibration"] else "")
+              + f" -> {project.analysis('tie', pid)}")
+        for w in s["warnings"]:
+            print(f"  warning: {w}")
+    return 0
+
+
+def cmd_stack_qc(args) -> int:
+    """Amplitude, interferogram and coherence of every date of a stack against its reference (processing.stack.qc)."""
+    from geoeyes.processing.stack.qc import stack_qc
+    _cfg, project, _ws = _open(args)
+    root = project.root / "stacks"
+    ids = args.stack or sorted(d.parent.name for d in root.glob("*/stack.zarr"))
+    if not ids:
+        print("no stack yet: run build_stack first", file=sys.stderr)
+        return 1
+    for sid in ids:
+        s = stack_qc(project.stack_store(sid), progress=lambda m: print(f"{sid}: {m}", flush=True))
+        for r in s["dates"]:
+            if r["reference"]:
+                print(f"  {r['date']}  reference")
+                continue
+            print(f"  {r['date']}  Bperp {r['bperp_m']:+9.0f} m  HoA {r['height_of_ambiguity_m']} m  coherence "
+                  f"{r['coherence_mean']:.2f} (p90 {r['coherence_p90']:.2f})  offset {r['offset_lines']:+.2f} / "
+                  f"{r['offset_samples']:+.2f} px  amplitude corr {r['amplitude_corr']:.2f}")
+        print(f"-> {project.stack(sid) / 'qc'}")
+    return 0
+
+
 def cmd_atmosphere(args) -> int:
     """Weather models against the unwrapped phase of a product (``--product``, else the latest of each track)."""
     import logging
@@ -249,7 +303,7 @@ def _cmd_ml(kind: str):
         fn = {"susceptibility": ml.run_susceptibility, "forecast": ml.run_forecast, "buildings": ml.run_buildings,
               "behaviour": ml.run_behaviour, "risk": ml.run_risk, "lines": ml.run_lines,
               "consolidation": ml.run_consolidation, "decompose": ml.run_decompose,
-              "geology": ml.run_geology}[kind]
+              "geology": ml.run_geology, "exposure": ml.run_exposure}[kind]
         for pid in ids:
             s = fn(cfg, project, ws, pid, _overrides(args.set), progress=lambda msg: print(msg, flush=True))
             print(f"{pid}: {kind} done ({s.get('chosen')}) -> {project.analysis(kind, pid)}")
@@ -332,6 +386,193 @@ def cmd_floods(args) -> int:
     return 0
 
 
+def cmd_landslide(args) -> int:
+    """Landslide study (docs/en/research/landslide-susceptibility.md): ``inventory`` rebuilds the workspace
+    inventories, ``audit`` their footprints and area–frequency (L0), ``labels`` the labels of a study (L1)."""
+    from geoeyes.config.settings import load_settings
+    from geoeyes.landslide import inventory as inv
+    from geoeyes.workspace import WorkspaceLayout
+    ws = WorkspaceLayout.at(args.workspace) if args.workspace else load_settings().workspace_layout()
+    if args.action == "inventory":
+        print(json.dumps({"vietnam": inv.build_vietnam(ws.root), "das2024": inv.build_das2024(ws.root)},
+                         indent=1, ensure_ascii=False))
+        return 0
+    from geoeyes.landslide.study import load_study
+    st = load_study(ws.root, args.study)
+    if args.action == "audit":
+        res = inv.audit(ws.root, st.step_dir("audit"), ws.cache_dir("dem") / "copernicus-30")
+        for r in res["footprints"]:
+            print(f"{r['event']:8s} {r['variant']:12s} {r['area_km2']:8.1f} km²  {r['n_inside']}/{r['n_landslides']}")
+        return 0
+    if args.action == "layers":
+        from geoeyes.landslide.predictors import run_predictors
+        smy = run_predictors(st, ws.cache, load_settings().earthdata_token, progress=lambda m: print(m, flush=True))
+        for w in smy["warnings"]:
+            print(f"warning: {w}")
+        for ev, s in smy["events"].items():
+            print(f"{ev}: kept for the trees {len(s['screen']['trees'])}, for the logistic model "
+                  f"{len(s['screen']['logistic'])}, dropped {sorted(s['screen']['dropped'])}")
+        print(f"-> {st.step_dir('predictors')}")
+        return 0
+    if args.action == "fit":
+        from geoeyes.landslide.model import run_fit
+        res = run_fit(st, progress=lambda m: print(m, flush=True), cache_root=ws.cache)
+        b0 = f"spatial_{st.models.blocks_m[0]:g}"
+        for ev, r in res["events"].items():
+            m = r["main"][r["best_model"]]
+            print(f"{ev}: best {r['best_model']}, spatial AUC {m[b0].get('auc')} (random "
+                  f"{m.get('random', {}).get('auc')})")
+        print(f"-> {st.step_dir('models')}")
+        return 0
+    if args.action == "persistence":
+        from geoeyes.landslide.dating import run_persistence
+        res = run_persistence(st, progress=lambda m: print(m, flush=True))
+        print(f"-> {st.step_dir('scars')} ({len(res['events'])} sets)")
+        return 0
+    if args.action == "dating":
+        from geoeyes.landslide.dating import run_dating
+        res = run_dating(st, progress=lambda m: print(m, flush=True))
+        for ev, r in res["events"].items():
+            print(f"{ev}: {r['objects']} objects, timing {r['timing']}")
+        print(f"-> {st.step_dir('scars')}")
+        return 0
+    if args.action == "raincheck":
+        from geoeyes.landslide.satrain import run_check
+        y0, _, y1 = args.years.partition("-")
+        res = run_check(st, ws.cache, years=range(int(y0), int(y1 or y0) + 1), progress=lambda m: print(m, flush=True))
+        p = res["pooled"]
+        print(f"F2: Early/Final totals {p['ratio_totals']}, p99 {p['p99_ratio']}, POD>=100 mm "
+              f"{p['thresholds']['100']['pod']}")
+        print(f"-> {st.step_dir('rain_f2')}")
+        return 0
+    if args.action == "l5":
+        from geoeyes.landslide.insar import run_l5
+        res = run_l5(st, ws.root / "projects" / args.insar, progress=lambda m: print(m, flush=True))
+        print(f"-> {st.step_dir('insar')} (coverage {res['coverage']['share']:.1%}, H3 tested "
+              f"{res['h3']['tested']})")
+        return 0
+    if args.action == "rainproducts":
+        from geoeyes.landslide.satrain import run_products
+        y0, _, y1 = args.years.partition("-")
+        res = run_products(st, ws.cache, years=range(int(y0), int(y1 or y0) + 1),
+                           progress=lambda m: print(m, flush=True))
+        for k, v in res["pooled"].items():
+            print(f"{k}: totals {v['ratio_totals']}, corr {v['corr']}, p99 {v['p99_ratio']}")
+        print(f"-> {st.step_dir('rain_f2')}")
+        return 0
+    if args.action == "catalogue":
+        from geoeyes.landslide.catalogue import run_catalogue
+        res = run_catalogue(st, ws.root, ws.cache, progress=lambda m: print(m, flush=True))
+        print(f"F1: {res['events']} events, {res['commune_days']} positive commune-days on {res['distinct_days']} "
+              f"days (target {res['target_commune_days']})")
+        print(f"-> {st.step_dir('catalogue')}")
+        return 0
+    if args.action == "rainarchive":
+        from geoeyes.landslide.satrain import run_archive
+        y0, _, y1 = args.years.partition("-")
+        res = run_archive(None, ws.cache, runs=tuple(args.runs.split(",")), years=range(int(y0), int(y1 or y0) + 1),
+                          progress=lambda m: print(m, flush=True))
+        for run, ys in res.items():
+            print(f"{run}: {sum(v['days'] for v in ys.values())} days, "
+                  f"{sum(v['missing'] for v in ys.values())} missing")
+        print(f"-> {ws.cache / 'rainfall'}")
+        return 0
+    if args.action == "rain":
+        from geoeyes.landslide.rain import run_rain
+        res = run_rain(st, ws.cache, progress=lambda m: print(m, flush=True))
+        n = res["null"]
+        print(f"L4: gain {n['gain_real']:+.4f} vs null q95 {n['null_q95']:+.4f} (p = {n['p_value']}): "
+              f"H2 {'holds' if n['h2'] else 'does not hold'}")
+        print(f"-> {st.step_dir('rain')}")
+        return 0
+    if args.action == "improve" and args.step == "c5":
+        from geoeyes.landslide.improve import run_c5
+        res = run_c5(st, progress=lambda m: print(m, flush=True))
+        print(f"C5: kept {[k for k, v in res['variants'].items() if v['keep']]}")
+        print(f"-> {st.step_dir('models') / 'improve'}")
+        return 0
+    if args.action == "improve" and args.step == "c3":
+        from geoeyes.landslide.improve import run_c3
+        res = run_c3(st, ws.cache, progress=lambda m: print(m, flush=True))
+        print(f"C3: kept {[k for k, v in res['families'].items() if v['keep']]}")
+        print(f"-> {st.step_dir('models') / 'improve'}")
+        return 0
+    if args.action == "improve":
+        from geoeyes.landslide.improve import run_c1
+        res = run_c1(st, progress=lambda m: print(m, flush=True))
+        b, n = res["best"], res["nested"]
+        print(f"C1: baseline {res['baseline']['pooled']} -> best {b['pooled']} (Δ {b['paired']['delta']:+.4f}, "
+              f"95 % {b['paired']['ci95']}, keep {b['keep']}); nested {n['auc']}")
+        print(f"-> {st.step_dir('models') / 'improve'}")
+        return 0
+    if args.action == "thresholds":
+        from geoeyes.landslide.thresholds import run_thresholds
+        res = run_thresholds(st, ws.root, ws.cache, progress=lambda m: print(m, flush=True))
+        for reg, r in res["regions"].items():
+            print(f"{reg}: {r['landslides']} landslides; E-D TSS {r.get('ED', {}).get('tss')}, A10 % >= "
+                  f"{r['A10_pct']['cut']} TSS {r['A10_pct']['tss']}; LOYO {r['loyo']}")
+        print(f"-> {st.step_dir('thresholds')}")
+        return 0
+    if args.action == "reliability":
+        from geoeyes.landslide.reliability import run_reliability
+        res = run_reliability(st, ws.cache)
+        for ev, r in res["events"].items():
+            print(f"{ev}: {r['polygons']} polygons, {r['share']}; reasons {r['reasons']}")
+        print(f"-> {st.step_dir('labels')}")
+        return 0
+    if args.action == "test":
+        from geoeyes.landslide.model import rerun_test
+        res = rerun_test(st, ws.cache, progress=lambda m: print(m, flush=True))
+        for ev, r in res["test"]["events"].items():
+            print(f"{ev}: {r['positives']} positives")
+        print(f"-> {st.step_dir('models')}")
+        return 0
+    if args.action == "scars":
+        from geoeyes.landslide.scars import run_scars
+        res = run_scars(st, ws.cache, progress=lambda m: print(m, flush=True))
+        c = res["calibration"]
+        print(f"calibration on {res['calibration_event']}: {res['thresholds']}; precision {c['precision']}, "
+              f"recall {c['recall']}, F1 {c['f1']}")
+        for ev, r in res["events"].items():
+            print(f"{ev}: {r['objects']} objects")
+        print(f"-> {st.step_dir('scars')}")
+        return 0
+    if args.action == "verify":
+        from geoeyes.landslide.verify import run_verify
+        stores = {}
+        for name in args.s1 or []:
+            for z in sorted(ws.project(name).root.glob("stacks/*/stack.zarr")):
+                stores[f"{name}/{z.parent.name}"] = z
+        res = run_verify(st, stores, progress=lambda m: print(m, flush=True))
+        for ev, r in res["events"].items():
+            c = r["b1_hansen"]["event"]["capture"]
+            print(f"{ev}: Hansen event scars captured by Das {c.get('captured')}/{c.get('patches')}"
+                  + (f", aspect LR {c['lr']} towards {c['azimuth_deg']}°" if "lr" in c else ""))
+        print(f"-> {st.step_dir('verify')}")
+        return 0
+    if args.action == "aspect":
+        from geoeyes.landslide.aspect import run_aspect
+        res = run_aspect(st, ws.cache, progress=lambda m: print(m, flush=True))
+        for ev, r in res["events"].items():
+            c = r["conditional"]["location free"]
+            print(f"{ev}: harmonics LR {c['lr']} (p {c['p']:.2g}), highest odds towards {c['azimuth_deg']}°; "
+                  f"best sun {r['illumination']['best_sun']}")
+        print(f"-> {st.step_dir('aspect')}")
+        return 0
+    import dataclasses
+
+    from geoeyes.landslide.labels import run_labels
+    from geoeyes.landslide.study import LabelParams
+    if args.set:
+        st.labels = LabelParams.from_dict({**dataclasses.asdict(st.labels), **_overrides(args.set)})
+    smy = run_labels(st, ws.cache_dir("dem") / "copernicus-30")
+    for ev, s in smy["events"].items():
+        print(f"{ev}: {s['polygons']} polygons, positives {s['positives']}, candidates {s['candidates']}"
+              + (f", short: {s['short']}" if s["short"] else ""))
+    print(f"-> {st.step_dir('labels')}")
+    return 0
+
+
 def cmd_gacos_order(args) -> int:
     """What to enter in the GACOS order form (http://www.gacos.net, no API) for every track of a project: area,
     UTC time, and the dates that have no product yet in ``[atmosphere.gacos] dir``."""
@@ -377,6 +618,76 @@ def cmd_serve(args) -> int:
     s = load_settings()
     ws = WorkspaceLayout.at(args.workspace) if args.workspace else s.workspace_layout()
     serve(ws, host=args.host, port=args.port, open_browser=args.open, token=s.web_token or None)
+    return 0
+
+
+def cmd_coop(args) -> int:
+    """Source Cooperative: ``sync`` the catalog, ``search`` it, list the ``layers`` GeoEyes reads, ``get`` one over
+    an AOI (GeoTIFF / Parquet in ``<workspace>/cache/sourcecoop``)."""
+    import numpy as np
+
+    from geoeyes.config.settings import load_settings
+    from geoeyes.core.errors import ConfigError
+    from geoeyes.opendata import coop
+    from geoeyes.workspace import WorkspaceLayout
+    ws = WorkspaceLayout.at(args.workspace) if args.workspace else load_settings().workspace_layout()
+    if args.action == "sync":
+        r = coop.sync(ws, progress=lambda m: print(m, flush=True))
+        print(f"{r['products']} product(s) of {r['accounts']} account(s)")
+        return 0
+    if args.action == "layers":
+        for lay in coop.LAYERS.values():
+            print(f"{lay.key:14s} {lay.topic:9s} {lay.product:42s} {lay.use}")
+        return 0
+    if args.action == "search":
+        if coop.stale(ws):
+            coop.sync(ws, progress=lambda m: print(m, flush=True))
+        rows = coop.search(ws, " ".join(args.query), limit=args.limit)
+        for p in rows:
+            mark = f"[{p['layer']}] " if p["layer"] else ""
+            print(f"{p['id']:50s} {mark}{p['title']}\n{'':50s} {p['url']}")
+        print(f"{len(rows)} product(s)")
+        return 0
+    if not args.query or args.query[0] not in coop.LAYERS:
+        raise ConfigError(f"coop get <layer>: one of {sorted(coop.LAYERS)}")
+    if not args.bbox:
+        raise ConfigError("--bbox west,south,east,north")
+    key, bbox = args.query[0], [float(v) for v in args.bbox.split(",")]
+    cache = ws.cache_dir("sourcecoop")
+    if key == "chirps-daily":
+        if not (args.start and args.end):
+            raise ConfigError("chirps-daily: --from and --to")
+        for d in coop.chirps_daily(cache, bbox, args.start, args.end, progress=print)["days"]:
+            print(f"{d['date']}  mean {d['mean_mm'] if d['mean_mm'] is not None else '-':>7} mm   "
+                  f"max {d['max_mm'] if d['max_mm'] is not None else '-':>7} mm")
+        return 0
+    if key == "imerg":
+        if not (args.start and args.end):
+            raise ConfigError("imerg: --from and --to")
+        r = coop.imerg_halfhourly(cache, bbox, args.start, args.end, python=load_settings().icechunk_python or None,
+                                  progress=print)
+        for s in r["steps"]:
+            if s["mean_mm_h"] is not None and s["mean_mm_h"] >= 0.1:          # dry half hours left out
+                print(f"{s['time'][:16]}Z  mean {s['mean_mm_h']:6.1f} mm/h   max {s['max_mm_h']:6.1f} mm/h")
+        wet = [s for s in r["steps"] if s["mean_mm_h"] is not None]
+        print(f"{len(r['steps'])} half hour(s), {sum(s['mean_mm_h'] for s in wet) / 2:.1f} mm in all ({r['source']})")
+        return 0
+    if key == "gba-buildings":
+        t = coop.gba_buildings(cache, bbox, progress=print)
+        print(f"{len(t)} building(s), median height {np.nanmedian(t['height_m']):.1f} m -> {cache / key}")
+        return 0
+    if key == "gsw-monthly" and not args.month:
+        raise ConfigError("gsw-monthly: --month YYYY-MM")
+    g = {"gsw-monthly": lambda: coop.gsw_month(cache, bbox, args.month),
+         "glofas-depth": lambda: coop.glofas_depth(cache, bbox, args.rp),
+         "ghsl-pop": lambda: coop.ghsl_pop(cache, bbox)}[key]()
+    a = g.data
+    seen = np.isfinite(a)
+    info = {"gsw-monthly": lambda: f"water {(a == 2).sum() / max(seen.sum(), 1):.1%} of the observed pixels, "
+                                   f"{1 - seen.mean():.1%} not observed",
+            "glofas-depth": lambda: f"flooded {seen.mean():.1%}, depth max {np.nanmax(a) if seen.any() else 0:.1f} m",
+            "ghsl-pop": lambda: f"{np.nansum(a):,.0f} people"}[key]()
+    print(f"{key}: {a.shape[1]} x {a.shape[0]} px of {g.res * 3600:.2f}\", {info} -> {g.path}")
     return 0
 
 
@@ -442,7 +753,9 @@ def cmd_opendata(args) -> int:
         from geoeyes.opendata.fetch import fetch_stack
         if not st["supported"]:
             raise ConfigError(f"{st['id']}: GeoEyes has no reader for {st['product']} yet")
-        track = args.track_id or f"{st['sensor']}-{st['orbit_state'][:3]}"
+        from geoeyes.core.types import OrbitDirection
+        # the folder a project of this stack reads (TrackSpec.track_id: <sensor>-asc | <sensor>-desc)
+        track = args.track_id or f"{st['sensor']}-{OrbitDirection.parse(st['orbit_state']).short}"
         w, s, e, n = bbox
         dem = load_dem(args.dem, s - 0.05, n + 0.05, w - 0.05, e + 0.05, cache=ws.cache_dir("dem")) \
             if st["source"] in ("iceye", "umbra") else None
@@ -525,6 +838,16 @@ def build_parser() -> argparse.ArgumentParser:
     gn.add_argument("--track", action="append", help="track id (repeatable)")
     gn.add_argument("--set", action="append", metavar="KEY=VALUE",
                     help="override a [validation.gnss] parameter, e.g. --set radius_m=200 (repeatable)")
+    ti = add("tie", cmd_tie, selection=False,
+             help_="tie a product with no GNSS station to another product of the same ground (calibration)")
+    ti.add_argument("--product", help="product id (default: the latest product of each track)")
+    ti.add_argument("--track", action="append", help="track id (repeatable)")
+    ti.add_argument("--reference", required=True, metavar="PROJECT/PRODUCT_ID",
+                    help="the product tied to (its own GNSS calibration is applied first)")
+    ti.add_argument("--cell", type=float, default=100.0, help="comparison cells, metres (default 100)")
+    sq = add("stack-qc", cmd_stack_qc, selection=False,
+             help_="quality check of the coregistered stacks: interferograms, coherence, offsets left")
+    sq.add_argument("--stack", action="append", help="stack id (repeatable; default: every stack of the project)")
     at = add("atmosphere", cmd_atmosphere, selection=False,
              help_="try the weather models (ERA5, CERRA, GACOS) on a product without running it again")
     at.add_argument("--product", help="product id (default: the latest product of each track)")
@@ -536,6 +859,8 @@ def build_parser() -> argparse.ArgumentParser:
                         ("buildings", "InSAR velocity and tilt of every building (Overture footprints)"),
                         ("behaviour", "kind of motion of every hazard cell and the date of a change (needs hazard)"),
                         ("risk", "risk to every building: hazard x consequence (needs hazard; buildings if run)"),
+                        ("exposure", "people and buildings on sinking ground and in an event's flood "
+                                     "(--set flood_month=2024-09; Source Cooperative layers)"),
                         ("lines", "InSAR profiles along dykes, railways and main roads (OpenStreetMap)"),
                         ("consolidation", "final and remaining settlement of the consolidating cells (needs hazard)"),
                         ("decompose", "vertical and east-west motion with a product seen from another direction"),
@@ -570,6 +895,26 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--prose", action="store_true",
                     help="the list is sentences ('Lưu vực X: phố A (...), phố B, ...'), as Hanoi Drainage bulletins")
     fl.set_defaults(func=cmd_floods)
+    ls = sub.add_parser("landslide",
+                        help="landslide study: inventories, footprints (L0), labels (L1), predictor layers (L2), "
+                             "aspect (L2a), independent check (L2b), susceptibility models (L3), Sentinel-2 "
+                             "scars (L3b)")
+    ls.add_argument("action", choices=["inventory", "audit", "labels", "layers", "aspect", "verify", "scars",
+                                       "dating", "persistence", "reliability", "rain", "thresholds", "improve",
+                                       "fit", "test", "rainarchive", "raincheck", "rainproducts", "catalogue", "l5"])
+    ls.add_argument("--insar", default="quangnam_l5_d120", metavar="PROJECT",
+                    help="l5: the pre-event InSAR project with a hazard analysis (default quangnam_l5_d120)")
+    ls.add_argument("--step", default="c1", choices=["c1", "c3", "c5"], help="improve: the L3c step (default c1)")
+    ls.add_argument("--runs", default="early,final",
+                    help="rainarchive: IMERG runs, comma-separated (early, late, final)")
+    ls.add_argument("--years", default="2015-2025", help="rainarchive: first-last year (UTC days)")
+    ls.add_argument("--s1", action="append", metavar="PROJECT",
+                    help="verify: a project whose Sentinel-1 stack spans the October 2020 storms (repeatable)")
+    ls.add_argument("--study", default="landslide_central_vn",
+                    help="study folder under <workspace>/studies (default landslide_central_vn)")
+    ls.add_argument("--set", action="append", metavar="KEY=VALUE",
+                    help="override a [labels] parameter, e.g. --set draws=5 (repeatable)")
+    ls.set_defaults(func=cmd_landslide)
     od = sub.add_parser("opendata", help="open SAR data hub (ICEYE, Capella, Umbra STAC): sync, search stacks, fetch")
     od.add_argument("action", choices=["sync", "sources", "scenes", "stacks", "show", "fetch", "project"])
     od.add_argument("stack", nargs="?", help="stack id (show, fetch, project)")
@@ -581,11 +926,21 @@ def build_parser() -> argparse.ArgumentParser:
     od.add_argument("--mode", help="stripmap, spotlight, sliding_spotlight...")
     od.add_argument("--min-scenes", type=int, default=3)
     od.add_argument("--supported", action="store_true", help="only stacks GeoEyes can process")
-    od.add_argument("--track-id", help="archive track folder (fetch; default <sensor>-<asc|des>)")
+    od.add_argument("--track-id", help="archive track folder (fetch; default <sensor>-<asc|desc>, the project's track)")
     od.add_argument("--margin", type=float, help="metres around the AOI of a cut product (default ICEYE 500, Umbra 50)")
     od.add_argument("--dem", default="copernicus-30", help="DEM for the ICEYE range window (default copernicus-30)")
     od.add_argument("--method", help="method of the new project (project; default psi, Capella ps_lite)")
     od.set_defaults(func=cmd_opendata)
+    sc = sub.add_parser("coop", help="Source Cooperative: sync / search the catalog, read an open layer over an AOI")
+    sc.add_argument("action", choices=["sync", "search", "layers", "get"])
+    sc.add_argument("query", nargs="*", help="search words (search) | layer key (get)")
+    sc.add_argument("--bbox", help="west,south,east,north (get; --bbox=-99.3,19.3,-99,19.5 when west < 0)")
+    sc.add_argument("--month", help="YYYY-MM (gsw-monthly)")
+    sc.add_argument("--rp", type=int, default=100, help="return period, years (glofas-depth; default 100)")
+    sc.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="first day (chirps-daily, imerg)")
+    sc.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="last day (chirps-daily, imerg)")
+    sc.add_argument("--limit", type=int, default=30)
+    sc.set_defaults(func=cmd_coop)
     sv = sub.add_parser("serve", help="web app (API and front end on one port)")
     sv.add_argument("--host", default="127.0.0.1", help="listen address (default: this machine only)")
     sv.add_argument("--port", type=int, default=8765, help="port (default 8765; never Vite's 5173)")

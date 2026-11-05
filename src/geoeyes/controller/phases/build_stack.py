@@ -119,25 +119,39 @@ def previous(ctx) -> dict:
     return (rec.get("result") or {}) if rec.get("status") == "done" else {}
 
 
-def reference_date(ctx, dates: list[date]) -> date:
+def reference_date(ctx, dates: list[date], scenes: dict | None = None) -> date:
     ref = ctx.cfg.network.reference
     if ref == "auto":
         # keep the reference of the previous build while it is still an acquisition (new scenes extend the
-        # stack instead of moving its reference); first build: the median date
+        # stack instead of moving its reference); first build: the median date (Umbra: the central incidence)
         prev = previous(ctx).get("reference")
         if prev and date.fromisoformat(prev) in dates:
             return date.fromisoformat(prev)
+        if ctx.track.sensor is Sensor.UMBRA and scenes:
+            return _umbra_reference(scenes)
         return sorted(dates)[(len(dates) - 1) // 2]
     if ref not in dates:
         raise ConfigError(f"[network] reference {ref} is not an acquisition date of {ctx.track_id}")
     return ref
 
 
+def _umbra_reference(scenes: dict) -> date:
+    """Spotlight scenes of one stack come at several incidences: the reference is the scene at their centre
+    (``sicd_stack.central_reference``), read from the SICD metadata."""
+    from geoeyes.processing.stack.native.sicd_stack import central_reference, incidence_deg
+    from geoeyes.sensors.sicd import slc as sicd
+    inc = {}
+    for d, p in scenes.items():
+        data, xml = sicd.find_files(p)
+        inc[d] = incidence_deg(sicd.read_metadata(data, xml))
+    return central_reference(inc)
+
+
 def target(ctx) -> dict:
     """Scenes, reference date, stack id and store path of the track (cached in the context)."""
     if "stack" not in ctx.cache:
         scenes = find_scenes(ctx)
-        ref = reference_date(ctx, list(scenes))
+        ref = reference_date(ctx, list(scenes), scenes)
         sid = f"{ctx.track_id}-ref{ref:%Y%m%d}"
         ctx.cache["stack"] = {"scenes": scenes, "reference": ref, "stack_id": sid,
                               "path": ctx.project.stack_store(sid)}
@@ -213,6 +227,9 @@ def _fingerprint(ctx, sigs: dict[str, str]) -> str:
          "aoi": list(ctx.cfg.aoi.bbox), "dem": ctx.cfg.stack.dem, "subswaths": list(ctx.track.subswaths)}
     if ctx.cfg.stack.coreg_model != "constant":      # stacks built before the option keep their fingerprint
         p["coreg_model"] = ctx.cfg.stack.coreg_model
+    if ctx.track.sensor is Sensor.UMBRA:              # a coregistration change of the SICD engine rebuilds its stacks
+        from geoeyes.processing.stack.native.sicd_stack import ENGINE
+        p["engine"] = ENGINE
     return sha256_params(p)
 
 
@@ -277,7 +294,7 @@ def run(ctx) -> dict:
     t = target(ctx)
     w, s, e, n = ctx.cfg.aoi.bbox
     dem = load_dem(None if ctx.cfg.stack.dem in ("", "srtm-1") else ctx.cfg.stack.dem, s - 0.2, n + 0.2,
-                   w - 0.2, e + 0.2, cache=ctx.workspace.cache_dir("dem"))
+                   w - 0.2, e + 0.2, cache=ctx.workspace.cache_dir("dem"), focus=(s, n, w, e))
     aoi = BBox.from_sequence([w, s, e, n])
     out = t["path"]
     keep = reusable(ctx)
@@ -302,6 +319,20 @@ def run(ctx) -> dict:
         shutil.rmtree(prev.path)
     st.update_attrs(
         **{FINGERPRINT_ATTR: fingerprint(ctx), SIGNATURES_ATTR: signatures(ctx)})
+    if ctx.track.sensor is not Sensor.SENTINEL1:     # the Stack tab's check (a minute; Sentinel-1 stacks are large)
+        try:
+            from geoeyes.processing.stack.qc import stack_qc
+            s = stack_qc(out)
+            worst = max((max(abs(r.get("offset_lines", 0)), abs(r.get("offset_samples", 0))) for r in s["dates"]),
+                        default=0.0)
+            log.info("stack check: coherence %s, largest offset left %.2f px -> %s",
+                     "/".join(f"{r['coherence_mean']:.2f}" for r in s["dates"] if not r["reference"]), worst,
+                     out.parent / "qc")
+            if worst > 1.0:
+                log.warning("stack check: an offset of %.1f pixels is left between dates: the coregistration failed "
+                            "for some of them (see the Stack tab)", worst)
+        except Exception as exc:                     # the check never fails the build
+            log.warning("stack check failed: %s", exc)
     return {"stack": str(out), "dates": len(t["scenes"]), "reference": str(t["reference"]),
             "reused": len(keep & set(t["scenes"])), "signatures": signatures(ctx)}
 
