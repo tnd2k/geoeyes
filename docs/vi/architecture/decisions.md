@@ -36,8 +36,43 @@
 | 027 | Tiếng Việt: web song ngữ (EN / VI), bản dịch tiếng Việt của tài liệu; trung tâm thông báo | Accepted |
 | 028 | Hub dữ liệu mở (STAC của ICEYE, Capella, Umbra) và trình đọc ICEYE SLC-COG; chồng ảnh dữ liệu mở do `acquire` tải về | Accepted |
 | 029 | Trình đọc SICD (NITF) và bộ dựng chồng ảnh trên mặt phẳng nghiêng; xử lý được Umbra (`ps_lite`) | Accepted |
+| 030 | Nghiên cứu trượt lở: gói `geoeyes.landslide`, thư mục nghiên cứu nằm ngoài dự án, nhãn lấy từ danh mục trượt lở | Proposed |
 
 ---
+
+### ADR-030 — Nghiên cứu trượt lở từ danh mục trượt lở *(Proposed 2026-11-01)*
+**Bối cảnh.** Chủ dự án bắt đầu một nghiên cứu riêng: tính nhạy cảm với trượt lở do mưa kích hoạt, kèm ngưỡng mưa và
+InSAR trước sự kiện
+([`docs/vi/research/landslide-susceptibility.md`](../research/landslide-susceptibility.md)). Nhãn lấy từ các danh
+mục trượt lở, không lấy từ các ô InSAR (`ml.susceptibility`). Nghiên cứu trải qua nhiều cơn bão và có thể nhiều sản
+phẩm InSAR, nên không thuộc về một dự án nào.
+**Quyết định.**
+- Gói `geoeyes.landslide`:
+  - `study` (cấu hình);
+  - `inventory` (các danh mục trong workspace, vùng phủ, diện tích – tần suất);
+  - `labels`;
+  - sau này thêm `terrain`, `predictors`, `model`, `thresholds`, `hindcast`, mỗi module ứng với một bước của kế
+    hoạch.
+  - Gói dùng lại `ml.layers.Grid`, mã mô hình của `ml.susceptibility`, `ancillary.rainfall` và các sản phẩm InSAR.
+- Mỗi nghiên cứu là một thư mục `<workspace>/studies/<tên>/` có file `study.toml` (schema
+  `geoeyes.landslide_study/1`):
+  - danh mục trượt lở và cách trích dẫn;
+  - vùng nghiên cứu (một dòng của một GeoPackage);
+  - các phương án vùng phủ;
+  - các sự kiện;
+  - tham số của từng bước.
+  - Mỗi bước ghi đầu ra và một `Manifest` vào một thư mục con (`audit/`, `labels/`, …).
+  - Các chồng ảnh InSAR vẫn là dự án bình thường (`projects/<tên>`).
+- Các danh mục trượt lở vẫn là dữ liệu của workspace (`inventories/landslide/`), được dựng lại bằng
+  `geoeyes landslide inventory` từ các nguồn trong cache; file CSV các sự kiện được báo cáo vẫn sửa tay được.
+- CLI: `geoeyes landslide inventory | audit | labels [--study TÊN] [--set KHÓA=GIÁ_TRỊ]`.
+- Nhãn: mẫu dương đặt ở vùng khởi trượt (ô vách trượt; các phương án một phần ba trên và tâm); mẫu âm nằm trong vùng
+  phủ, cách các polygon của sự kiện quá một vùng đệm, rút nhiều lần bằng bộ sinh số có seed. Vùng phủ là ước lượng
+  (mặc định `near`) vì vùng đã khoanh vẽ không được công bố.
+**Hệ quả.**
+- Có thể chạy từng bước một và xem xét giữa các bước.
+- Vùng thí điểm (§3.4 của kế hoạch) chỉ là `[area]` của nghiên cứu: muốn mở rộng thì đổi dòng đó, không phải sửa code.
+- Kết quả của nghiên cứu chưa hiển thị trên ứng dụng web cho tới khi một bước được chấp nhận (điểm duyệt L7).
 
 ### ADR-029 — SICD: trình đọc NITF, phép chiếu ảnh, chồng ảnh trên mặt phẳng nghiêng *(Accepted 2026-10-28, bổ sung cho ADR-028)*
 **Bối cảnh.** Umbra (và các nhà cung cấp khác) giao dữ liệu phức dạng SICD (NGA Sensor Independent Complex Data):
@@ -230,8 +265,20 @@ ro) vẫn còn bỏ ngỏ.
 **Quyết định (2026-10-21).** Sentinel-1, COSMO-SkyMed, ALOS-PALSAR, Capella, **TerraSAR-X (giữ lại)**. TSX được tái cấu trúc như các cảm biến khác (không mang nhánh TSX cũ của `flow.py` sang; TSX dùng engine PS hợp nhất nên tự động có SBAS/bước 8).
 **Thế hệ ALOS (còn mở, không chặn tiến độ).** ALOS-1 PALSAR (2006–2011, chỉ còn dữ liệu lưu trữ), ALOS-2 PALSAR-2 (2014–, CEOS L1.1), ALOS-4 PALSAR-3 (phóng năm 2024; định dạng L1.1 cần kiểm chứng). Chủ dự án **đã có dữ liệu mẫu**; ALOS làm **sau cùng** (Phase 4b, khi S1/CSK/Capella/TSX đã ổn định) — đến lúc đó sẽ xác định thế hệ cụ thể từ dữ liệu mẫu. Bộ đọc thiết kế dạng plug-in cho từng thế hệ. ScanSAR chưa thuộc phạm vi ban đầu.
 
-### ADR-014 — GPU *(Proposed)*
-**Quyết định đề xuất.** Kernel mảng: NumPy/Numba (CPU) ↔ CuPy (GPU) qua `core.compute`. Torch chỉ dùng cho mô hình ML. Kernel nào cũng có đường chạy CPU.
+### ADR-014 — GPU *(Accepted)*
+**Quyết định (2026-11-04).** Kernel mảng: NumPy/Numba (CPU) ↔ CuPy (GPU) qua `core.compute`. Torch chỉ dùng cho mô hình ML. Kernel nào cũng có đường chạy CPU.
+- `core.compute.Backend` gồm: `xp` (numpy | cupy), `fft` (scipy.fft | cupyx.scipy.fft) kèm `fft_kw`, `asarray`/`asnumpy`, `batch()` (lô lớn hơn khi chạy GPU). Backend được chọn một lần cho mỗi lần chạy trong `pipeline.run`, theo `[compute] backend` (`auto` | `numpy` | `cupy`; biến môi trường `GEOEYES_COMPUTE_BACKEND` được ưu tiên). Lựa chọn được truyền qua context variable (`compute.use`), nên kernel không cần thêm tham số.
+  - `auto` quay về NumPy khi thiếu CuPy, không thấy thiết bị hoặc FFT thử bị lỗi.
+  - `cupy` mà không có GPU dùng được thì báo lỗi trước khi chạy phase nào.
+  - `geoeyes check` báo backend đang dùng; manifest của lần chạy ghi lại backend.
+- **Đường CPU giữ giống hệt từng bit** so với code trước khi port: trên CPU, `xp` *chính là* numpy, các bước copy không làm gì, và `workers=-1` được giữ. Mỗi kernel được kiểm bằng snapshot khi port. Kết quả GPU khớp tới mức sai số làm tròn, không giống từng bit.
+- Đã port (2026-11-04): `ps.topofit.topofit`/`topofit_full` (bước 2 và 3) và `ps.clap.clap_at_points` (bước 3).
+- Thứ tự port tiếp theo, theo lợi ích dự kiến:
+  - `clap.clap_filter` (bước 2; cần gom các cửa sổ của một hàng thành lô trước);
+  - high-pass trong `steps/velocity` và `scn_filt` (bước 8);
+  - phase linking.
+- Quy trình cho mỗi kernel: lưu snapshot đầu ra CPU, port, rồi kiểm tra đường CPU giống từng bit và test GPU giả lập (`tests/unit/core/test_compute.py`). Test GPU thật chỉ chạy trên máy có CuPy và thiết bị.
+- Cài đặt: `pip install "geoeyes[gpu]"` (cupy-cuda12x, cho card NVIDIA có driver CUDA 12). Card AMD cần bản CuPy cho ROCm trên Linux. Máy hiện tại của chủ dự án (AMD Radeon tích hợp, Windows) không có GPU dùng được, nên ở đó đường GPU mới chỉ được kiểm bằng backend giả lập.
 
 ### ADR-015 — Ngôn ngữ: tiếng Anh *(Accepted)*
 **Quyết định (2026-10-21).** Mã, chú thích, docstring, log, CLI, tài liệu, báo cáo PDF: **tiếng Anh**. Báo cáo không cần i18n (bỏ `report/i18n/`). Các tài liệu kiến trúc hiện có (viết bằng tiếng Việt) sẽ được dịch sang tiếng Anh sau khi chủ dự án rà soát xong v0.1.

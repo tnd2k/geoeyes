@@ -68,6 +68,20 @@ Mô hình nhiều tham số hơn luôn khớp tốt hơn một chút. Các mô h
   thử, chừa `edge_epochs` = 3 lần chụp ở mỗi đầu.
 - Mọi ô được khớp cùng lúc (bình phương tối thiểu vector hoá): vài phần mười giây cho 45.000 ô.
 
+**Lưu ý (2026-11-05): ΔBIC = 6 thổi phồng mức bằng chứng cho khởi phát và bước nhảy.** (`ml/behaviour.py`, ~dòng
+103–118.)
+- Lần chụp xảy ra thay đổi được dò trên mọi lần chụp nhưng chỉ bị tính như một tham số thông thường (k = 4). Điểm thay
+  đổi tìm bằng cách dò là tham số không chính quy: lấy phép khớp tốt nhất trong ~n − 6 phép khớp làm RSS giảm nhiều hơn
+  một tham số tự do, nên mức phạt BIC quá nhỏ và khởi phát, bước nhảy được ưu tiên quá mức.
+- BIC giả định phần dư độc lập. Khí quyển còn sót trong chuỗi tương quan theo không gian và thời gian, nên n hiệu dụng
+  nhỏ hơn số lần chụp.
+- Với cả hai điểm trên, "bằng chứng mạnh" theo nghĩa của Kass & Raftery không còn đúng. Các kiểu chỉ mang tính tham
+  khảo.
+
+Kế hoạch: hiệu chỉnh ngưỡng ΔBIC cho từng mô hình bằng mô phỏng giả thuyết không (chuỗi lún đều cộng nhiễu có tương
+quan không gian và thời gian như chính chuỗi, ví dụ lấy từ các ô ổn định), hoặc bằng hoán vị phần dư, để biết tỉ lệ
+báo động giả của từng kiểu.
+
 ### 2.3 Thay đổi chung cho nhiều ô
 
 Mặt đất hiếm khi thay đổi khắp nơi vào cùng một ngày. Một lần chụp có khí quyển mạnh hoặc lỗi giải chập pha sẽ làm nhiều
@@ -93,10 +107,25 @@ Rủi ro là sự kết hợp giữa nguy cơ, những gì phơi nhiễm với n
 - **Từ điểm InSAR trên chính công trình** (geoeyes buildings), khi có ít nhất `min_points_own` = 5 điểm tán xạ bền
   vững trên nền phẳng:
   - cường độ tính từ tốc độ thẳng đứng của công trình, theo các lớp của phân vùng;
-  - tổn hại tiềm tàng tính từ độ nghiêng β của chính công trình khi có ý nghĩa, nếu không thì từ góc biến dạng của ô
-    chứa nó;
+  - tổn hại tiềm tàng S = lớp lớn hơn giữa lớp góc biến dạng β của chính công trình (1/500, 1/300, 1/150) và lớp độ
+    nghiêng khối cứng của nó (`tilt_breaks` 1/500, 1/250, 1/100), mỗi đại lượng khi có ý nghĩa; nếu không thì S của ô;
   - mức nguy cơ theo ma trận của phân vùng.
 - **Từ ô phân tích** trong các trường hợp còn lại: mức của ô chứa tâm công trình.
+
+**Đã sửa trong mã (2026-11-05): β nay là góc biến dạng, độ nghiêng được phân lớp riêng.** Trước đây β của công trình
+là gradient của mặt phẳng khớp vào các PS (độ nghiêng khối cứng) và β của ô là độ dốc mặt đất, cả hai đều được phân
+lớp bằng giới hạn góc biến dạng của Bjerrum (1963) và Skempton & MacDonald (1956), mà nghiêng đều không gây ra
+(Burland & Wroth 1974; Boscardin & Cording 1989). Nay:
+- *Công trình* (`ml/buildings.py::tilt_and_distortion`): mặt phẳng cho `tilt_10yr`; β (`beta_10yr`) là P90 của góc
+  xoay tương đối |r_i − r_j| / d_ij của phần dư sau mặt phẳng, trên các cặp PS cách nhau ≥ 5 m, × 10 năm; chỉ giữ khi
+  ≥ 2 × P90 mà riêng nhiễu PS tạo ra (σ từ `vel_std_mm_yr`, nếu không có thì từ độ phân tán với điểm gần nhất).
+- *Rủi ro* (`ml/risk.py`): β phân lớp theo `distortion_breaks`, độ nghiêng theo `tilt_breaks` = 1/500, 1/250, 1/100
+  (Burland 1995: nghiêng nhận thấy được từ ~1/250, nghiêm trọng gần 1/100); S = lớp lớn hơn.
+- *β của ô* (`hazard/zoning.py::angular_distortion`): độ thay đổi độ dốc qua ô, max của sai phân bậc hai
+  |v₊ − 2v + v₋| theo 4 hướng trên một bước ô, × T; độ dốc mặt đất đều cho β = 0.
+
+Các bảng kết quả trong tài liệu này (§4) được tính bằng phương pháp cũ và cần chạy lại. Các lớp vẫn là lớp sàng lọc,
+không phải đánh giá kết cấu.
 - **Chưa đánh giá:** các công trình nằm ngoài mọi ô.
 - Mỗi công trình ghi lại nguồn (`source`).
 
@@ -105,6 +134,10 @@ Rủi ro là sự kết hợp giữa nguy cơ, những gì phơi nhiễm với n
 - Diện tích sàn = diện tích chiếm đất × số tầng, đại diện cho số người và giá trị bên trong.
 - Số tầng lấy từ chiều cao trong Overture (3 m một tầng). Khi thiếu chiều cao, dùng số tầng trung vị của các công
   trình có chiều cao trong khu vực.
+- Chiều cao thiếu trong Overture được bổ sung (2026-11-05, đang trong cây làm việc, chưa commit) từ footprint của
+  GlobalBuildingAtlas chứa tâm công trình (Source Cooperative; `gba_heights` = true theo mặc định, cần cache dữ liệu
+  mở; `opendata/coop.py::fill_heights`). `risk.parquet` có thêm cột `height_source` (overture / gba / assumed). Kết
+  quả ở §4 có trước thay đổi này.
 - E1 < 300 m² ≤ E2 < 3.000 m² ≤ E3.
 
 ### 3.3 Mức dễ tổn thương V (1–3)
@@ -167,13 +200,17 @@ Các lần chạy ngày 2026-10-26 với tham số mặc định.
 | Sản phẩm | Số công trình | Điểm riêng | Từ ô | Rất cao | Cao | Trung bình | Thấp | Rất thấp | Có chiều cao |
 |---|---|---|---|---|---|---|---|---|---|
 | Hà Nội S1 v4 | 450.198 | 8.268 | 350.904 | 1 | 6 | 1.023 | 16.470 | 341.672 | 2 % |
-| Mexico S1 v7 | 1.663.658 | 21.329 | 1.311.046 | 27.321 | 345.439 | 888.714 | 11.651 | 46.942 | 0 % |
+| Mexico S1 v7 | 1.663.658 | 21.329 | 1.311.046 ¹ | 27.321 | 345.439 | 888.714 | 11.651 | 46.942 | 0 % |
+
+¹ Đã kiểm ngày 2026-11-05 trong `risk.parquet` / `risk.json`: 12.308 công trình ở Mexico được đánh giá "từ ô" nằm trong
+ô không có mức nguy cơ (hazard −1), nên không có mức rủi ro. Số được đánh giá: 1.320.067 = tổng năm mức. Hà Nội khớp
+(359.172). Cột "Có chiều cao": các lần chạy trước khi bổ sung từ GlobalBuildingAtlas (§3.2).
 
 - **Mexico:** phần lớn công trình ở mức rủi ro trung bình hoặc cao. Điều này do nguy cơ (lún đều 100–350 mm/năm sau
   khi gắn vào GNSS) nhiều hơn là do bản thân công trình.
 - **Hà Nội:** vùng của sản phẩm ổn định so với trung bình toàn cảnh, nên gần như mọi công trình có rủi ro rất thấp.
-- **Chiều cao:** Overture hầu như không có chiều cao nhà ở hai vùng này, nên mức phơi nhiễm chỉ dựa vào diện tích chiếm
-  đất.
+- **Chiều cao:** Overture hầu như không có chiều cao nhà ở hai vùng này, nên trong các lần chạy này mức phơi nhiễm chỉ
+  dựa vào diện tích chiếm đất (phần bổ sung từ GlobalBuildingAtlas ở §3.2 có sau; chưa chạy lại).
 
 ## 5. Hạn chế
 
@@ -186,6 +223,11 @@ Các lần chạy ngày 2026-10-26 với tham số mặc định.
   điểm riêng (2 % ở Hà Nội, 1 % ở Mexico) mới được đánh giá riêng.
 - **Phơi nhiễm và dễ tổn thương.** Đây là các đại lượng thay thế: không có chiều cao, loại kết cấu, móng hay số người
   sử dụng. Bản đồ rủi ro cho biết nên kiểm tra ở đâu, không cho biết cái gì sẽ nứt.
+- **β là độ nghiêng, không phải góc biến dạng (2026-11-05).** Các lớp tổn hại tiềm tàng dùng giới hạn góc biến dạng cho
+  một độ nghiêng (công trình) hoặc một độ dốc mặt đất (ô); xem §3.1. Chỉ mang tính tham khảo cho tới khi sửa sang độ
+  cong / độ võng.
+- **Lựa chọn mô hình (2026-11-05).** ΔBIC = 6 phạt quá nhẹ cho lần chụp thay đổi được dò và giả định phần dư độc lập
+  (§2.2); số ô khởi phát / bước nhảy là cận trên cho tới khi được hiệu chỉnh bằng mô phỏng giả thuyết không.
 
 ## 6. Trình tự nghiên cứu
 
@@ -207,6 +249,12 @@ Các lần chạy ngày 2026-10-26 với tham số mặc định.
   Scatterers Interferometry time series. *Natural Hazards and Earth System Sciences* 13, 1945–1958.
 - Bjerrum, L. (1963). Allowable settlement of structures. *Proceedings of the 3rd European Conference on Soil
   Mechanics and Foundation Engineering*, Wiesbaden, 2, 135–137.
+- Boscardin, M. D., Cording, E. J. (1989). Building response to excavation-induced settlement. *Journal of
+  Geotechnical Engineering* 115(1), 1–21.
+- Burland, J. B. (1995). Assessment of risk of damage to buildings due to tunnelling and excavation. Invited special
+  lecture, *1st International Conference on Earthquake Geotechnical Engineering* (IS-Tokyo '95).
+- Burland, J. B., Broms, B. B., de Mello, V. F. B. (1977). Behaviour of foundations and structures. *Proceedings of
+  the 9th International Conference on Soil Mechanics and Foundation Engineering*, Tokyo, 2, 495–546.
 - Burland, J. B., Wroth, C. P. (1974). Settlement of buildings and associated damage. *Proceedings of the
   Conference on Settlement of Structures*, Cambridge, 611–654.
 - Kass, R. E., Raftery, A. E. (1995). Bayes factors. *Journal of the American Statistical Association* 90(430),

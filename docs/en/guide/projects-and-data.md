@@ -59,7 +59,7 @@ method = "era5"                   # none (linear APS) | era5 | gacos
 | Section | Keys | Notes |
 |---|---|---|
 | `[network]` | `reference` | `"auto"` (median date, then kept when new scenes arrive) or a date |
-| `[stack]` | `dem` | `"srtm-1"` (default: SRTM 1" tiles in `~/.snap/auxdata/dem/SRTM 1Sec HGT`, missing tiles downloaded from the ESA mirror), `"copernicus-30"` (Copernicus GLO-30 from AWS open data into `<workspace>/cache/dem`; also above 60° N/S), a folder of `.hgt` tiles, or a GeoTIFF (EPSG:4326, EGM2008 heights) |
+| `[stack]` | `dem` | `"srtm-1"` (default: SRTM 1" tiles in `~/.snap/auxdata/dem/SRTM 1Sec HGT`, missing tiles downloaded from the ESA mirror), `"copernicus-30"` (Copernicus GLO-30 from AWS open data into `<workspace>/cache/dem`; also above 60° N/S), `"lidar-3dep"` (US only: the top surface of the most recent USGS 3DEP lidar survey over the AOI plus 500 m, 1 m cells, buildings included, inside GLO-30; needs `pip install laspy[lazrs]`; for spotlight stacks whose height of ambiguity is below a metre), a folder of `.hgt` tiles, or a GeoTIFF (EPSG:4326, EGM2008 heights) |
 | `[[tracks]]` | `subswaths` | Sentinel-1: restrict to e.g. `["IW2"]` |
 | `[phase_linking]` | `enabled`, `estimator`, `shp_test`, `half_window`, `gaussian_sigma` | `enabled = true` for long X-band stacks (COSMO-SkyMed); defaults `adaptive`, `ad` |
 | `[selection]` | `da_threshold`, `ds_coherence_min` | PS amplitude dispersion; DS from phase linking |
@@ -144,6 +144,18 @@ card shows the saved steps and has the same two choices.
 geoeyes run hcm_hist_des --skip acquire --skip build_stack          # straight to ps
 geoeyes run hcm_hist_des --skip acquire --ps-from 6 --ps-to 6       # unwrap pass 1 again, then stop
 ```
+
+**Checking the stack before the points.** The project's **Stack** tab (or `geoeyes stack-qc <project>`) shows
+every date of a coregistered stack against its reference, multilooked: the amplitude, the wrapped interferogram
+(the geometric phase already removed) and the coherence. A table lists the perpendicular baseline, the height of
+ambiguity, the mean coherence, the offset left by the coregistration and the amplitude correlation, the last two
+on a central crop at full resolution. The images go to `stacks/<stack_id>/qc/`.
+
+The check runs by itself after `build_stack` for every sensor but Sentinel-1, whose stacks are large; run it from
+the tab when needed. A good stack has offsets below 0.1 pixel, amplitude correlations close to the best pair, and
+fringes or a smooth phase where the coherence is high. An offset of tens of pixels, or an interferogram of pure noise
+where the amplitude shows buildings, means the coregistration failed for that date. That was the case of Umbra
+before the coarse offset search: acquisitions placed 15–25 m apart by their orbits.
 
 ## 6. Report
 

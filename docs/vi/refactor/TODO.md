@@ -56,6 +56,115 @@ danh mục, ứng dụng web; đã xoá mã cũ; đã `git init`. Việc còn l�
    - Rủi ro: Copernicus 30 m là mô hình bề mặt (tính cả nóc nhà). FABDEM đã loại bỏ nhà và cây, nhưng giấy phép
      CC BY-NC-SA chỉ cho dùng phi thương mại. Dùng thương mại thì cần LiDAR hoặc số liệu đo đạc của thành phố.
      Không có dữ liệu cống công khai.
+9. **Stack spotlight Umbra: TẠM DỪNG từ 2026-11-01**, sẽ quay lại sau. Dự án thử là `lasvegas_umbra`: 8 file SICD
+   của stack dữ liệu mở `umbra:multi-sp-al-43-36.1n115.2w` (U05, U08, U10, từ 15/2 đến 3/8/2025), AOI 2 × 2 km ở
+   khu Strip, ảnh tham chiếu 3/8/2025.
+
+   **Đã làm.**
+   - Stack dữ liệu mở được trộn các vệ tinh Umbra (góc tới ±4°, hướng nhìn ±3°: `opendata/sources.py`).
+   - Ảnh tham chiếu là ảnh có góc tới nằm giữa nhóm (`sicd_stack.central_reference`), và các ảnh được giữ trong
+     ±3° (`MAX_INCIDENCE_DIFF_DEG`).
+   - Bước dò độ lệch thô theo biên độ chạy trước bước tinh chỉnh (`coarse_offset`, engine
+     `geoeyes-native-sicd/0.2`, nằm trong khoá của `build_stack`). Vị trí các lần chụp Umbra lệch nhau 129–208 dòng
+     (15–23 m), không phụ thuộc baseline; các ô 256 pixel của bước tinh chỉnh bị gập (aliasing) với độ lệch này.
+   - `ps_lite` chạy được với stack ngắn (sửa chỉ số trong `invert_weighted`).
+   - Kiểm tra stack: `processing/stack/qc.py`, tab Stack, lệnh `geoeyes stack-qc`.
+   - DSM lidar USGS 3DEP: `[stack] dem = "lidar-3dep"`, `geometry/lidar.py`. Đợt khảo sát `NV_ClarkCo_2_B22` đã
+     lưu trong `cache/dem/lidar-3dep/`.
+
+   **Phát hiện.**
+   - Sau khi sửa, đồng đăng ký tốt: độ lệch ≤ 0,1 pixel, tương quan biên độ 0,49–0,57.
+   - Độ kết hợp vẫn chỉ 0,08–0,12, dù dùng SRTM hay DSM lidar.
+   - Baseline vuông góc 10–29 km, nên độ cao mơ hồ chỉ 0,22–0,77 m.
+   - `ps_lite` giữ khoảng 1,2 triệu "PS" với độ kết hợp thời gian 0,82, là khớp giả: 7 interferogram so với dải tìm
+     dh ±72 m ở độ cao mơ hồ dưới 1 m thì khớp được với mọi nhiễu. Vận tốc trải ±42 mm/năm, không có cấu trúc.
+
+   **Khi quay lại, làm theo thứ tự.**
+   - [ ] U1: interferogram của cặp có chênh baseline nhỏ nhất (20/2 × 16/7/2025, ΔB ≈ 2 km, độ cao mơ hồ ≈ 5 m).
+     Thêm chế độ "cặp" vào kiểm tra stack. Nếu cặp này kết hợp tốt trên mái phẳng và bãi đỗ xe thì stack bị giới
+     hạn bởi baseline. Nếu không thì khâu chuẩn bị pha bị sai (U2, U3).
+   - [ ] U2: kiểm tra phép trừ pha hình học của ảnh PFA (`_phase`, `phase_range`, pixel dùng để tính pha ảnh phụ)
+     trên mặt phẳng: sau khi trừ độ cao lidar thì pha phải phẳng.
+   - [ ] U3: lọc dải chung (common-band) theo range (góc tới chênh tới 2,7° so với mức tới hạn 8,4° ở 800 MHz) và
+     theo azimuth (độ xiên, DeltaKCOA).
+   - [ ] U4: ngưỡng độ kết hợp thời gian cho `ps_lite` lấy từ phân bố của nhiễu (số interferogram × dải tìm dh) thay
+     cho ngưỡng cố định 0,7, để stack không có pha dùng được thì cho ra 0 điểm.
+   - [ ] U5: dùng tab Stack tìm stack Umbra hoặc Capella có baseline nhỏ (vài trăm mét) cho nghiên cứu biến dạng.
+   - Vì sao DSM lidar không giúp được vẫn chưa rõ. Các khả năng: hiện tượng chồng lấn (layover) và mặt tường mà phép
+     chiếu DSM không mô hình hoá; sai số DSM 1 m so với độ cao mơ hồ 0,2–0,8 m; thay đổi giữa 2022 và 2025; hoặc
+     lỗi trong mô hình pha (U1–U2 sẽ trả lời).
+   - 2026-11-02: chủ dự án đã cho xoá dự án `lasvegas_umbra`, cache web của nó và cache DSM lidar. Muốn làm tiếp thì
+     phải tải lại stack và DSM.
+
+10. **Workflow SBAS** (chủ dự án yêu cầu 2026-11-02, cho nghiên cứu trượt lở: chuỗi đường đáy ngắn nhạy hơn với chuyển
+    dịch sườn chậm và liên tục trong không gian so với xử lý điểm một ảnh tham chiếu).
+
+    **Bối cảnh.**
+    - `method = "sbas"` và `[network.sbas]` có trong cấu hình, chuyển sang từ hệ thống cũ, nhưng không đoạn mã nào
+      dùng tới. Hiện mọi phương pháp đều chạy phase linking rồi bộ xử lý điểm kiểu StaMPS.
+    - Đã có bộ giải chập pha 2-D cho lưới: refined IRLS (`processing/ps/unwrap/irls.py`: khởi tạo DCT, IRLS có trọng
+      số, căn hằng số cho đồng dư). Chuỗi xử lý của chủ dự án đã dùng nó để giải chập pha, `learn/pair.py` (trọng số =
+      độ kết hợp²) và `stack/native/iono.py` cũng vậy.
+    - Stack Hà Nội và TP.HCM được giữ lại (output đã xoá 2026-11-02) để so sánh SBAS với sản phẩm điểm.
+
+    **Trạng thái (2026-11-02, chủ dự án đã duyệt thiết kế).** Đã có bản v1: `processing/sbas/` (`network`, `pairs`,
+    `closure`, `invert`, `runner`), mục `[sbas]` trong lược đồ cấu hình, `method = "sbas"` chạy nó trong phase `ps`
+    (`controller/phases/ps.py`; các khoá fingerprint riêng chỉ có khi là sbas, nên các lần chạy ps / ps_lite không bị
+    chạy lại), output theo cấu trúc `ps_runs/<track>/` mà `build_product`, export và `hazard` đọc được không cần sửa;
+    lựa chọn phương pháp trong web app. Kiểm thử: `tests/unit/processing/test_sbas.py` (mạng cặp, nghịch đảo chính
+    xác, chuẩn nhỏ nhất, đóng pha, một vùng lún tổng hợp chạy đầu-cuối qua `build_product`). Chưa làm: số hạng sai số
+    DEM, khí quyển, chia ô cho lưới rất lớn, kiểm chứng trên stack thật (Hà Nội / TP.HCM / vùng thí điểm trượt lở),
+    build lại web app tĩnh.
+
+    **Thiết kế.**
+    - [ ] S1 Mạng cặp: các cặp trong giới hạn `[network] max_perp_m` / `max_temporal_days`, cộng các cặp ngắn dư thừa
+      của `[network.sbas]` (mỗi ngày nối với các ngày lân cận trong `redundant_max_days`). Kiểm tra tính liên thông;
+      các tập con rời nhau được báo cáo và nối lại.
+    - [ ] S2 Interferogram trên lưới đã đa nhìn (`[sbas] looks`, khoảng 30 m cho Sentinel-1: 2 × 8 look).
+      - Nguồn: các SLC, hoặc pha đã phase linking ("PL-SBAS": φᵢ − φⱼ của chuỗi đã liên kết, trọng số là độ kết hợp
+        SHP |Cᵢⱼ|; tốt nhất cho tán xạ phân tán dưới rừng).
+      - Lọc Goldstein (đã có). Độ kết hợp cho từng cặp.
+    - [ ] S3 Giải chập pha từng interferogram bằng refined IRLS (`irls_unwrap_weighted`, trọng số = độ kết hợp²,
+      `enforce_congruence`), đúng bộ giải chủ dự án đang dùng (2026-11-02). Không thêm phụ thuộc mới.
+      - Chia ô cho lưới lớn nếu bộ nhớ đòi hỏi.
+      - Kiểm tra đóng pha (phase closure) trên các bộ ba để đánh dấu lỗi giải chập.
+    - [ ] S4 Nghịch đảo cho từng pixel (Berardino et al. 2002):
+      - bình phương tối thiểu có trọng số cho các số gia chuyển dịch;
+      - SVD chuẩn nhỏ nhất qua các tập con rời nhau;
+      - vận tốc tuyến tính, sai số DEM;
+      - độ kết hợp thời gian (Pepe & Lanari 2006) làm chỉ số chất lượng và mặt nạ;
+      - vùng tham chiếu; khí quyển qua `processing/atmosphere` (tuỳ chọn).
+    - [ ] S5 Sản phẩm theo lược đồ hiện có (điểm tại tâm các pixel qua mặt nạ, chuỗi thời gian, GeoTIFF vận tốc), để
+      `hazard` (chiếu theo hướng dốc) và `landslide` (L3b.7, L5 / L5b) đọc được mà không phải sửa.
+    - [ ] S6 Phase `sbas` trong controller cho `method = "sbas"` (fingerprint, chạy tiếp, báo cáo lần chạy), lựa chọn
+      phương pháp trong web app, tài liệu và ADR.
+    - [ ] Kiểm thử: một stack tổng hợp có chuyển dịch và nhiễu biết trước — mạng liên thông, phép nghịch đảo chính xác
+      trên dữ liệu không bị cuộn pha, phép đóng pha phát hiện lỗi giải chập được cài vào.
+    - [ ] Kiểm chứng: stack TP.HCM và Hà Nội so với sản phẩm điểm của chúng; vùng thí điểm trượt lở (quỹ đạo 120) so
+      với PL + DA 0,6.
+
+11. **Nguồn burst CDSE (dự phòng cho ASF), CHƯA XONG 2026-11-02.** Ngày 2026-11-02 ASF trả lỗi HTTP 400 / 500 trong vài
+    giờ (máy chủ dùng cho cách lấy cookie bằng token bị hỏng). `sensors/sentinel1/cdse.py` đã có phần lấy token CDSE
+    (OpenID, password grant, dòng `_netrc` cho `identity.dataspace.copernicus.eu`), tìm và tải burst, và hàm `probe`.
+    Chưa làm: chuyển file zip của CDSE sang định dạng kho (XML tổng hợp kiểu ASF + GeoTIFF của burst; cấu trúc zip
+    chưa có tài liệu, phải viết dựa trên một mẫu tải về) và cơ chế dự phòng trong bước `acquire`. Catalogue CDSE từ
+    chối địa chỉ của Cloudflare WARP (HTTP 403, WAF). Chủ dự án tạm gác để tập trung vào nghiên cứu trượt lở.
+12. **ASF HyP3 làm tham chiếu độc lập, LÀM SAU (ghi 2026-11-03).** HyP3 (`hyp3_sdk`, miễn phí với tài khoản Earthdata
+    trong `_netrc`) xử lý theo yêu cầu các cặp SLC Sentinel-1 (GAMMA, `submit_insar_job`, looks 10x2 hoặc 20x4, pha đã
+    giải chập, bản đồ dịch chuyển LOS / thẳng đứng, mặt nạ nước). Mục đích: kiểm tra độc lập GeoEyes trên cùng các cặp
+    (pha giải chập và dịch chuyển từng cặp, ví dụ TP.HCM 2024, một đường bay ascending, khoảng 10 cặp liên tiếp 12
+    ngày; `asf_search` chọn cảnh). Sau đó, chuỗi SBAS từ HyP3 (MintPy trên các cặp HyP3) so với vận tốc `sbas` / `ps`
+    của GeoEyes. Các bước: (1) một script nhỏ trong `tools/` hoặc `geoeyes.validation`: tìm cảnh, giữ một path, gửi
+    job, chờ, tải về; (2) đọc GeoTIFF và nội suy về các điểm GeoEyes; (3) so sánh từng cặp (chênh pha modulo 2π, RMSE
+    dịch chuyển) và báo cáo. Lưu ý hạn mức (credit mỗi tháng) và HyP3 giải chập bằng MCF (kiểu SNAPHU), không phải IRLS.
+    Script khởi đầu của chủ dự án nằm trong phiên làm việc ngày 2026-11-03.
+13. **Tự chọn deramp (`scla_deramp = "auto"`), ĐÃ LÊN KẾ HOẠCH 2026-11-04** ([ghi chú nghiên
+    cứu](../research/ramp-selection.md)). Tách ramp của mỗi interferogram thành phần xu thế (tuyến tính theo thời
+    gian) và phần còn lại. Luôn bỏ phần còn lại; chỉ bỏ phần xu thế ở nơi có nền ổn định trải khắp khung, nếu không
+    thì báo "chưa xác định". Các bước: D0 (nghiên cứu offline trên 4 state PS) → D1 (hàm thuần + test tổng hợp) → D2
+    (nối vào engine, `y`/`n` khớp từng bit) → D3 (G3.2 Mexico + Quảng Nam) → D4 (giá trị mặc định); duyệt sau mỗi bước.
+    Trạng thái 2026-11-05: xong D0–D2 (`steps/ramp.py`, `scla_deramp = "auto"` trong engine, chạy `mexico_g3`); tiếp
+    theo là D3.
 
 Các mục dưới đây là nhật ký theo từng giai đoạn.
 
@@ -118,7 +227,9 @@ Các mục dưới đây là nhật ký theo từng giai đoạn.
 
 - [x] Tạo khung `src/geoeyes/`
 - [x] `geoeyes.core` (2026-10-22): `errors` (phân cấp lỗi), `types` (`OrbitDirection`, `LookSide`, `BBox`), `timeutil` (YYYYMMDD, MATLAB datenum, datetime64, năm thập phân), `hashing` (tệp/tham số/mảng, kết hợp), `logging` (`configure`, contextvars `log_context`, JSONL + văn bản cho từng pha, `event`) — 7 test
-- [ ] `geoeyes.core`: `geodesy`, `compute` (numpy/cupy, worker), `units`; QueueHandler cho tiến trình worker
+- [x] `geoeyes.core.compute` (2026-11-04, ADR-014): backend numpy/cupy chọn theo từng lần chạy, đã nối `[compute] backend`; đường GPU cho `topofit`, `topofit_full`, `clap_at_points` (đường CPU giống từng bit; có test GPU giả lập)
+- [ ] Port GPU tiếp theo: `clap_filter` (gom cửa sổ của một hàng thành lô), high-pass trong velocity, `scn_filt`, phase linking; đo thời gian trên máy có GPU NVIDIA
+- [ ] `geoeyes.core`: `geodesy`, `units`, `[compute] workers`/`memory_gb` ở mọi nơi; QueueHandler cho tiến trình worker
 - [x] `geoeyes.config` (2026-10-22): `schema` (pydantic, frozen, `[ps]` giữ tên StaMPS dạng phẳng, `[ps_lite]` = tham số của `run_stack`, `[legacy]` giữ trọn thông tin), `loader` (preset theo cảm biến + gộp sâu, `resolve_subswath`, đọc/ghi TOML hai chiều), các preset `sentinel1/cosmo_skymed/terrasar_x/capella/alos.toml`, `migrate` (in.json+control.json → project.toml; Capella → `ps_lite`) — 12 test, chạy được với `control/mexico` thật
 - [x] `geoeyes.config.settings` (biến môi trường `GEOEYES_*`, pydantic-settings) + xuất JSON Schema
 - [ ] Tách `[ps]` dạng phẳng thành bảng con (`ps.weed`, `ps.unwrap`…) khi viết engine `ps` (Giai đoạn 4) — cập nhật ARCHITECTURE §14.1 theo

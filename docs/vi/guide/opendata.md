@@ -14,6 +14,7 @@ Thiết kế: [ADR-028](../architecture/decisions.md).
 6. [ICEYE SLC-COG](#6-iceye-slc-cog)
 6b. [Umbra SICD](#6b-umbra-sicd)
 7. [Các chồng ảnh đã biết (tháng 10/2026)](#7-các-chồng-ảnh-đã-biết-tháng-102026)
+8. [Source Cooperative: các lớp lũ và phơi nhiễm](#8-source-cooperative-các-lớp-lũ-và-phơi-nhiễm)
 
 ## 1. Các catalog
 
@@ -56,7 +57,7 @@ geoeyes run tenerife_iceye
 
 Viết `--bbox=` có dấu bằng: nếu không, giá trị bắt đầu bằng `-` (kinh độ tây) sẽ bị hiểu nhầm là một tuỳ chọn.
 `geoeyes opendata fetch <id> --bbox=...` tải ảnh mà không tạo dự án
-(`<workspace>/archive/<sensor>/<sensor>-<asc|des>/`).
+(`<workspace>/archive/<sensor>/<sensor>-<asc|desc>/`).
 
 Dự án do `opendata project` tạo ra:
 
@@ -139,3 +140,63 @@ Theo `geoeyes opendata stacks` ngày 28/10/2026 (72 chồng ảnh có ≥ 3 ngà
 | Capella, 34,8° B 118,1° T | 95 | 11/2024 → 11/2025 | 3 ngày | spotlight, chồng ảnh mở dài nhất |
 | Capella, 19,4° B 155,3° T | 35–60 | 2025 | 3 ngày | Kīlauea, quỹ đạo lên và xuống |
 | `capella:c14-sm-al-41-19.4n099.0w-…` | 18 | 26/06 → 15/08/2024 | 3 ngày | Mexico City, stripmap (dữ liệu của `mexico_capella`) |
+
+## 8. Source Cooperative: các lớp lũ và phơi nhiễm
+
+[Source Cooperative](https://source.coop) lưu khoảng 560 sản phẩm dữ liệu mở, tất cả truy cập công khai qua HTTPS
+(`https://data.source.coop/<account>/<product>/...`, không cần tài khoản hay khoá). Ở đó không có chồng ảnh SAR nào
+GeoEyes xử lý được, nhưng có nhiều lớp giúp đặt chuyển dịch bên cạnh lũ, dân cư và công trình. GeoEyes lập chỉ mục
+toàn bộ danh mục (`<workspace>/cache/opendata/source_coop.json`, làm mới mỗi ngày) và đọc sáu lớp, chỉ trong vùng
+cần (đọc theo dải byte của COG; với Parquet thì lọc row group theo bbox), lưu đệm trong
+`<workspace>/cache/sourcecoop/`:
+
+| Khoá | Sản phẩm | Dùng trong GeoEyes |
+|---|---|---|
+| `gsw-monthly` | `epoch/jrc-global-surface-water-monthly` (30 m, 2017-2024) | mặt nước của tháng có lũ so với một tháng khô |
+| `glofas-depth` | `nlebovits/jrc-glofas` (90 m, chu kỳ lặp 10-500 năm) | kịch bản độ sâu lũ sông (không có đê: là cận trên ở vùng châu thổ có đê) |
+| `chirps-daily` | `wfp/chirps-rnl-daily` (0,05°, từ 1981) | mưa ngày của trận lũ; máy chủ CHC hạn chế truy cập, bản sao này thì không |
+| `imerg` | `dynamical/nasa-imerg-analysis-late` (0,1°, 30 phút, từ 1998) | cường độ mưa của trận lũ theo từng nửa giờ (kho Icechunk) |
+| `ghsl-pop` | `wfp/jrc-ghsl-pop` (3", năm 2025) | số dân trên nền đang lún và trong vùng ngập |
+| `gba-buildings` | `tge-labs/globalbuildingatlas-lod1` | chiều cao cho mọi công trình: bổ sung chiều cao Overture trong `geoeyes risk` |
+
+```
+geoeyes coop search lũ lụt                      # tìm trong danh mục (hiểu các từ tiếng Việt thông dụng)
+geoeyes coop layers
+geoeyes coop get gsw-monthly --bbox 105.7,20.95,105.95,21.1 --month 2024-09
+geoeyes coop get chirps-daily --bbox 105.7,20.95,105.95,21.1 --from 2024-09-05 --to 2024-09-12
+geoeyes coop get glofas-depth --bbox=-99.25,19.3,-99.0,19.5 --rp 100      # dùng "=" khi bbox bắt đầu bằng "-"
+geoeyes coop get imerg --bbox 105.7,20.95,105.95,21.1 --from 2024-09-06 --to 2024-09-08
+geoeyes exposure hanoi_s1 --set flood_month=2024-09 --set glofas_rp=100
+```
+
+`geoeyes exposure` (`[postprocess.exposure]`) ghi ra `analyses/exposure/<product>/exposure.json` và
+`exposure_cells.parquet`. Nội dung gồm số dân và số công trình theo cấp tốc độ lún đứng (ngưỡng 5 / 10 / 20 /
+50 mm/năm, trên ô GHS-POP, mỗi ô ít nhất 3 điểm); số dân ở các ô không có điểm được tính riêng. Với `flood_month`:
+diện tích ngập (có nước trong tháng đó ở chỗ `dry_month`, mặc định sáu tháng trước, là đất), số dân trong đó, trung
+vị tốc độ của các điểm trên nền ngập và nền khô, và lượng mưa của tháng. Với `glofas_rp`: số dân trong vùng lũ sông
+mô phỏng. `geoeyes risk` lấy chiều cao còn thiếu từ GlobalBuildingAtlas (đặt `gba_heights = false` để tắt): ở
+Hà Nội, Overture chỉ có chiều cao cho 1,4 % công trình, có GlobalBuildingAtlas thì lên 67 %.
+
+IMERG được công bố dưới dạng kho Icechunk 2, mà icechunk 2 cần Python 3.12. Khi môi trường GeoEyes cũ hơn, một
+môi trường nhỏ riêng sẽ chạy trình đọc (`geoeyes/opendata/imerg_reader.py`, không import GeoEyes), và biến
+`GEOEYES_ICECHUNK_PYTHON` trỏ tới nó:
+
+```
+conda create -p <envs>/icechunk -c conda-forge python=3.12 "icechunk>=2.3" xarray zarr numpy
+GEOEYES_ICECHUNK_PYTHON=<envs>/icechunk/python.exe            # trong .env
+```
+
+Khi có `flood_month`, `geoeyes exposure` bổ sung nửa giờ mưa mạnh nhất của tháng (`rain_peak_30min`, trung bình
+trên AOI, giờ UTC); nếu không có trình thông dịch này thì bỏ qua và chỉ dùng mưa ngày CHIRPS. IMERG "late" chỉ dựa
+vào vệ tinh (hiệu chỉnh theo trạm đo đi kèm bản "final", vài tháng sau): với bão Yagi ở Hà Nội, nó cho 79 mm ngày
+7/9 trong khi CHIRPS cho 226 mm. Nên dùng IMERG để xem thời điểm và diễn biến cường độ mưa, còn tổng lượng mưa ngày
+thì lấy từ CHIRPS.
+
+Các lớp này nói được gì và không nói được gì. Global Surface Water là ảnh tổng hợp theo tháng từ Landsat và
+Sentinel-2. Với bão Yagi (Hà Nội, tháng 9/2024), nó chỉ ghi nhận 0,05 km² mặt nước mới trong nội đô, trong khi
+CHIRPS cho 680 mm mưa trong tháng (226 mm ngày 7/9): mây và thời gian ngập ngắn trên phố che mất. Ngập đô thị cần
+ảnh biên độ SAR của đúng ngày đó (docs/vi/research/paper-ideas.md §4). GloFAS bỏ qua đê: ở Hà Nội nó cho ngập cả
+vùng đồng bằng được đê bảo vệ (1,3 triệu dân với lũ 100 năm), đó là cận trên chứ không phải dự báo.
+
+Trên web app: Dự án → Source Cooperative (tìm kiếm, danh sách lớp và nguồn trích dẫn); Phân tích chuyên sâu → Phân tích chuyên đề → lớp "Dân và công trình phơi nhiễm" (chạy với một tháng lũ và một chu kỳ lặp GloFAS; các ô trên bản đồ tô màu theo cấp lún, phần diện tích ngập hoặc độ sâu lũ sông; số liệu nằm trong chú giải).
+

@@ -53,6 +53,116 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
    - Risks: Copernicus 30 m is a surface model (roofs included). FABDEM removes buildings and trees but its
      licence is CC BY-NC-SA, non-commercial only. A commercial use needs LiDAR or the city's survey. There is no
      public sewer data.
+9. **Umbra spotlight stacks: PAUSED 2026-11-01**, to resume later. Test project `lasvegas_umbra`: 8 SICD of the
+   open-data stack `umbra:multi-sp-al-43-36.1n115.2w` (U05, U08, U10, 2025-02-15 → 08-03), AOI 2 × 2 km of the
+   Strip, reference 2025-08-03.
+
+   **Done.**
+   - Open-data stacks mix the Umbra satellites (incidence ±4°, look azimuth ±3°: `opendata/sources.py`).
+   - The stack reference is the central incidence (`sicd_stack.central_reference`), and scenes are kept within
+     ±3° (`MAX_INCIDENCE_DIFF_DEG`).
+   - A coarse amplitude offset runs before the residual (`coarse_offset`, engine `geoeyes-native-sicd/0.2`, part of
+     the `build_stack` fingerprint). Umbra positions are 129–208 lines (15–23 m) apart, independent of the
+     baseline, and the 256-pixel residual tiles aliased them.
+   - `ps_lite` runs on short stacks (`invert_weighted` index).
+   - Stack quality check: `processing/stack/qc.py`, the Stack tab, `geoeyes stack-qc`.
+   - USGS 3DEP lidar DSM: `[stack] dem = "lidar-3dep"`, `geometry/lidar.py`. The survey `NV_ClarkCo_2_B22` is
+     cached in `cache/dem/lidar-3dep/`.
+
+   **Findings.**
+   - After the fix the coregistration is good: offsets ≤ 0.1 px, amplitude correlation 0.49–0.57.
+   - The coherence stays 0.08–0.12, with SRTM and with the lidar DSM alike.
+   - Perpendicular baselines are 10–29 km, so the height of ambiguity is 0.22–0.77 m.
+   - `ps_lite` keeps about 1.2 M "PS" with a temporal coherence of 0.82, a false fit. Seven interferograms against a
+     dh search of ±72 m, at sub-metre ambiguity, fit any noise. Velocities spread over ±42 mm/yr with no structure.
+
+   **When resuming, in this order.**
+   - [ ] U1: interferogram of the pair with the smallest baseline difference (2025-02-20 × 2025-07-16, ΔB ≈ 2 km,
+     ambiguity ≈ 5 m). Add a "pairs" mode to the stack QC. If that pair is coherent on flat roofs and parking lots,
+     the stack is baseline-limited. If not, the phase preparation is wrong (U2, U3).
+   - [ ] U2: check the PFA geometric phase removal (`_phase`, `phase_range`, the pixel the secondary phase is
+     evaluated at) on flat ground: the phase should be flat once the lidar heights are removed.
+   - [ ] U3: common-band filtering in range (incidence spread up to 2.7° against a critical 8.4° at 800 MHz) and in
+     azimuth (squint, DeltaKCOA).
+   - [ ] U4: a temporal-coherence threshold for `ps_lite` from the noise distribution (number of interferograms ×
+     the dh search range) instead of the fixed 0.7, so that a stack with no usable phase gives no points.
+   - [ ] U5: look for Umbra or Capella stacks with small baselines (a few hundred metres) with the Stack tab, for
+     deformation work.
+   - Why the lidar did not help is still open. Candidates: layover and facades, which a DSM projection does not
+     model; 1 m DSM errors against 0.2–0.8 m of ambiguity; changes between 2022 and 2025; a phase-model error
+     (U1–U2 decide).
+   - 2026-11-02: the owner had the project `lasvegas_umbra`, its web cache and the lidar DSM cache deleted.
+     Resuming means fetching the stack and the DSM again.
+
+10. **SBAS workflow** (asked by the owner 2026-11-02, for the landslide study: small-baseline series are more
+    sensitive to slow, spatially coherent slope motion than single-reference point processing).
+
+    **Context.**
+    - `method = "sbas"` and `[network.sbas]` exist in the configuration, carried over from the old system, but no
+      code uses them. Today every method runs phase linking and the StaMPS-like point engine.
+    - The 2-D grid unwrapper exists: the refined IRLS solver (`processing/ps/unwrap/irls.py`: DCT start, weighted
+      IRLS, congruence alignment). The owner's chain already unwraps with it, and so do `learn/pair.py` (weights =
+      coherence²) and `stack/native/iono.py`.
+    - The Hanoi and HCMC stacks are kept (outputs deleted 2026-11-02) to compare SBAS with the point products.
+
+    **Status (2026-11-02, design approved by the owner).** v1 implemented: `processing/sbas/` (`network`, `pairs`,
+    `closure`, `invert`, `runner`), `[sbas]` in the schema, `method = "sbas"` runs it in the `ps` phase
+    (`controller/phases/ps.py`; its fingerprint keys only for sbas, so ps / ps_lite runs are not re-run), output
+    in the `ps_runs/<track>/` layout read unchanged by `build_product`, export and `hazard`; web app method option.
+    Tests: `tests/unit/processing/test_sbas.py` (network, exact inversion, minimum norm, closure, a synthetic
+    subsiding bowl end to end through `build_product`). Not yet: DEM-error term, atmosphere, tiling of very large
+    grids, validation on real stacks (Hanoi / HCMC / landslide pilot), the web app static build.
+
+    **Design.**
+    - [ ] S1 Network: pairs within `[network] max_perp_m` / `max_temporal_days`, plus the redundant short pairs of
+      `[network.sbas]` (each date to its neighbours within `redundant_max_days`). Connectivity check; disconnected
+      subsets are reported and bridged.
+    - [ ] S2 Interferograms on a multilooked grid (`[sbas] looks`, about 30 m for Sentinel-1: 2 × 8 looks).
+      - Source: the SLCs, or the phase-linked phases ("PL-SBAS": φᵢ − φⱼ of the linked series, with the SHP
+        coherence |Cᵢⱼ| as weight; best for distributed scatterers in forest).
+      - Goldstein filter (existing). Coherence per pair.
+    - [ ] S3 Unwrapping per interferogram with the refined IRLS solver (`irls_unwrap_weighted`, weights =
+      coherence², `enforce_congruence`), the solver the owner uses (2026-11-02). No new dependency.
+      - Tiled for large grids if memory requires.
+      - Phase-closure check on triplets to flag unwrapping errors.
+    - [ ] S4 Inversion per pixel (Berardino et al. 2002):
+      - weighted least squares of the displacement increments;
+      - SVD minimum-norm across disconnected subsets;
+      - linear velocity, DEM error;
+      - temporal coherence (Pepe & Lanari 2006) as the quality and the mask;
+      - reference area; atmosphere through `processing/atmosphere` (optional).
+    - [ ] S5 Products in the existing schema (points at the pixel centres that pass the mask, time series,
+      velocity GeoTIFF), so that `hazard` (downslope projection) and `landslide` (L3b.7, L5 / L5b) read them
+      unchanged.
+    - [ ] S6 Phase `sbas` in the controller for `method = "sbas"` (fingerprint, resume, run report), the web app
+      method choice, docs and ADR.
+    - [ ] Tests: a synthetic stack with a known deformation and noise — the network is connected, the inversion is
+      exact on wrapped-free data, closure flags an injected unwrapping error.
+    - [ ] Validation: HCMC and Hanoi stacks against their point products; the landslide pilot (track 120) against
+      PL + DA 0.6.
+
+11. **CDSE burst source (fallback of ASF), PARTIAL 2026-11-02.** ASF served HTTP 400 / 500 for a few hours on
+    2026-11-02 (its token work-around host was down). `sensors/sentinel1/cdse.py` has the CDSE token (OpenID
+    password grant, `_netrc` entry `identity.dataspace.copernicus.eu`), the burst search and download, and a
+    `probe`. Not done: the conversion of the CDSE zip to the archive layout (ASF combined XML + burst GeoTIFF; the
+    zip layout is undocumented, to be written against a downloaded sample) and the fallback in `acquire`. The CDSE
+    catalogue refuses Cloudflare WARP addresses (HTTP 403, WAF). The owner set it aside to focus on the landslide
+    study.
+12. **ASF HyP3 as an external reference, LATER (noted 2026-11-03).** HyP3 (`hyp3_sdk`, free with the Earthdata
+    login in `_netrc`) processes Sentinel-1 SLC pairs on demand (GAMMA, `submit_insar_job`, looks 10x2 or 20x4,
+    unwrapped phase, LOS / vertical displacement maps, water mask). Use: an independent check of GeoEyes on the
+    same pairs (unwrapped phase and displacement per pair, e.g. HCMC 2024, one ascending path, ~10 consecutive
+    12-day pairs; `asf_search` picks the scenes). Later, a HyP3 SBAS series (MintPy on HyP3 pairs) against the
+    GeoEyes `sbas` / `ps` velocity. Steps: (1) a small script in `tools/` or `geoeyes.validation`: search, single
+    path, submit, watch, download; (2) read the GeoTIFFs and resample onto the GeoEyes points; (3) compare per pair
+    (phase difference modulo 2π, displacement RMSE) and report. Mind the quota (credits per month) and that HyP3
+    unwraps with MCF (SNAPHU-like), not IRLS. Owner's starting script is in the session of 2026-11-03.
+13. **Automatic ramp selection (`scla_deramp = "auto"`), PLANNED 2026-11-04** ([research
+    note](../research/ramp-selection.md)). Split each interferogram ramp into a trend (linear in time) and a rest;
+    always remove the rest, remove the trend only where a stable background spans the frame, and report
+    "undetermined" otherwise. Steps D0 (offline study on 4 PS states) → D1 (pure functions + synthetic tests) → D2
+    (engine wiring, `y`/`n` bit-identical) → D3 (G3.2 Mexico + Quang Nam) → D4 (defaults); a review gate after each.
+    Status 2026-11-05: D0–D2 done (`steps/ramp.py`, `scla_deramp = "auto"` in the engine, `mexico_g3` run); D3 next.
 
 The sections below are the historical log, phase by phase.
 
@@ -115,7 +225,9 @@ The sections below are the historical log, phase by phase.
 
 - [x] Create the `src/geoeyes/` skeleton
 - [x] `geoeyes.core` (2026-10-22): `errors` (hierarchy), `types` (`OrbitDirection`, `LookSide`, `BBox`), `timeutil` (YYYYMMDD, MATLAB datenum, datetime64, decimal years), `hashing` (file/params/array, combine), `logging` (`configure`, `log_context` contextvars, JSONL + text per phase, `event`) — 7 tests
-- [ ] `geoeyes.core`: `geodesy`, `compute` (numpy/cupy, workers), `units`; QueueHandler for worker processes
+- [x] `geoeyes.core.compute` (2026-11-04, ADR-014): numpy/cupy backend per run, `[compute] backend` wired; GPU path for `topofit`, `topofit_full`, `clap_at_points` (CPU path bit-identical; stand-in GPU tests)
+- [ ] GPU ports, next: `clap_filter` (batch a row of windows), velocity high-pass, `scn_filt`, phase linking; a timing run on a machine with an NVIDIA GPU
+- [ ] `geoeyes.core`: `geodesy`, `units`, `[compute] workers`/`memory_gb` everywhere; QueueHandler for worker processes
 - [x] `geoeyes.config` (2026-10-22): `schema` (pydantic, frozen, `[ps]` keeps StaMPS names in flat form, `[ps_lite]` = `run_stack` parameters, `[legacy]` lossless), `loader` (per-sensor preset + deep merge, `resolve_subswath`, TOML round trip), presets `sentinel1/cosmo_skymed/terrasar_x/capella/alos.toml`, `migrate` (in.json+control.json → project.toml; Capella → `ps_lite`) — 12 tests, works on the real `control/mexico`
 - [x] `geoeyes.config.settings` (`GEOEYES_*` env, pydantic-settings) + JSON Schema export
 - [ ] Split the flat `[ps]` into sub-tables (`ps.weed`, `ps.unwrap`…) when writing the `ps` engine (Phase 4) — update ARCHITECTURE §14.1 accordingly

@@ -54,9 +54,11 @@ tách ra từ hai hình học sẽ tốt hơn.
 
 ### 2.3 Lún lệch
 
-Giữa hai trạm cách nhau `span_m` = 100 m, góc biến dạng sau khoảng thời gian T = `horizon_yr` = 10 năm là:
+Sau khoảng thời gian T = `horizon_yr` = 10 năm, với các trạm cách nhau `span_m` = L = 100 m, độ dốc tăng thêm (độ
+nghiêng khối cứng của tuyến) và góc biến dạng (sự thay đổi độ dốc) tại trạm x là:
 
-    β = |v(x + L) − v(x)| · T / L
+    tilt = |v(x) − v(x − L)| · T / L
+    β    = |(v(x + L) − v(x)) / L − (v(x) − v(x − L)) / L| · T
 
 β được so với các giới hạn hư hại của phân vùng (Skempton & MacDonald 1956; Bjerrum 1963):
 
@@ -67,12 +69,20 @@ Giữa hai trạm cách nhau `span_m` = 100 m, góc biến dạng sau khoảng t
 | 1/300 – 1/150 | nứt |
 | ≥ 1/150 | hư hại kết cấu |
 
+**Đã sửa trong mã (2026-11-05): β dọc tuyến nay là sự thay đổi độ dốc.** Trước đây `ml/lines.py` tính
+β = |Δv| · T / L giữa hai trạm, tức tốc độ thay đổi độ dốc dọc, mà một tuyến nghiêng đều đạt tới mà không hư hại. Nay
+`ml/lines.py::distortion` dùng sai phân bậc hai qua các trạm x − L, x, x + L (khoảng cách thực), giữ độ dốc ở cột
+`tilt`, và chỉ tính β khi |sai phân bậc hai| > `noise_k` = 2 × sai số chuẩn của nó từ trung vị các trạm (MAD của các
+PS quanh mỗi trạm, sàn `min_se_mm_yr` = 0,3 mm/năm); dưới ngưỡng, β = 0. Kết quả ở §4 được tính bằng phương pháp cũ và
+cần chạy lại. Các giới hạn vẫn là giới hạn của công trình: với đường ray, đại lượng phù hợp là cao độ dọc và độ vặn
+(EN 13848); với đê là cao trình đỉnh bị mất.
+
 Với đê, cao trình đỉnh đê mất đi sau T năm là |min v|·T. Độ cao an toàn so với lũ thiết kế giảm đúng chừng ấy.
 
 Kết quả, trong `analyses/lines/<sản phẩm>/`:
 
-- `stations.parquet`: tuyến, lý trình, vị trí, số điểm, v_đứng, β, cấp β;
-- `lines.parquet`: loại, tên, chiều dài, tỷ lệ có dữ liệu, vận tốc thấp nhất và trung vị, β lớn nhất, số trạm vượt
+- `stations.parquet`: tuyến, lý trình, vị trí, số điểm, v_đứng và sai số chuẩn của nó, tilt, β, cấp β;
+- `lines.parquet`: loại, tên, chiều dài, tỷ lệ có dữ liệu, vận tốc thấp nhất và trung vị, β và tilt lớn nhất, số trạm vượt
   ngưỡng, đỉnh đê hạ;
 - `lines.json`: tóm tắt theo loại và 20 tuyến có β lớn nhất.
 
@@ -148,6 +158,13 @@ lún:
 | Calzada Ermita Iztapalapa | đường | 1/150 | −93 mm/năm | 31 + 34 (hai chiều đường) |
 | Línea VK | đường sắt | 1/154 | −204 mm/năm | 39 |
 
+**Lưu ý (2026-11-05): β lớn nhất có thể là giả.** β = 1/127 trên 100 m và 10 năm nghĩa là Δv ≈ 79 mm/năm giữa hai
+trạm. Vận tốc thấp nhất của tuyến là −62 mm/năm, nên một trạm phải ở mức ≥ +17 mm/năm. Trong `stations.parquet` (tuyến
+276), cặp trạm này là −28,6 → **+50,3 mm/năm** ở lý trình 4,9–5,0 km (6 PS; +25,5 ở 5,05 km): nâng 50 mm/năm ở Mexico
+City là không hợp lý, nên nhiều khả năng đây là điểm ngoại lai hoặc lỗi giải chập pha trong trung vị của vài PS, trên
+chuỗi 0,5 năm được ngoại suy ra 10 năm. Ngưỡng nhiễu từ độ tản PS ở mỗi trạm nay đã có trong mã (§2.3, 2026-11-05);
+độ dài chuỗi chưa được đưa vào.
+
 Các vị trí này phù hợp với hư hại đã được ghi nhận dọc Zaragoza, Ermita Iztapalapa và trên tuyến Metro số A. Việc
 so sánh với hồ sơ hư hại là bước L4 (§6).
 
@@ -184,6 +201,8 @@ Cần kiểm tra với chuỗi dài hơn trước khi diễn giải.
   ổn định.
 - **Vận tốc tương đối.** Vận tốc là tương đối so với điểm tham chiếu của sản phẩm. Chúng chỉ là thẳng đứng khi giả
   định không có chuyển dịch ngang.
+- **β (đã sửa 2026-11-05).** β nay là sự thay đổi độ dốc, có ngưỡng nhiễu (§2.3); các bảng ở §4 có trước bản sửa.
+  Các giới hạn vẫn là giới hạn của công trình, nên với tuyến các cấp chỉ mang tính tham khảo.
 - **β mang tính cục bộ.** β giữa hai trạm cách nhau 100 m phát hiện các chỗ uốn ở thang đó. Một chỗ uốn dài, thoải
   trên nhiều km không bị đánh dấu, kể cả khi nó hạ đỉnh đê; trường hợp đó đã có đại lượng đỉnh đê hạ.
 - **Chuỗi ngắn.** Muốn nhận ra cố kết, chỗ uốn của đường cong phải nằm trong dữ liệu. Lún cuối cùng và t90 sẽ chắc
