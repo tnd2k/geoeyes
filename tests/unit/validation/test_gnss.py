@@ -45,6 +45,9 @@ def test_params():
     assert GnssParams.from_dict({"stations": ["humg"], "n_rovers": 3}).stations == ("HUMG",)
     with pytest.raises(ConfigError):
         GnssParams.from_dict({"calibration": "spline"})
+    assert GnssParams().series == "raw" and GnssParams.from_dict({"series": "scn"}).series == "scn"
+    with pytest.raises(ConfigError):
+        GnssParams.from_dict({"series": "deramped"})
 
 
 STATIONS = {"AAAA": (105.802, 21.002, -30.0), "BBBB": (105.818, 21.004, -5.0), "CCCC": (105.808, 21.016, -60.0)}
@@ -53,8 +56,14 @@ OFFSET = 7.0          # mm/yr LOS: the product's reference moves this much relat
 
 @pytest.fixture
 def product(tmp_path):
+    return _product(tmp_path, scn=False)
+
+
+def _product(tmp_path, scn: bool):
     """Points around three stations with known vertical rates; the InSAR series are relative to a reference that
-    itself moves by −OFFSET mm/yr in the line of sight (so InSAR = truth + OFFSET·t)."""
+    itself moves by −OFFSET mm/yr in the line of sight (so InSAR = truth + OFFSET·t). ``scn``: ``disp_mm`` also
+    carries a scene-wide E-W ramp that changes from epoch to epoch (no trend), and ``disp_scn_mm`` is the series
+    without it, as step 8 delivers."""
     import geopandas as gpd
 
     from geoeyes.io.points import write_points, write_timeseries
@@ -76,8 +85,49 @@ def product(tmp_path):
                            geometry=gpd.points_from_xy(lon, lat), crs="EPSG:4326")
     d = tmp_path / "products" / "p_v1"
     write_points(d / "points.parquet", gdf)
-    write_timeseries(d / "timeseries.parquet", uid, dates, disp)
+    if not scn:
+        write_timeseries(d / "timeseries.parquet", uid, dates, disp)
+        return d, los
+    ramp = rng.normal(0, 8.0, t.size)                                    # mm per km E-W, per epoch
+    ramp -= np.polyval(np.polyfit(t, ramp, 1), t)                        # no trend: the rates stay the same
+    raw = disp + ((lon - lon.mean()) * 104.0)[:, None] * ramp[None, :]   # ~104 km per degree at 21 N
+    write_timeseries(d / "timeseries.parquet", uid, dates, raw, disp_scn_mm=disp)
     return d, los
+
+
+def test_compare_scn_series_removes_the_epoch_ramp(tmp_path, offline):
+    d, _ = _product(tmp_path, scn=True)
+    scn = compare(d, tmp_path / "scn", GnssParams(series="scn"), tmp_path / "cache")
+    raw = compare(d, tmp_path / "raw", GnssParams(), tmp_path / "cache")
+    assert scn["insar_column"] == "disp_scn_mm" and raw["insar_column"] == "disp_mm"
+    for a in scn["stations"]:
+        assert a["vertical"]["rmse_detrended_mm"] < 3
+        assert a["vertical"]["rate_diff_mm_yr"] == pytest.approx(-OFFSET, abs=2.5)
+    # the stations away from the scene centre see the ramp in disp_mm
+    assert max(b["vertical"]["rmse_detrended_mm"] for b in raw["stations"]) > 5
+
+
+def test_compare_falls_back_to_raw_without_scn(product, offline, tmp_path):
+    d, _ = product
+    s = compare(d, tmp_path / "out", GnssParams(series="scn"), tmp_path / "cache")
+    assert s["insar_column"] == "disp_mm"
+    assert any("disp_scn_mm" in w for w in s["warnings"])
+    s = compare(d, tmp_path / "out2", GnssParams(), tmp_path / "cache")            # default raw: no fallback
+    assert s["insar_column"] == "disp_mm" and not any("disp_scn_mm" in w for w in s["warnings"])
+
+
+def test_corr_is_on_detrended_residuals():
+    """A shared trend with uncorrelated residuals: corr low, corr_with_trend high; shared residuals: corr high."""
+    from geoeyes.validation.gnss.compare import _stats
+    rng = np.random.default_rng(3)
+    t = np.arange(30) * 12 / 365.25
+    trend = -40.0 * t
+    s = _stats(t, trend + rng.normal(0, 2, t.size), trend + rng.normal(0, 2, t.size))
+    assert s["corr_with_trend"] > 0.9 and abs(s["corr"]) < 0.5
+    shape = 5 * np.sin(2 * np.pi * t)
+    s = _stats(t, trend + shape + rng.normal(0, 0.5, t.size), 0.5 * trend + shape + rng.normal(0, 0.5, t.size))
+    assert s["corr"] > 0.9
+    assert _stats(t, trend, trend)["corr"] is None                                     # residuals all zero
 
 
 @pytest.fixture
