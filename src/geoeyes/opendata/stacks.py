@@ -51,10 +51,11 @@ def stack_id(ref: dict, platforms: list[str]) -> str:
             f"{(ref['orbit_state'] or 'x')[0]}{(ref['look'] or 'x')[0]}-{inc}-{geo}{track}")
 
 
-def find_stacks(scenes: list[dict], *, min_scenes: int = 3, aoi=None, incidence_tol: float = 1.0,
-                azimuth_tol: float = 3.0, min_overlap: float = 0.5) -> list[dict]:
+def find_stacks(scenes: list[dict], *, min_scenes: int = 3, aoi=None, incidence_tol: float | None = None,
+                azimuth_tol: float | None = None, min_overlap: float = 0.5) -> list[dict]:
     """Candidate stacks (most dates first). ``aoi`` (w, s, e, n): only the scenes whose footprint covers it, the
-    stacks being formed (and named) from all scenes, so an id does not depend on the AOI."""
+    stacks being formed (and named) from all scenes, so an id does not depend on the AOI. Tolerances: those of each
+    source (``Source.incidence_tol`` / ``azimuth_tol``) unless given."""
     from shapely.geometry import Polygon, box
     area = box(*aoi) if aoi is not None else None
     groups: dict[tuple, list[dict]] = defaultdict(list)
@@ -63,13 +64,16 @@ def find_stacks(scenes: list[dict], *, min_scenes: int = 3, aoi=None, incidence_
         plat = r["platform"] if (src is None or src.same_platform) and not r.get("track") else ""
         groups[(r["source"], plat, r.get("track", ""), r["mode"], r["orbit_state"], r["look"])].append(r)
     out = []
-    for members in groups.values():
+    for (source, *_), members in groups.items():
+        src = SOURCES.get(source)
+        inc_tol = incidence_tol if incidence_tol is not None else (src.incidence_tol if src else 1.0)
+        az_tol = azimuth_tol if azimuth_tol is not None else (src.azimuth_tol if src else 3.0)
         members.sort(key=lambda r: r["datetime"])
         clusters: list[tuple[dict, object, list[dict]]] = []
         for r in members:
             fp = Polygon(r["footprint"])
             for ref, ref_fp, lst in clusters:
-                if _fits(ref, r, ref_fp, fp, incidence_tol, azimuth_tol, min_overlap):
+                if _fits(ref, r, ref_fp, fp, inc_tol, az_tol, min_overlap):
                     lst.append(r)
                     break
             else:
