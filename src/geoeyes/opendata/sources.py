@@ -23,7 +23,7 @@ class Source:
     sensor: str | None              # GeoEyes sensor whose reader opens the complex product; None = search only
     same_platform: bool             # repeat pass only with one satellite (no shared ground track between them)
     normalize: Callable[[dict, str], dict | None]
-    incidence_tol: float = 1.0      # stack members: incidence (deg) and look azimuth (deg) within these of the reference
+    incidence_tol: float = 1.0      # stack members: incidence and look azimuth (deg) within these of the reference
     azimuth_tol: float = 3.0
 
 
@@ -111,6 +111,6 @@ SOURCES: dict[str, Source] = {s.id: s for s in (
            ("https://umbra-open-data-catalog.s3.us-west-2.amazonaws.com/stac/catalog.json",),
            # every Umbra satellite images the same sites: stacks mix them. ~1 GHz bandwidth: the critical incidence
            # change is ~10° in X band, 4° keeps most of the range spectrum; a 0.25 m spotlight spans only ~3.5° of
-           # azimuth (λ / 2ρ), so look azimuths stay within 3° to keep a common azimuth spectrum
+           # azimuth (λ / 2 rho), so look azimuths stay within 3° to keep a common azimuth spectrum
            sensor="umbra", same_platform=False, normalize=_umbra, incidence_tol=4.0, azimuth_tol=3.0),
 )}
