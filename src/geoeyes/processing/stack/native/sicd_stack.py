@@ -29,8 +29,31 @@ from geoeyes.processing.stack.native.stripmap import residual_offset
 from geoeyes.sensors.sicd.meta import Sicd
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-native-sicd/0.1"
-MAX_INCIDENCE_DIFF_DEG = 2.0
+ENGINE = "geoeyes-native-sicd/0.2"         # /0.2: coarse offset before the residual (Umbra positions)
+# spotlight stacks mix incidences: with ~800 MHz of range bandwidth (Umbra open data) the critical incidence change in
+# X band is 2λB·tanθ/c ≈ 8°; 3° keeps ~65 % of the range spectrum, and point scatterers tolerate more than that
+MAX_INCIDENCE_DIFF_DEG = 3.0
+
+
+def incidence_deg(m: Sicd) -> float:
+    """Incidence at the scene centre point (deg)."""
+    arp = m.arp.pos(m.scp_time)
+    up = m.scp / np.linalg.norm(m.scp)
+    los = (arp - m.scp) / np.linalg.norm(arp - m.scp)
+    return float(np.degrees(np.arccos(np.dot(up, los))))
+
+
+def central_reference(incidence: dict[date, float]) -> date:
+    """The date whose incidence keeps the most scenes within ``MAX_INCIDENCE_DIFF_DEG`` (then the smallest largest
+    difference, then the date nearest the middle of the period): the median date of a spotlight stack can sit at an
+    edge of its incidences."""
+    dates = sorted(incidence)
+    mid = dates[(len(dates) - 1) // 2]
+
+    def score(d: date):
+        diff = [abs(incidence[x] - incidence[d]) for x in dates]
+        return (-sum(v <= MAX_INCIDENCE_DIFF_DEG for v in diff), max(diff), abs((d - mid).days))
+    return min(dates, key=score)
 
 
 @dataclass
@@ -136,15 +159,42 @@ def resample(sec: SicdScene, line: np.ndarray, smp: np.ndarray, *, pad: int = 8,
     return out
 
 
+COARSE_WIN = 2048              # windows of the coarse offset search: offsets up to ±1024 pixels
+
+
+def coarse_offset(ref: np.ndarray, sec: np.ndarray, *, win: int = COARSE_WIN) -> tuple[float, float, int]:
+    """Integer shift (lines, samples) of ``sec`` relative to ``ref`` from log-amplitude phase correlation on up to
+    nine large windows, before the tile-based residual. The orbits and timing of small satellites place two
+    acquisitions tens of metres apart (Umbra, Las Vegas 2025: 130-230 lines of 0.11 m, the same for baselines of
+    -26 and +29 km): far beyond the half tile of ``residual_offset``, which then aliases. Returns (dl, ds, windows
+    that agree), in the convention of ``residual_offset`` (add to the secondary's line / sample)."""
+    from skimage.registration import phase_cross_correlation
+    ny, nx = ref.shape
+    w0, w1 = min(win, ny), min(win, nx)
+    shifts = []
+    for fy in (0.25, 0.5, 0.75):
+        for fx in (0.25, 0.5, 0.75):
+            r0 = int(np.clip(fy * ny - w0 / 2, 0, ny - w0))
+            c0 = int(np.clip(fx * nx - w1 / 2, 0, nx - w1))
+            a, b = ref[r0:r0 + w0, c0:c0 + w1], sec[r0:r0 + w0, c0:c0 + w1]
+            if (b == 0).mean() > 0.2:
+                continue
+            s, err, _ = phase_cross_correlation(np.log1p(np.abs(a)), np.log1p(np.abs(b)), normalization=None)
+            if err < 0.97:
+                shifts.append(s)
+    if not shifts:
+        return 0.0, 0.0, 0
+    s = np.median(np.asarray(shifts), axis=0)
+    agree = int(np.sum(np.all(np.abs(np.asarray(shifts) - s) <= 3, axis=1)))
+    if agree < max(2, len(shifts) // 2):
+        return 0.0, 0.0, agree
+    return float(-s[0]), float(-s[1]), agree
+
+
 def check_geometry(scenes: dict[date, SicdScene], reference: date) -> tuple[dict[date, SicdScene], list[str]]:
     """Same side of track and pass, incidence at the SCP within ``MAX_INCIDENCE_DIFF_DEG`` of the reference."""
     r = scenes[reference].meta
-
-    def inc(m: Sicd) -> float:
-        arp = m.arp.pos(m.scp_time)
-        up = m.scp / np.linalg.norm(m.scp)
-        los = (arp - m.scp) / np.linalg.norm(arp - m.scp)
-        return float(np.degrees(np.arccos(np.dot(up, los))))
+    inc = incidence_deg
 
     kept, rejected = {}, []
     for d, sc in scenes.items():
@@ -233,8 +283,13 @@ def build_sicd_stack(scenes: dict[date, SicdScene], reference: date, dem: Dem, o
             line = geo.spline(col_s)(ll, ss)
             smp = geo.spline(row_s)(ll, ss)
             geom = geo.spline(phi_sec - phi_ref)(ll, ss)
-            dl = ds = 0.0
             res = resample(sc, line, smp)
+            dl, ds, n_win = coarse_offset(ref_slc, res)
+            if n_win < 2:
+                log.warning("%s: no coarse offset found (%d window(s) agree): geometric coregistration only", d, n_win)
+            elif dl or ds:
+                log.info("%s: coarse offset %+.0f lines, %+.0f samples (%d windows)", d, dl, ds, n_win)
+                res = resample(sc, line + dl, smp + ds)
             n_tiles = 0
             for _ in range(max_residual_iter):
                 a, b, n_tiles = residual_offset(ref_slc, res)

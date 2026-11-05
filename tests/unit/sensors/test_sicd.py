@@ -105,3 +105,38 @@ def test_unsupported_grid_is_refused():
     xml = XML.read_text(encoding="utf-8").replace("<Type>RGAZIM</Type>", "<Type>PLANE</Type>")
     with pytest.raises(SensorError):
         sm.parse(xml)
+
+
+def test_central_reference_keeps_the_most_scenes():
+    """The Las Vegas Umbra stack: the median date (2025-03-07) has the lowest incidence and would leave four scenes
+    out; the central incidence keeps all eight."""
+    from datetime import date
+
+    from geoeyes.processing.stack.native.sicd_stack import MAX_INCIDENCE_DIFF_DEG, central_reference
+    inc = {date(2025, 2, 15): 42.92, date(2025, 2, 20): 41.25, date(2025, 3, 4): 43.99, date(2025, 3, 7): 39.34,
+           date(2025, 5, 5): 43.48, date(2025, 5, 10): 40.39, date(2025, 7, 16): 40.87, date(2025, 8, 3): 42.01}
+    r = central_reference(inc)
+    assert all(abs(v - inc[r]) <= MAX_INCIDENCE_DIFF_DEG for v in inc.values())
+    assert r == date(2025, 8, 3)
+
+
+def test_coarse_offset_finds_a_shift_beyond_the_residual_tiles():
+    """Two speckled scenes of one urban grid, the secondary 223 lines and 7 samples away (Umbra positions differ by
+    tens of metres): the coarse search finds the shift that the 256-pixel residual tiles alias."""
+    import numpy as np
+
+    from geoeyes.processing.stack.native.sicd_stack import coarse_offset
+    rng = np.random.default_rng(3)
+    ny, nx = 3000, 2600
+    scene = np.zeros((ny + 400, nx + 40))
+    for _ in range(4000):                                       # bright blocks (buildings) over clutter
+        r, c = rng.integers(0, ny + 380), rng.integers(0, nx + 20)
+        scene[r:r + rng.integers(4, 20), c:c + rng.integers(4, 20)] += rng.uniform(5, 30)
+    scene += 1.0
+
+    def look(r0, c0):
+        a = scene[r0:r0 + ny, c0:c0 + nx]
+        return (np.sqrt(a) * (rng.normal(size=a.shape) + 1j * rng.normal(size=a.shape))).astype(np.complex64)
+    ref, sec = look(100, 20), look(100 + 223, 20 + 7)            # sec pixel (i, j) = ref pixel (i + 223, j + 7)
+    dl, ds, n = coarse_offset(ref, sec)
+    assert n >= 5 and (dl, ds) == (-223.0, -7.0)               # sample the secondary at line - 223, sample - 7

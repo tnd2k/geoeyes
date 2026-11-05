@@ -252,17 +252,98 @@ def load_copernicus30(south: float, north: float, west: float, east: float, cach
                "EGM2008", "Copernicus GLO-30")
 
 
+AW3D30_URL = "https://ai4edataeuwest.blob.core.windows.net/alos-dem/AW3D30_global/"
+AW3D30_TOKEN = "https://planetarycomputer.microsoft.com/api/sas/v1/token/alos-dem"
+
+
+def load_aw3d30(south: float, north: float, west: float, east: float, cache: Path) -> Dem:
+    """JAXA ALOS World 3D-30m (AW3D30, PRISM stereo 2006–2011, EGM96 heights), from the Microsoft Planetary Computer
+    copy (anonymous SAS token): tiles downloaded once into ``cache``; voids NaN."""
+    import json
+    import urllib.request
+
+    import rasterio
+    from rasterio.merge import merge
+    cache = Path(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    files, token = [], None
+    for la in range(int(np.floor(south)), int(np.floor(north)) + 1):
+        for lo in range(int(np.floor(west)), int(np.floor(east)) + 1):
+            name = f"ALPSMLC30_{'N' if la >= 0 else 'S'}{abs(la):03d}{'E' if lo >= 0 else 'W'}{abs(lo):03d}_DSM.tif"
+            dest = cache / name
+            if not dest.exists():
+                if token is None:
+                    with urllib.request.urlopen(AW3D30_TOKEN, timeout=60) as r:
+                        token = json.load(r)["token"]
+                if not _download(f"{AW3D30_URL}{name}?{token}", dest):
+                    continue
+            files.append(dest)
+    if not files:
+        raise DataError(f"no AW3D30 tile over {south}..{north}, {west}..{east}")
+    srcs = [rasterio.open(f) for f in files]
+    try:
+        step = min(abs(s.transform.a) for s in srcs)
+        mosaic, transform = merge(srcs, bounds=(west - 0.01, south - 0.01, east + 0.01, north + 0.01),
+                                  res=(step, step), nodata=-9999, resampling=rasterio.enums.Resampling.bilinear)
+    finally:
+        for s in srcs:
+            s.close()
+    h = mosaic[0].astype(np.float32)
+    h[h <= -9000] = np.nan
+    return Dem(h, transform.f + transform.e / 2, transform.c + transform.a / 2, -transform.e, transform.a,
+               "EGM96", "JAXA AW3D30")
+
+
+@dataclass
+class CompositeDem(Dem):
+    """A fine DEM over the area of interest inside a coarser one: the fine heights where it has them, the coarse
+    ones around (lidar DSM inside Copernicus GLO-30)."""
+
+    fine: Dem | None = None
+
+    def orthometric(self, lat, lon, order: int = 1) -> np.ndarray:
+        coarse = super().orthometric(lat, lon, order)
+        if self.fine is None:
+            return coarse
+        h = self.fine.orthometric(lat, lon, order)
+        return np.where(np.isfinite(h), h, coarse)
+
+
+LIDAR_MARGIN_DEG = 0.005             # ~500 m of lidar DSM around the area of interest
+
+
+def load_lidar(south: float, north: float, west: float, east: float, cache: Path,
+               focus: tuple[float, float, float, float] | None = None) -> Dem:
+    """USGS 3DEP lidar top surface (``geometry.lidar``) over ``focus`` (south, north, west, east; default the box)
+    plus a margin, inside Copernicus GLO-30 over the box."""
+    from geoeyes.geometry.lidar import lidar_dsm
+    s, n, w, e = focus or (south, north, west, east)
+    m = LIDAR_MARGIN_DEG
+    tif = lidar_dsm((w - m, s - m, e + m, n + m), Path(cache) / "lidar-3dep")
+    fine = load_geotiff(tif, "EGM96")
+    base = load_copernicus30(south, north, west, east, Path(cache) / "copernicus-30")
+    import rasterio
+    with rasterio.open(tif) as ds:
+        label = ds.tags().get("source", "USGS 3DEP lidar")
+    return CompositeDem(base.height, base.lat0, base.lon0, base.dlat, base.dlon, base.datum,
+                        f"{label} inside Copernicus GLO-30", fine=fine)
+
+
 def load_dem(source: str | Path | None, south: float, north: float, west: float, east: float,
-             datum: str | None = None, cache: Path | None = None) -> Dem:
+             datum: str | None = None, cache: Path | None = None,
+             focus: tuple[float, float, float, float] | None = None) -> Dem:
     """``source``: None/'' or ``srtm-1`` -> SNAP's SRTM 1" cache (missing tiles downloaded); ``copernicus-30`` ->
-    Copernicus GLO-30 (downloaded into ``cache``, default ``<workspace>/cache/dem``); a folder -> SRTM tiles
-    there; a file -> GeoTIFF."""
+    Copernicus GLO-30 (downloaded into ``cache``, default ``<workspace>/cache/dem``); ``lidar-3dep`` -> a USGS 3DEP
+    lidar DSM over ``focus`` (south, north, west, east: the AOI) inside GLO-30; a folder -> SRTM tiles there; a
+    file -> GeoTIFF."""
     if not source or source == "srtm-1":
         return load_srtm1(south, north, west, east)
-    if source == "copernicus-30":
+    if source in ("copernicus-30", "lidar-3dep"):
         if cache is None:
             from geoeyes.config.settings import load_settings
             cache = load_settings().workspace_layout().cache_dir("dem")
+        if source == "lidar-3dep":
+            return load_lidar(south, north, west, east, Path(cache), focus)
         return load_copernicus30(south, north, west, east, Path(cache) / "copernicus-30")
     p = Path(source)
     if p.is_dir():
