@@ -536,8 +536,8 @@ def recommendations(hot: list[dict], imp: dict, conf: dict, a: dict) -> list[dic
                     "why": f"{ln['flagged']} place(s) settle unevenly beyond 1/500"})
     bd = imp["buildings"]
     if bd.get("assessed") and bd.get("beta_over_1_500"):
-        out.append({"text": "Inspect the buildings whose angular distortion reaches 1/500 in 10 years (list in the building "
-                            "analysis).", "why": f"{bd['beta_over_1_500']} building(s)"})
+        out.append({"text": "Inspect the buildings whose angular distortion reaches 1/500 in 10 years (list in the "
+                            "building analysis).", "why": f"{bd['beta_over_1_500']} building(s)"})
     if conf["level"] != "high":
         out.append({"text": "Treat the rates as indicative until the points under 'How sure are we' are cleared; "
                             "check them against levelling or a GNSS station before a decision.",

@@ -254,7 +254,7 @@ def cmd_stack_qc(args) -> int:
         print("no stack yet: run build_stack first", file=sys.stderr)
         return 1
     for sid in ids:
-        s = stack_qc(project.stack_store(sid), progress=lambda m: print(f"{sid}: {m}", flush=True))
+        s = stack_qc(project.stack_store(sid), progress=lambda m, sid=sid: print(f"{sid}: {m}", flush=True))
         for r in s["dates"]:
             if r["reference"]:
                 print(f"  {r['date']}  reference")
