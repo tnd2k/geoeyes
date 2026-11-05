@@ -46,7 +46,14 @@ def classes(vel: np.ndarray) -> list[dict]:
             for a, b, rgb, k in zip(lowers, uppers, jet_r(len(uppers)), counts, strict=True)]
 
 
-def _build(product: Path, out: Path) -> None:
+def calibration_sig(calib: dict | None) -> str | None:
+    if not calib:
+        return None
+    import hashlib
+    return hashlib.sha1(json.dumps(calib, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _build(product: Path, out: Path, calib: dict | None = None) -> None:
     names = set(pq.read_schema(product / "points.parquet").names)
     geo = [c for c in ("heading_deg", "los_e", "los_n") if c in names]
     pts = pq.read_table(product / "points.parquet", columns=["point_uid", "lon", "lat", "vel_los_mm_yr", *ATTRS, *geo])
@@ -54,16 +61,26 @@ def _build(product: Path, out: Path) -> None:
     lat = pts["lat"].to_numpy().astype(np.float64)
     vel = pts["vel_los_mm_yr"].to_numpy().astype(np.float32)
     n = len(lon)
-    lon0, lat0 = float(np.round(np.median(lon), 4)), float(np.round(np.median(lat), 4))
-    out.mkdir(parents=True, exist_ok=True)
-    np.column_stack([lon - lon0, lat - lat0, vel]).astype(np.float32).tofile(out / "points.bin")
-    np.savez(out / "attrs.npz", lon=lon, lat=lat, vel=vel,
-             **{a: pts[a].to_numpy().astype(np.float32) for a in ATTRS})
 
     # timeseries.parquet: long format sorted by (point_uid, date), every point at every date
     has_scn = "disp_scn_mm" in pq.read_schema(product / "timeseries.parquet").names
     dates, series = timeseries_arrays(product / "timeseries.parquet", pts["point_uid"].to_numpy(zero_copy_only=False),
                                       ("disp_mm", "disp_scn_mm") if has_scn else ("disp_mm",))
+    if calib:
+        # calibrated view (GNSS, or a tie to another product): the correction added to every series and its rate
+        # to the velocity; the product files stay as they are
+        from geoeyes.validation.gnss import correction
+        corr = correction(calib, dates, lon, lat).astype(np.float32)
+        t = (dates - dates[0]).astype(np.float64) / 365.2425
+        tc = t - t.mean()
+        vel = (vel + (corr.astype(np.float64) @ tc) / float(tc @ tc)).astype(np.float32) if t.size > 1 else vel
+        for k in series:
+            series[k] = series[k] + corr
+    lon0, lat0 = float(np.round(np.median(lon), 4)), float(np.round(np.median(lat), 4))
+    out.mkdir(parents=True, exist_ok=True)
+    np.column_stack([lon - lon0, lat - lat0, vel]).astype(np.float32).tofile(out / "points.bin")
+    np.savez(out / "attrs.npz", lon=lon, lat=lat, vel=vel,
+             **{a: pts[a].to_numpy().astype(np.float32) for a in ATTRS})
     np.save(out / "ts.npy", zero_reference(series["disp_mm"]))
     if has_scn:
         np.save(out / "ts_scn.npy", zero_reference(series["disp_scn_mm"]))
@@ -85,23 +102,36 @@ def _build(product: Path, out: Path) -> None:
             "marker_m": marker_size_m(lon, lat),
             "bounds": [float(np.nanmin(lon)), float(np.nanmin(lat)), float(np.nanmax(lon)), float(np.nanmax(lat))],
             "dates": [str(d) for d in dates], "vel_min": float(np.nanmin(vel)), "vel_max": float(np.nanmax(vel)),
-            "classes": cls, "attrs": list(ATTRS), "has_scn": has_scn}
+            "classes": cls, "attrs": list(ATTRS), "has_scn": has_scn,
+            "calibration_sig": calibration_sig(calib), "calibration": calibration_brief(calib)}
     (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
-def ensure(product: Path, cache_root: Path) -> Path:
-    """The cache folder of a product, built on first use."""
-    out = cache_root / product.name
+def calibration_brief(calib: dict | None) -> dict | None:
+    """What the web app shows of a calibration (layer panel, legend)."""
+    if not calib:
+        return None
+    return {k: calib.get(k) for k in ("source", "kind", "los_mode", "rate_offset_mm_yr", "stations",
+                                      "reference_product", "reference_calibration", "loo_rms_after_mm_yr")}
+
+
+def ensure(product: Path, cache_root: Path, calib: dict | None = None) -> Path:
+    """The cache folder of a product, built on first use; with ``calib`` (``validation.tie.active_calibration``),
+    the calibrated one (``<product_id>@cal``), rebuilt when the calibration changes."""
+    out = cache_root / (product.name + ("@cal" if calib else ""))
     src = product / "points.parquet"
     if not src.exists():
         raise StoreError(f"{product.name}: no points.parquet")
-    with _lock(product.name):
+    sig = calibration_sig(calib)
+    with _lock(out.name):
         meta = out / "meta.json"
-        fresh = (meta.exists() and meta.stat().st_mtime >= src.stat().st_mtime
-                 and json.loads(meta.read_text(encoding="utf-8")).get("version") == CACHE_VERSION)
+        fresh = False
+        if meta.exists() and meta.stat().st_mtime >= src.stat().st_mtime:
+            m = json.loads(meta.read_text(encoding="utf-8"))
+            fresh = m.get("version") == CACHE_VERSION and m.get("calibration_sig") == sig
         if not fresh:
             meta.unlink(missing_ok=True)
-            _build(product, out)
+            _build(product, out, calib)
             _arrays.cache_clear()
     return out
 

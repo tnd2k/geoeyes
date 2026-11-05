@@ -42,4 +42,37 @@ export const OPENDATA: Record<string, string> = {
     "Hãy chọn công trình trên đất liền (nhà, đường, cầu cảng): mặt nước và bãi container thay đổi giữa các ngày chụp nên mất tương quan.",
   "Process this stack": "Xử lý chồng ảnh này",
   "open-data stack": "chồng ảnh dữ liệu mở",
+  // Source Cooperative
+  "{n} open products": "{n} sản phẩm dữ liệu mở",
+  "flood, population, building height, rainfall…": "lũ, dân số, chiều cao nhà, mưa…",
+  "Search the catalog": "Tìm trong danh mục",
+  "Only the layers GeoEyes reads": "Chỉ các lớp GeoEyes đọc được",
+  "{n} result(s)": "{n} kết quả",
+  "GeoEyes reads the Source Cooperative catalog (a few seconds).": "GeoEyes đang đọc danh mục Source Cooperative (vài giây).",
+  "No product matches these words.": "Không có sản phẩm nào khớp các từ này.",
+  "read by GeoEyes": "GeoEyes đọc được",
+  more: "thêm",
+  less: "bớt",
+  Copied: "Đã chép",
+  "Copy data URL": "Chép địa chỉ dữ liệu",
+  "Layers GeoEyes reads": "Các lớp GeoEyes đọc",
+  "Only the project area is read (cloud-optimized files), then kept in the workspace cache.":
+    "Chỉ đọc phần vùng dự án (tệp tối ưu cho đám mây), rồi giữ trong bộ đệm của workspace.",
+  Flood: "Lũ",
+  Exposure: "Phơi nhiễm",
+  "Use them": "Cách dùng",
+  "Risk to buildings: heights missing in Overture are taken from GlobalBuildingAtlas.":
+    "Rủi ro công trình: chiều cao nhà Overture còn thiếu được lấy từ GlobalBuildingAtlas.",
+  "Exposure of a product: people and buildings per subsidence class, and in the flood of a month:":
+    "Phơi nhiễm của một sản phẩm: số dân và số nhà theo cấp lún, và trong vùng ngập của một tháng:",
+  "One layer over an area:": "Một lớp trên một vùng:",
+  "water of a month against a dry-season month: the flooded area of an event (Yagi, 2024-09)":
+    "mặt nước của một tháng so với một tháng mùa khô: vùng ngập của một trận lũ (Yagi, 2024-09)",
+  "modelled river flood depth by return period: the scenarios of the flood hazard":
+    "độ sâu ngập lũ sông mô phỏng theo chu kỳ lặp: các kịch bản nguy cơ lũ",
+  "daily rainfall of an event over the AOI (the CHC server throttles; this mirror does not)":
+    "mưa ngày của một trận trên vùng nghiên cứu (máy chủ CHC hạn chế truy cập; bản sao này thì không)",
+  "residents in the subsiding cells and in the flooded area": "số dân trong các ô đang lún và trong vùng ngập",
+  "a height for the buildings Overture leaves without one (floors of the risk exposure)":
+    "chiều cao cho các nhà Overture không có (số tầng trong lớp phơi nhiễm của rủi ro)",
 };

@@ -1,6 +1,7 @@
 // Messages written by the server (geoeyes.hazard, geoeyes.validation.gnss, the controller): exact texts and
 // patterns ($1, $2 ... keep the values of the English message).
 export const SERVER: Record<string, string> = {
+  "radar geometry: rows = lines (azimuth), columns = samples (range)": "hình học radar: hàng = dòng (azimuth), cột = mẫu (range)",
   "no building analysis: hazards from the cells only": "chưa có phân tích công trình: nguy cơ chỉ lấy từ các ô",
   "scene mean": "trung bình toàn cảnh",
   "rainfall: the hazard analysis": "lượng mưa: lấy từ phân tích nguy cơ",
@@ -26,9 +27,18 @@ export const SERVER: Record<string, string> = {
   "ERA5 reanalysis daily precipitation (ECMWF / Copernicus), via the Open-Meteo archive API":
     "Lượng mưa ngày tái phân tích ERA5 (ECMWF / Copernicus), qua API lưu trữ Open-Meteo",
   "CHIRPS v3.0 monthly (Climate Hazards Center, UC Santa Barbara)": "CHIRPS v3.0 theo tháng (Climate Hazards Center, UC Santa Barbara)",
+  "a product cannot be tied to itself": "không thể nối một sản phẩm với chính nó",
 };
 
 export const SERVER_PATTERNS: [RegExp, string][] = [
+  [/^the two products agree poorly over the common cells \(correlation ([\d.-]+)\): the tie is uncertain$/,
+    "hai sản phẩm khớp kém trên các ô chung (tương quan $1): phép nối không chắc chắn"],
+  [/^gain ([\d.-]+) between the products: the periods or the geometries differ \(horizontal motion, seasonal rate\); only the offset is corrected$/,
+    "hệ số $1 giữa hai sản phẩm: thời kỳ hoặc hình học khác nhau (chuyển động ngang, tốc độ theo mùa); chỉ hiệu chỉnh độ lệch"],
+  [/^(\S+) covers (\S+)\.\.(\S+), not the whole target period (\S+)\.\.(\S+): its rate is taken over the overlap only$/,
+    "$1 phủ $2..$3, không hết thời kỳ của sản phẩm đích $4..$5: tốc độ chỉ tính trên phần chồng nhau"],
+  [/^(\S+): no calibration \(GNSS comparison or tie to another product\)$/, "$1: chưa có hiệu chỉnh (so sánh GNSS hoặc nối với sản phẩm khác)"],
+  [/^(\d+) common ([\d.]+) m cells between the two products \(at least 10 needed\)$/, "$1 ô $2 m chung giữa hai sản phẩm (cần ít nhất 10)"],
   [/^(\d+) cells change on (\S+): a change shared by so many cells points to that acquisition \(atmosphere, unwrapping\) rather than to the ground; check it before reading them as onsets$/,
     "$1 ô cùng thay đổi vào ngày $2: một thay đổi chung cho nhiều ô như vậy thường do lần chụp đó (khí quyển, giải chập pha) chứ không phải mặt đất; hãy kiểm tra trước khi coi là khởi phát"],
   [/^heights known for (\d+)% of the buildings: the others count ([\d.]+) floors$/,

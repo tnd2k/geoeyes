@@ -7,6 +7,7 @@ import uPlot from "uplot";
 import { api, type GnssSeries, type GnssStation } from "../api";
 import { t, ts } from "../i18n";
 import { useWarnings } from "../notify";
+import { Calibration } from "./Calibration";
 import { Button, Chip, fmt, Panel } from "../ui";
 import { themeColor } from "../theme";
 
@@ -93,7 +94,7 @@ function Stats({ st, mode }: { st: GnssStation; mode: Mode }) {
         [t("vs MIDAS"), v.rate_diff_midas_mm_yr != null ? `${fmt.vel(v.rate_diff_midas_mm_yr)} mm/yr` : "–"],
         ["RMSE", `${fmt.num(v.rmse_mm)} mm`],
         [t("RMSE, trend removed"), `${fmt.num(v.rmse_detrended_mm)} mm`],
-        [t("Correlation"), fmt.num(v.corr, 2)],
+        [t("Correlation, trend removed"), fmt.num(v.corr, 2)],
         [t("Epochs"), String(v.n_epochs)],
       ].map(([k, x]) => (
         <div key={k} className="contents">
@@ -312,6 +313,7 @@ export function Gnss({ name }: { name: string }) {
           )}
         </>
       )}
+      {product && <Calibration name={name} product={product} />}
     </div>
   );
 }

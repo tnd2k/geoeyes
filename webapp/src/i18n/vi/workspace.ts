@@ -74,6 +74,7 @@ export const WORKSPACE: Record<string, string> = {
   "psi — persistent scatterers": "psi — điểm tán xạ bền vững",
   "psds — PS + distributed scatterers": "psds — PS + điểm tán xạ phân bố",
   "ps_lite — fast PS (Capella)": "ps_lite — PS nhanh (Capella)",
+  "sbas — small baselines, multilooked (slow slope motion)": "sbas — đường đáy ngắn, đa nhìn (chuyển dịch sườn chậm)",
   Sensor: "Cảm biến",
   "Sentinel-1 (downloaded from ASF)": "Sentinel-1 (tải từ ASF)",
   "Area of interest": "Vùng quan tâm",

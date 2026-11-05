@@ -149,7 +149,10 @@ export const EXPLORER: Record<string, string> = {
   displacement: "chuyển dịch",
   // 3D view
   Relief: "Độ nổi",
-  "Terrain in 3D, the points on it; right-drag or Ctrl+drag to tilt and turn": "Địa hình 3D, các điểm nằm trên đó; kéo chuột phải hoặc Ctrl+kéo để nghiêng và xoay",
+  "Terrain in 3D, the points on it; right-drag, Ctrl+drag or the compass to tilt and turn": "Địa hình 3D, các điểm nằm trên đó; kéo chuột phải, Ctrl+kéo hoặc kéo la bàn để nghiêng và xoay",
+  "Turn left 45°": "Xoay trái 45°",
+  "Turn right 45°": "Xoay phải 45°",
+  "North up": "Hướng Bắc lên trên",
   "Terrain: Mapzen Terrain Tiles, AWS Open Data": "Địa hình: Mapzen Terrain Tiles, AWS Open Data",
   // time-lapse
   "Time-lapse": "Diễn biến",
@@ -256,4 +259,7 @@ export const EXPLORER: Record<string, string> = {
   "Rain: {rain}. Tide: {tide}, off the river mouth ({lat}, {lon}). Updated {at}.":
     "Mưa: {rain}. Triều: {tide}, ngoài cửa sông ({lat}, {lon}). Cập nhật {at}.",
   "colour the spots by today's risk (else by cause)": "tô màu các vị trí theo nguy cơ hôm nay (nếu không thì theo nguyên nhân)",
+  "Velocities and series with the calibration added (the product files are unchanged); points only": "Vận tốc và chuỗi thời gian đã cộng hiệu chỉnh (tệp sản phẩm không đổi); chỉ ở chế độ điểm",
+  "Calibrated": "Đã hiệu chỉnh",
+  "Calibrated velocities": "Vận tốc đã hiệu chỉnh",
 };

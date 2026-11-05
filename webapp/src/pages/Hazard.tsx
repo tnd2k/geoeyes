@@ -6,7 +6,7 @@ import { LineLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from "@deck
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
-import { api, type BehaviourCell, type AnalysisKind, type BehaviourStatus, type BehaviourSummary, type ConsolidationCell, type ConsolidationSummary, type DecomposeSummary, type GeologySummary, type HazardCell, type HazardCellsMeta, type HazardSummary, type LineProfile, type LinesSummary, type RiskBuilding, type RiskSummary, type Workspace } from "../api";
+import { api, type BehaviourCell, type AnalysisKind, type BehaviourStatus, type BehaviourSummary, type AnalysisStatus, type ExposureSummary, type ConsolidationCell, type ConsolidationSummary, type DecomposeSummary, type GeologySummary, type HazardCell, type HazardCellsMeta, type HazardSummary, type LineProfile, type LinesSummary, type RiskBuilding, type RiskSummary, type Workspace } from "../api";
 import type { LegendSpec } from "../legend";
 import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
 import { addTheme, composeTheme, type ThemeKind } from "../components/ThemeLayers";
@@ -40,7 +40,7 @@ export const DEFAULT_MATRIX = [
   [3, 3, 4, 4],
 ];
 
-export type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "groundwater" | "mode" | "behaviour" | "change" | "risk" | "lines" | "consolidation" | "up" | "east" | "soft_soil";
+export type View = "hazard" | "intensity" | "secondary" | "rate" | "coupling" | "lag" | "groundwater" | "mode" | "behaviour" | "change" | "risk" | "lines" | "consolidation" | "up" | "east" | "soft_soil" | "exposure";
 interface ViewInfo {
   id: View;
   label: string;
@@ -145,6 +145,16 @@ export const VIEWS: ViewInfo[] = [
     ],
   },
   {
+    id: "exposure",
+    label: "People and buildings exposed",
+    what: "Population cells of about 90 m (GHS-POP 2025): their sinking class from the product's points, how many people live there, and with a flood month or a river-flood scenario, the share of the cell under water.",
+    read: [
+      "Colour: the sinking class of the cell; the stronger the colour, the more people live in it. Grey: no point in the cell (not observed).",
+      "Switch to the flood of the month (blue: share of the cell flooded) or to the river-flood scenario (GloFAS depth).",
+      "Global Surface Water is a monthly optical composite: cloud and short urban floods escape it. GloFAS ignores the dykes: an upper bound in a diked delta.",
+    ],
+  },
+  {
     id: "lines",
     label: "Infrastructure lines",
     what: "Dykes, railways and main roads from OpenStreetMap, with the differential settlement along them: between stations 100 m apart, the angular distortion it would cause in 10 years.",
@@ -206,7 +216,7 @@ const VIEW_GROUPS: [string, View[]][] = [
   ["Zoning", ["hazard"]],
   ["Components", ["intensity", "secondary", "rate", "mode"]],
   ["Water drivers", ["coupling", "lag", "groundwater"]],
-  ["Kinds of motion and risk", ["behaviour", "change", "risk"]],
+  ["Kinds of motion and risk", ["behaviour", "change", "risk", "exposure"]],
   ["Infrastructure and consolidation", ["lines", "consolidation"]],
   ["Two geometries and soft soil", ["up", "east", "soft_soil"]],
 ];
@@ -346,6 +356,7 @@ export function cellColor(c: Cells, i: number, view: View, b?: Behaviour, cons?:
     case "lines":
     case "up":
     case "east":
+    case "exposure":
       col = NA_RGB; // the buildings / lines carry the colours; the cells stay as a faint background
       a = 45;
       break;
@@ -428,7 +439,7 @@ function Swatches({ items }: { items: { color: RGB; label: string; alpha?: numbe
 /** The legend of a view of the zoning as data (the page and the map export draw it); null: the view has its own
  * legend (behaviour, buildings, lines...). */
 export function hazardLegendSpec(view: View, s: HazardSummary): LegendSpec | null {
-  if (view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil") return null; // BehaviourLegend
+  if (view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil" || view === "exposure") return null; // BehaviourLegend
   const title = t(VIEWS.find((x) => x.id === view)?.label ?? view);
   const p = s.params as Record<string, number[] | number>;
   const sb = p.subsidence_breaks as number[];
@@ -671,15 +682,20 @@ function BehaviourLegend({
   first,
   last,
   onRun,
+  expMode,
+  setExpMode,
 }: {
   view: View;
   st: BehaviourStatus | undefined;
   first?: string;
   last?: string;
-  onRun: (kind: AnalysisKind) => void;
+  onRun: (kind: AnalysisKind, params?: Record<string, unknown>) => void;
+  expMode: ExpMode;
+  setExpMode: (m: ExpMode) => void;
 }) {
   const kind = KIND_OF_VIEW[view] ?? "behaviour";
   const a = st?.[kind];
+  if (view === "exposure") return <ExposureLegend a={st?.exposure} mode={expMode} setMode={setExpMode} onRun={onRun} />;
   if (!a?.summary)
     return (
       <div className="mt-2 space-y-2 text-[12px] leading-snug text-muted">
@@ -793,9 +809,205 @@ function BehaviourLegend({
   );
 }
 
+// ------------------------------------------------------------ exposure (geoeyes exposure)
+type ExpMode = "subsidence" | "flood" | "glofas";
+const EXP_RGB: RGB[] = [[150, 160, 178], RATE_RGB[4], RATE_RGB[5], RATE_RGB[6], [110, 10, 30]];
+const FLOOD_RGB: RGB[] = [[198, 219, 239], [107, 174, 214], [33, 113, 181], [8, 48, 107]];
+const EXP_F = { lon: 0, lat: 1, people: 2, points: 3, v: 4, cls: 5, flooded: 6, depth: 7 } as const;
+const FLOOD_BREAKS = { flood: [0.1, 0.3, 0.6], glofas: [0.5, 1, 2] } as const;
+const FLOOD_LABELS = { flood: ["< 10 %", "10–30 %", "30–60 %", "≥ 60 %"], glofas: ["< 0.5 m", "0.5–1 m", "1–2 m", "≥ 2 m"] } as const;
+// opacity of a cell: [sparse, dense] (alpha 0-255); the colour strengthens with the people living in the cell
+const EXP_ALPHA = { dry: [25, 25], unseen: [20, 80], stable: [30, 110], sinking: [90, 250], flooded: [90, 240] } as const;
+const alphaOf = (k: keyof typeof EXP_ALPHA, dense: number) => Math.round(EXP_ALPHA[k][0] + (EXP_ALPHA[k][1] - EXP_ALPHA[k][0]) * dense);
+
+function expColor(buf: Float32Array, i: number, mode: ExpMode): [number, number, number, number] {
+  const g = (k: keyof typeof EXP_F) => buf[i * 8 + EXP_F[k]];
+  const dense = Math.min(1, Math.sqrt(Math.max(0, g("people")) / 400)); // ~ 50 000 people / km² at full colour
+  if (mode === "flood" || mode === "glofas") {
+    const v = mode === "flood" ? g("flooded") : g("depth");
+    if (!Number.isFinite(v) || v <= 0) return [NA_RGB[0], NA_RGB[1], NA_RGB[2], alphaOf("dry", dense)];
+    const c = FLOOD_RGB[bin(v, [...FLOOD_BREAKS[mode]])];
+    return [c[0], c[1], c[2], alphaOf("flooded", dense)];
+  }
+  const k = g("cls");
+  if (k < 0) return [NA_RGB[0], NA_RGB[1], NA_RGB[2], alphaOf("unseen", dense)];
+  const c = EXP_RGB[k];
+  return [c[0], c[1], c[2], alphaOf(k === 0 ? "stable" : "sinking", dense)];
+}
+
+/** A legend swatch as a dense cell looks on the map, over the panel. */
+function ExpSwatch({ c, alpha }: { c: RGB; alpha: number }) {
+  return <span className="h-3 w-3 flex-none rounded-[3px] border border-line" style={{ background: rgb(c, alpha / 255) }} />;
+}
+
+function ExposureLegend({
+  a,
+  mode,
+  setMode,
+  onRun,
+}: {
+  a?: AnalysisStatus<ExposureSummary>;
+  mode: ExpMode;
+  setMode: (m: ExpMode) => void;
+  onRun: (kind: AnalysisKind, params?: Record<string, unknown>) => void;
+}) {
+  const s = a?.summary;
+  const [month, setMonth] = useState(s?.params.flood_month ?? "");
+  const [rp, setRp] = useState<number>(s?.params.glofas_rp ?? 0);
+  useEffect(() => {
+    if (s) {
+      setMonth(s.params.flood_month ?? "");
+      setRp(s.params.glofas_rp ?? 0);
+    }
+  }, [s?.created]); // eslint-disable-line react-hooks/exhaustive-deps
+  const badMonth = !!month && !/^20(1[7-9]|2[0-4])-(0[1-9]|1[0-2])$/.test(month);
+  const form = (
+    <div className="mt-2 space-y-1.5 border-t border-line pt-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-ink-2">
+          {t("Flood month")}
+          <input
+            className="h-7 w-24 rounded border border-line-2 bg-sunken px-1.5 font-mono text-[12px]"
+            placeholder="2024-09"
+            value={month}
+            onChange={(e) => setMonth(e.target.value.trim())}
+            aria-invalid={badMonth}
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-ink-2">
+          GloFAS
+          <select className="h-7 rounded border border-line-2 bg-sunken px-1 text-[12px]" value={rp} onChange={(e) => setRp(Number(e.target.value))}>
+            <option value={0}>{t("none")}</option>
+            {[10, 20, 50, 75, 100, 200, 500].map((r) => (
+              <option key={r} value={r}>
+                {t("{n} yr", { n: r })}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {badMonth && <div className="text-bad">{t("A month from 2017-01 to 2024-12 (the surface-water record).")}</div>}
+      <Button variant={s ? "ghost" : "primary"} disabled={a?.running || badMonth} onClick={() => onRun("exposure", { flood_month: month, glofas_rp: rp })}>
+        {a?.running ? t("Running…") : s ? t("Run again") : t("Count the people and buildings exposed")}
+      </Button>
+      {a?.failed && <div className="text-bad">{a.log.slice(-1)[0]}</div>}
+      {a?.running && a.log.length > 0 && <div className="font-mono text-[11px] text-faint">{a.log.slice(-1)[0]}</div>}
+    </div>
+  );
+  if (!s)
+    return (
+      <div className="mt-2 text-[12px] leading-snug text-muted">
+        <p className="m-0">{t(RUN_TEXT.exposure[0])}</p>
+        {form}
+      </div>
+    );
+  const sub = s.subsidence;
+  const modes: [ExpMode, string][] = [["subsidence", "Sinking"]];
+  if (s.flood) modes.push(["flood", "Flood of the month"]);
+  if (s.glofas) modes.push(["glofas", "River flood"]);
+  const f = s.flood;
+  return (
+    <div className="mt-2 text-[12px]">
+      {modes.length > 1 && (
+        <div className="mb-2 flex gap-1" role="radiogroup" aria-label={t("Colour the cells by")}>
+          {modes.map(([m, l]) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => setMode(m)}
+              className={`rounded px-2 py-0.5 text-[11.5px] ${mode === m ? "bg-accent text-white" : "bg-sunken text-ink-2 hover:text-ink"}`}
+            >
+              {t(l)}
+            </button>
+          ))}
+        </div>
+      )}
+      {mode !== "subsidence" && (
+        <div className="mb-2 space-y-[3px]">
+          <div className="text-[11px] text-faint">{t(mode === "flood" ? "share of the cell flooded" : "river flood depth (GloFAS)")}</div>
+          {FLOOD_RGB.map((c, k) => (
+            <div key={k} className="flex items-center gap-2">
+              <ExpSwatch c={c} alpha={EXP_ALPHA.flooded[1]} />
+              <span className="text-ink-2">{FLOOD_LABELS[mode][k]}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
+            <ExpSwatch c={NA_RGB} alpha={EXP_ALPHA.dry[1]} />
+            <span className="text-muted">{t(mode === "flood" ? "no new water" : "dry")}</span>
+          </div>
+        </div>
+      )}
+      <p className="mt-0 mb-1.5 text-[11px] text-faint">{t("Stronger colour: more people in the cell.")}</p>
+      <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-2 gap-y-[3px]">
+        <span />
+        <span className="text-[11px] text-faint">{t("sinking, mm/yr")}</span>
+        <span className="text-right text-[11px] text-faint">{t("people")}</span>
+        <span className="text-right text-[11px] text-faint">{t("buildings")}</span>
+        {sub.classes.map((c, k) => (
+          <div key={c.class} className="contents">
+            {mode === "subsidence" ? <ExpSwatch c={EXP_RGB[k]} alpha={EXP_ALPHA[k === 0 ? "stable" : "sinking"][1]} /> : <span />}
+            <span className="text-ink-2">{c.class}</span>
+            <span className="text-right font-mono text-ink">{fmt.int(c.people)}</span>
+            <span className="text-right font-mono text-ink-2">{c.buildings != null ? fmt.int(c.buildings) : "–"}</span>
+          </div>
+        ))}
+        {mode === "subsidence" ? <ExpSwatch c={NA_RGB} alpha={EXP_ALPHA.unseen[1]} /> : <span />}
+        <span className="text-muted">{t("not observed")}</span>
+        <span className="text-right font-mono text-muted">{fmt.int(sub.people_not_observed)}</span>
+        <span className="text-right font-mono text-muted">{sub.buildings_not_observed != null ? fmt.int(sub.buildings_not_observed) : "–"}</span>
+      </div>
+      {f && (
+        <div className="mt-2 border-t border-line pt-2 leading-snug text-ink-2">
+          <div className="font-medium text-ink">{t("Flood of {month}", { month: f.month })}</div>
+          <div>
+            {t("{km2} km² of new water against {dry}; {p} people in it ({q} on sinking ground).", {
+              km2: f.flooded_km2,
+              dry: f.dry_month,
+              p: fmt.int(f.people),
+              q: fmt.int(f.people_on_sinking_ground),
+            })}
+          </div>
+          {f.rain_month_mm != null && (
+            <div>
+              {t("Rain: {mm} mm in the month, {d} mm on {date}.", { mm: fmt.int(f.rain_month_mm), d: f.rain_wettest_day?.mm ?? "–", date: f.rain_wettest_day?.date ?? "–" })}
+              {f.rain_peak_30min && ` ${t("Peak {mmh} mm/h at {time} UTC (IMERG, 30 min).", { mmh: f.rain_peak_30min.mm_h, time: f.rain_peak_30min.time.replace("T", " ").slice(0, 16) })}`}
+            </div>
+          )}
+          {f.v_vert_flooded_mm_yr != null && (
+            <div>{t("Points on flooded ground: {a} mm/yr, on dry ground: {b} mm/yr (median).", { a: f.v_vert_flooded_mm_yr, b: f.v_vert_dry_mm_yr ?? "–" })}</div>
+          )}
+          <div className="text-[11.5px] text-warn-ink">
+            {t("{u} of the area not observed that month; monthly optical composite: cloud hides part of a monsoon month, short floods may be missed.", {
+              u: `${Math.round(f.unobserved_share * 100)} %`,
+            })}
+          </div>
+        </div>
+      )}
+      {s.glofas && (
+        <div className="mt-2 border-t border-line pt-2 leading-snug text-ink-2">
+          <div className="font-medium text-ink">{t("River flood, {n}-year (GloFAS)", { n: s.glofas.return_period })}</div>
+          <div>
+            {t("{p} people in it, {q} under more than 1 m, {r} on sinking ground.", {
+              p: fmt.int(s.glofas.people),
+              q: fmt.int(s.glofas.people_over_1m),
+              r: fmt.int(s.glofas.people_on_sinking_ground),
+            })}
+          </div>
+          <div className="text-[11.5px] text-warn-ink">{t("Global model without dykes: in a diked delta, an upper bound.")}</div>
+        </div>
+      )}
+      {sub.warning && <p className="mt-1.5 mb-0 text-[11.5px] text-warn-ink">{ts(sub.warning)}</p>}
+      <p className="mt-2 mb-0 text-[10.5px] leading-snug text-faint">{s.credits.join(" · ")}</p>
+      {form}
+    </div>
+  );
+}
+
 const KIND_OF_VIEW: Partial<Record<View, AnalysisKind>> = {
   behaviour: "behaviour", change: "behaviour", risk: "risk", lines: "lines", consolidation: "consolidation",
-  up: "decompose", east: "decompose", soft_soil: "geology",
+  up: "decompose", east: "decompose", soft_soil: "geology", exposure: "exposure",
 };
 // per analysis: what the run does, and its button
 const RUN_TEXT: Record<AnalysisKind, [string, string]> = {
@@ -804,6 +1016,7 @@ const RUN_TEXT: Record<AnalysisKind, [string, string]> = {
   lines: ["Not profiled yet. The run reads the dykes, railways and main roads of OpenStreetMap over the product (a minute the first time) and the InSAR points along them.", "Profile the infrastructure lines"],
   consolidation: ["Not analysed yet. The run fits a consolidation curve to the sinking cells of this zoning (a few seconds).", "Analyse the consolidation"],
   decompose: ["Not decomposed yet. The run looks in the workspace for a product that sees this area from the other side over the same period (an ascending track for a descending one), then separates the vertical and east-west motion.", "Separate vertical and east-west"],
+  exposure: ["Not counted yet. The run reads the population (GHS-POP) and the buildings (GlobalBuildingAtlas) of the area from Source Cooperative, and with a flood month the surface water and the rainfall of that month.", "Count the people and buildings exposed"],
   geology: ["Not read yet. The run takes the soft-soil thickness of the project (map or boreholes, else the open global grid) and compares it with the sinking of the cells.", "Read the soft-soil thickness"],
 };
 
@@ -1002,7 +1215,8 @@ export function RiskPanel({ b, onClose }: { b: RiskBuilding; onClose: () => void
         <Row k={t("Hazard")} v={b.hazard >= 0 ? t(LEVELS[b.hazard]) : "–"} />
         <Row k={t("Hazard from")} v={b.source === "building" ? t("its own InSAR points ({n})", { n: b.points }) : b.source === "cell" ? t("its analysis cell") : "–"} />
         {b.v_vert_mm_yr != null && <Row k={t("Vertical rate")} v={`${fmt.vel(b.v_vert_mm_yr)} mm/yr`} />}
-        {b.beta_10yr != null && <Row k={t("Tilt in 10 years (β)")} v={`1/${Math.round(1 / b.beta_10yr)}`} />}
+        {b.beta_10yr != null && <Row k={t("Angular distortion in 10 years (β)")} v={`1/${Math.round(1 / b.beta_10yr)}`} title={t("relative rotation within the building, after its rigid tilt is removed")} />}
+        {b.tilt_10yr != null && <Row k={t("Tilt in 10 years")} v={`1/${Math.round(1 / b.tilt_10yr)}`} title={t("rigid tilt of the building (plane through its points)")} />}
         <Row k={t("Footprint")} v={`${fmt.int(Math.round(b.area_m2))} m²`} />
         <Row k={t("Floors")} v={b.height_known ? `${b.floors} (${fmt.num(b.height_m)} m)` : `${b.floors} (${t("assumed")})`} />
         <Row k={t("Exposure")} v={`E${b.exposure} · ${cls(b.exposure)}`} title={t("gross floor area: footprint × floors")} />
@@ -1045,7 +1259,7 @@ export function CellPanel({ c, beh, cons, onClose }: { c: HazardCell; beh?: Beha
         <Row k={t("Stability threshold")} v={`${fmt.num(c.stable_mm_yr)} mm/yr`} />
         <Row k={t("Intensity")} v={t("I{a} observed → I{b}", { a: c.intensity_observed, b: c.intensity })} title={t("after the rainfall scenario and the acceleration")} />
         {c.mode === "subsidence" ? (
-          <Row k={t("Angular distortion")} v={frac(c.angular_distortion)} title={t("largest differential settlement to a neighbouring cell, over the horizon")} />
+          <Row k={t("Angular distortion")} v={frac(c.angular_distortion)} title={t("largest change of slope across the cell, over the horizon")} />
         ) : (
           <Row k={t("Slope / sensitivity")} v={`${fmt.num(c.slope_deg)}° / ${fmt.num(c.sensitivity, 2)}`} />
         )}
@@ -1178,6 +1392,7 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
   const [leftOpen, setLeftOpen] = usePersisted("hazard.left", true);
   const [rightOpen, setRightOpen] = usePersisted("hazard.right", true);
   const [tie, setTie] = useState(false);
+  const [expMode, setExpMode] = useState<ExpMode>("subsidence");
 
   // products that can be zoned: the latest product of each track
   const choices = useMemo(() => {
@@ -1357,10 +1572,26 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
     enabled: !!geoSummary && view === "soft_soil",
     staleTime: Infinity,
   });
-  const runAnalysis = async (kind: AnalysisKind) => {
+  const expSummary = behStatus.data?.exposure?.summary ?? null;
+  const expData = useQuery({
+    queryKey: ["exposure-cells", project, product, expSummary?.created],
+    queryFn: async () => {
+      const { meta, buf } = await api.exposureCells(project!, product!);
+      const h = meta.cell_deg / 2;
+      const polys = Array.from({ length: meta.n }, (_, i) => {
+        const x = buf[i * 8];
+        const y = buf[i * 8 + 1];
+        return { i, ring: [[x - h, y - h], [x + h, y - h], [x + h, y + h], [x - h, y + h]] };
+      });
+      return { buf, polys };
+    },
+    enabled: !!expSummary && view === "exposure",
+    staleTime: Infinity,
+  });
+  const runAnalysis = async (kind: AnalysisKind, params: Record<string, unknown> = {}) => {
     if (!project || !product) return;
     try {
-      await api.analysisRun(project, product, kind);
+      await api.analysisRun(project, product, kind, params);
       await qc.invalidateQueries({ queryKey: ["behaviour", project, product] });
     } catch (e) {
       setBusy(ts((e as Error).message));
@@ -1478,6 +1709,20 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
               }),
             ]
           : []),
+        ...(view === "exposure" && expData.data
+          ? [
+              new SolidPolygonLayer<{ i: number; ring: number[][] }>({
+                id: "exposure-cells",
+                data: expData.data.polys,
+                getPolygon: (d) => d.ring as never,
+                getFillColor: (d) => expColor(expData.data!.buf, d.i, expMode),
+                updateTriggers: { getFillColor: [expMode] },
+                pickable: true,
+                autoHighlight: true,
+                highlightColor: [255, 255, 255, 120],
+              }),
+            ]
+          : []),
         ...(view === "risk" && riskData.data
           ? [
               new ScatterplotLayer({
@@ -1534,6 +1779,14 @@ export function Hazard({ ws, project, product, cell: linked, layer }: { ws: Work
             style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" },
           };
         }
+        if (layer?.id === "exposure-cells" && expData.data && object) {
+          const b = expData.data.buf;
+          const g = (k: keyof typeof EXP_F) => b[object.i * 8 + EXP_F[k]];
+          const lines = [t("{n} people", { n: fmt.int(g("people")) }), g("points") >= 3 ? `${fmt.vel(g("v"))} mm/yr · ${t("{n} points", { n: g("points") })}` : t("not observed")];
+          if (g("flooded") > 0) lines.push(t("{p} flooded", { p: `${Math.round(g("flooded") * 100)} %` }));
+          if (g("depth") > 0) lines.push(`GloFAS ${g("depth").toFixed(1)} m`);
+          return { text: lines.join("\n"), style: { background: "var(--c-bg)", color: "var(--c-ink)", fontSize: "12px", borderRadius: "6px", padding: "4px 8px", fontFamily: "var(--font-mono)" } };
+        }
         if (layer?.id === "infrastructure-lines" && linesData.data && index >= 0) {
           return {
             text: t("Click for the profile along the line"),
@@ -1573,7 +1826,7 @@ ${ts(st.reason ?? "")}`}`,
         };
       },
     });
-  }, [cells.data, polys, view, sel, stations, behCells.data, riskData.data, linesData.data, consCells.data, decData.data, geoCells.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cells.data, polys, view, sel, stations, behCells.data, riskData.data, linesData.data, consCells.data, decData.data, geoCells.data, expData.data, expMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
     if (!project || !product) return;
@@ -1811,8 +2064,8 @@ ${ts(st.reason ?? "")}`}`,
               ))}
             </select>
             <Legend view={view} s={s} />
-            {(view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil") && (
-              <BehaviourLegend view={view} st={behStatus.data} first={behCells.data?.first} last={behCells.data?.last} onRun={runAnalysis} />
+            {(view === "behaviour" || view === "change" || view === "risk" || view === "lines" || view === "consolidation" || view === "up" || view === "east" || view === "soft_soil" || view === "exposure") && (
+              <BehaviourLegend view={view} st={behStatus.data} first={behCells.data?.first} last={behCells.data?.last} onRun={runAnalysis} expMode={expMode} setExpMode={setExpMode} />
             )}
             <About view={view} />
             {cells.isLoading && <div className="mt-2 text-[12px] text-accent-ink">{t("Loading cells…")}</div>}

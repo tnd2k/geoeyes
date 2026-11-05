@@ -218,7 +218,52 @@ export interface GeologySummary {
   created: string;
 }
 
-export type AnalysisKind = "behaviour" | "risk" | "lines" | "consolidation" | "decompose" | "geology";
+export type AnalysisKind = "behaviour" | "risk" | "lines" | "consolidation" | "decompose" | "geology" | "exposure";
+
+export interface ExposureClass {
+  class: string;
+  cells: number;
+  people: number;
+  buildings?: number;
+  buildings_over_21m?: number;
+}
+
+export interface ExposureSummary {
+  product_id: string;
+  created: string;
+  params: { min_points: number; breaks_mm_yr: number[]; buildings: boolean; flood_month: string; dry_month: string; glofas_rp: number };
+  bbox: number[];
+  cell_deg: number;
+  subsidence: {
+    breaks_mm_yr: number[];
+    classes: ExposureClass[];
+    people_observed: number;
+    people_not_observed: number;
+    people_total: number;
+    cells_observed: number;
+    buildings_observed?: number;
+    buildings_not_observed?: number;
+    warning?: string;
+  };
+  flood?: {
+    month: string;
+    dry_month: string;
+    flooded_km2: number;
+    unobserved_share: number;
+    people: number;
+    people_on_sinking_ground: number;
+    points_flooded: number;
+    points_dry: number;
+    v_vert_flooded_mm_yr: number | null;
+    v_vert_dry_mm_yr: number | null;
+    rain_month_mm: number | null;
+    rain_wettest_day: { date: string; mm: number } | null;
+    rain_peak_30min?: { time: string; mm_h: number } | null;
+    note: string;
+  };
+  glofas?: { return_period: number; people: number; people_over_1m: number; people_on_sinking_ground: number; note: string };
+  credits: string[];
+}
 
 export interface BehaviourStatus {
   behaviour: AnalysisStatus<BehaviourSummary>;
@@ -227,6 +272,7 @@ export interface BehaviourStatus {
   consolidation: AnalysisStatus<ConsolidationSummary>;
   decompose: AnalysisStatus<DecomposeSummary>;
   geology: AnalysisStatus<GeologySummary>;
+  exposure: AnalysisStatus<ExposureSummary>;
   buildings: boolean;
 }
 
@@ -287,7 +333,8 @@ export interface RiskBuilding {
   source: "building" | "cell" | "none";
   points: number;
   v_vert_mm_yr: number | null;
-  beta_10yr: number | null;
+  beta_10yr: number | null;   // angular distortion (buildings/2)
+  tilt_10yr?: number | null;  // rigid tilt (absent in risk products written before 2026-11-05)
   hazard: number;
   exposure: number;
   vulnerability: number;
@@ -839,6 +886,70 @@ export interface LayerMeta {
   vel_min: number;
   vel_max: number;
   classes: VelClass[];
+  calibration?: CalibrationBrief | null;            // set on the calibrated layer (cal=1)
+  calibration_available?: CalibrationBrief | null;  // the product has one (GNSS, else a tie)
+}
+
+export interface CalibrationBrief {
+  source: "gnss" | "tie";
+  kind: string;
+  los_mode: string;
+  rate_offset_mm_yr: number;
+  stations: string[];
+  reference_product?: string | null;
+  reference_calibration?: string | null;
+  loo_rms_after_mm_yr?: number | null;
+}
+
+export interface StackQcDate {
+  date: string;
+  days: number;
+  reference: boolean;
+  bperp_m: number;
+  coherence_mean?: number;
+  coherence_p90?: number;
+  height_of_ambiguity_m?: number | null;
+  offset_lines?: number;
+  offset_samples?: number;
+  amplitude_corr?: number;
+  coherence_linked_mean?: number;
+}
+
+export interface UnwrapQc {
+  label: string;
+  created: string;
+  reference_date: string;
+  cells: number;
+  grid_shape: [number, number];
+  dates: { date: string; jump_frac: number | null }[];
+}
+
+export interface StackQc {
+  stack: string;
+  created: string;
+  reference_date: string;
+  shape: [number, number];
+  looks: [number, number];
+  image_shape: [number, number];
+  dates: StackQcDate[];
+  orientation: string;
+  linked?: boolean;
+}
+
+export interface TieResult {
+  product_id: string;
+  reference_product: string;
+  created: string;
+  window: [string, string];
+  target_period: [string, string];
+  n_cells: number;
+  corr: number;
+  slope: number;
+  spread_mm_yr: number;
+  median_reference_mm_yr: number;
+  median_target_mm_yr: number;
+  calibration: CalibrationBrief & { vertical_offset_mm_yr: number };
+  warnings: string[];
 }
 
 export interface PointInfo {
@@ -980,6 +1091,32 @@ export interface OpenDataSync {
   error: string | null;
   started: string | null;
   finished: string | null;
+}
+
+export interface CoopLayer {
+  key: string;
+  product: string;
+  title: string;
+  topic: "flood" | "exposure";
+  use: string;
+  credit: string;
+  license: string;
+  url: string;
+}
+
+export interface CoopProduct {
+  id: string;
+  account: string;
+  product: string;
+  title: string;
+  description: string;
+  tags: string[];
+  updated: string;
+  featured: boolean;
+  url: string;
+  data: string;
+  layer: string | null;
+  score?: number;
 }
 
 export interface OpenDataStack {
@@ -1149,14 +1286,14 @@ export const api = {
   log: (name: string, run: string, after: number) =>
     request<{ lines: LogLine[]; next: number }>(`${P(name)}/runs/${run}/log?after=${after}`),
   product: (name: string, pid: string) => request<ProductReport>(`${P(name)}/products/${pid}`),
-  layer: (name: string, pid: string) => request<LayerMeta>(`${P(name)}/products/${pid}/layer`),
-  layerHex: async (name: string, pid: string, size: number) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}`);
+  layer: (name: string, pid: string, cal = false) => request<LayerMeta>(`${P(name)}/products/${pid}/layer${cal ? "?cal=1" : ""}`),
+  layerHex: async (name: string, pid: string, size: number, cal = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}${cal ? "&cal=1" : ""}`);
     if (!r.ok) throw new Error(`hexagons: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer()); // (dlon, dlat, median mm/yr, count) per hexagon
   },
-  layerPoints: async (name: string, pid: string) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin`);
+  layerPoints: async (name: string, pid: string, cal = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin${cal ? "?cal=1" : ""}`);
     if (!r.ok) throw new Error(`points: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer());
   },
@@ -1164,18 +1301,31 @@ export const api = {
     request<{ available: boolean; min_zoom: number; max_zoom: number }>(`${P(name)}/products/${pid}/tiles`, json({})),
   tileUrl: (name: string, pid: string) => `${P(name)}/products/${pid}/tiles/{z}/{x}/{y}.pbf`,
   pmtilesUrl: (name: string, pid: string) => `${P(name)}/products/${pid}/tiles.pmtiles`,
-  point: (name: string, pid: string, i: number) =>
-    request<PointInfo>(`${P(name)}/products/${pid}/layer/points/${i}`),
-  area: (name: string, pid: string, ring: [number, number][]) =>
-    request<AreaInfo>(`${P(name)}/products/${pid}/layer/area`, json({ ring })),
-  layerDisp: (name: string, pid: string) => request<DispMeta>(`${P(name)}/products/${pid}/layer/disp`),
-  layerDispFrame: async (name: string, pid: string, k: number) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/disp/${k}.bin`);
+  point: (name: string, pid: string, i: number, cal = false) =>
+    request<PointInfo>(`${P(name)}/products/${pid}/layer/points/${i}${cal ? "?cal=1" : ""}`),
+  area: (name: string, pid: string, ring: [number, number][], cal = false) =>
+    request<AreaInfo>(`${P(name)}/products/${pid}/layer/area${cal ? "?cal=1" : ""}`, json({ ring })),
+  layerDisp: (name: string, pid: string, cal = false) => request<DispMeta>(`${P(name)}/products/${pid}/layer/disp${cal ? "?cal=1" : ""}`),
+  layerDispFrame: async (name: string, pid: string, k: number, cal = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/disp/${k}.bin${cal ? "?cal=1" : ""}`);
     if (!r.ok) throw new Error(`displacement: ${r.statusText}`);
     return new Int16Array(await r.arrayBuffer());
   },
-  layerProfile: (name: string, pid: string, line: [number, number][], halfWidth: number) =>
-    request<ProfileData>(`${P(name)}/products/${pid}/layer/profile`, json({ line, half_width_m: halfWidth })),
+  layerProfile: (name: string, pid: string, line: [number, number][], halfWidth: number, cal = false) =>
+    request<ProfileData>(`${P(name)}/products/${pid}/layer/profile${cal ? "?cal=1" : ""}`, json({ line, half_width_m: halfWidth })),
+  stacks: (name: string) =>
+    request<{ stacks: { stack_id: string; modified: number; ps_run: string; qc: StackQc | null; unwrap_qc: UnwrapQc | null }[] }>(`${P(name)}/stacks`),
+  psrunQcUrl: (name: string, run: string, file: string, v?: string) =>
+    `${P(name)}/psruns/${encodeURIComponent(run)}/qc/${file}${v ? `?v=${encodeURIComponent(v)}` : ""}`,
+  stackQcRun: (name: string, sid: string) => request<StackQc>(`${P(name)}/stacks/${encodeURIComponent(sid)}/qc`, json({})),
+  stackQcUrl: (name: string, sid: string, file: string, v?: string) =>
+    `${P(name)}/stacks/${encodeURIComponent(sid)}/qc/${file}${v ? `?v=${encodeURIComponent(v)}` : ""}`,
+  tie: (name: string, pid: string) => request<{ tie: TieResult | null; active: CalibrationBrief | null }>(`${P(name)}/products/${pid}/tie`),
+  tieRun: (name: string, pid: string, reference: string, cellM = 100) =>
+    request<{ tie: TieResult; active: CalibrationBrief | null }>(`${P(name)}/products/${pid}/tie`, json({ reference, cell_m: cellM })),
+  tieRemove: (name: string, pid: string) => request<{ removed: boolean }>(`${P(name)}/products/${pid}/tie`, { method: "DELETE" }),
+  exportCalibrated: (name: string, pid: string) =>
+    request<{ files: string[]; calibration: CalibrationBrief }>(`${P(name)}/products/${pid}/export-calibrated`, json({})),
   fileUrl: (name: string, pid: string, rel: string) => `${P(name)}/products/${pid}/files/${rel}`,
   exportUrl: (name: string, pid: string, file: string) => `${P(name)}/exports/${pid}/${file}`,
 
@@ -1189,6 +1339,12 @@ export const api = {
   createProject: (spec: NewProject) => request<{ name: string }>("/api/projects", json(spec)),
   trashProjects: (names: string[]) =>
     request<{ trashed: { name: string; trash: string }[]; tree: FolderTree }>("/api/projects/trash", json({ names })),
+  coop: () => request<{ synced: string | null; products: number; layers: CoopLayer[]; sync: { running: boolean; error: string | null } }>("/api/coop"),
+  coopSync: () => request<{ running: boolean; error: string | null }>("/api/coop/sync", json({})),
+  coopSearch: (q: string, layersOnly = false) =>
+    request<{ total: number; products: CoopProduct[]; synced: string | null }>(
+      `/api/coop/search?${new URLSearchParams({ q, layers_only: String(layersOnly), limit: "200" })}`,
+    ),
   opendataSources: () => request<{ sources: OpenDataSource[]; sync: OpenDataSync }>("/api/opendata/sources"),
   opendataSyncState: () => request<OpenDataSync>("/api/opendata/sync"),
   opendataSync: (sources?: string[]) => request<OpenDataSync>("/api/opendata/sync", json({ sources })),
@@ -1289,8 +1445,14 @@ export const api = {
   learnIonoField: (name: string, stack: string, date: string) =>
     request<LearnIonoField>(`${P(name)}/learn/${stack}/ionosphere?date=${encodeURIComponent(date)}`),
   behaviour: (name: string, pid: string) => request<BehaviourStatus>(`${P(name)}/products/${pid}/behaviour`),
-  analysisRun: (name: string, pid: string, kind: AnalysisKind) =>
-    request<{ pid: number }>(`${P(name)}/products/${pid}/analysis/${kind}`, json({ params: {} })),
+  analysisRun: (name: string, pid: string, kind: AnalysisKind, params: Record<string, unknown> = {}) =>
+    request<{ pid: number }>(`${P(name)}/products/${pid}/analysis/${kind}`, json({ params })),
+  exposureCells: async (name: string, pid: string) => {
+    const meta = await request<{ n: number; fields: string[]; cell_deg: number; summary: ExposureSummary }>(`${P(name)}/products/${pid}/exposure/cells`);
+    const r = await fetch(`${P(name)}/products/${pid}/exposure/cells.bin`);
+    if (!r.ok) throw new Error(`exposure: ${r.statusText}`);
+    return { meta, buf: new Float32Array(await r.arrayBuffer()) };
+  },
   behaviourCells: async (name: string, pid: string) => {
     const meta = await request<{ n: number; classes: string[]; first_date: string; last_date: string; hazard_created?: string }>(`${P(name)}/products/${pid}/behaviour/cells`);
     const r = await fetch(`${P(name)}/products/${pid}/behaviour/cells.bin`);

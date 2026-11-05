@@ -183,10 +183,20 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return {"id": pid, "brief": service._product_brief(project(name), pid), "report": rep,
                 "files": sorted(str(f.relative_to(d).as_posix()) for f in d.rglob("*") if f.is_file())}
 
+    def layer_dir(name: str, pid: str, cal: bool = False) -> Path:
+        """The web cache of a product's points; ``cal``: the calibrated one (GNSS, else a tie to another product)."""
+        from geoeyes.validation.tie import active_calibration
+        calib = active_calibration(project(name), pid) if cal else None
+        if cal and not calib:
+            raise HTTPException(404, f"{pid}: no calibration (GNSS comparison or tie to another product)")
+        return points.ensure(product(name, pid), web_cache, calib)
+
     @app.get("/api/projects/{name}/products/{pid}/layer")
-    def layer(name: str, pid: str):
+    def layer(name: str, pid: str, cal: bool = False):
+        from geoeyes.validation.tie import active_calibration
         d = product(name, pid)
-        m = points.meta(points.ensure(d, web_cache))
+        m = points.meta(layer_dir(name, pid, cal))
+        m["calibration_available"] = points.calibration_brief(active_calibration(project(name), pid))
         tiles = points.pmtiles_path(d, project(name).export(pid), web_cache, build=False)
         m["tiles"] = {"available": tiles is not None, "recommended": m["n"] > points.TILED_ABOVE,
                       **(_tile_zooms(tiles) if tiles else {})}
@@ -220,58 +230,104 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return FileResponse(path, filename=f"{pid}.pmtiles", media_type="application/vnd.pmtiles")
 
     @app.get("/api/projects/{name}/products/{pid}/layer/points.bin")
-    def layer_points(name: str, pid: str):
-        f = points.ensure(product(name, pid), web_cache) / "points.bin"
+    def layer_points(name: str, pid: str, cal: bool = False):
+        f = layer_dir(name, pid, cal) / "points.bin"
         return FileResponse(f, media_type="application/octet-stream",
                             headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/api/projects/{name}/products/{pid}/layer/hex.bin")
-    def layer_hex(name: str, pid: str, size: int = 500):
+    def layer_hex(name: str, pid: str, size: int = 500, cal: bool = False):
         """The points binned in hexagons (``size`` m, centre to vertex): float32 x 4 (dlon, dlat, median, count)."""
         try:
-            data = points.hexbins(points.ensure(product(name, pid), web_cache), size)
+            data = points.hexbins(layer_dir(name, pid, cal), size)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         return Response(data, media_type="application/octet-stream",
                         headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/api/projects/{name}/products/{pid}/layer/points/{i}")
-    def layer_point(name: str, pid: str, i: int):
+    def layer_point(name: str, pid: str, i: int, cal: bool = False):
         try:
-            return points.point(points.ensure(product(name, pid), web_cache), i)
+            return points.point(layer_dir(name, pid, cal), i)
         except IndexError as exc:
             raise HTTPException(404, str(exc)) from None
 
     @app.post("/api/projects/{name}/products/{pid}/layer/area")
-    def layer_area(name: str, pid: str, body: dict = Body(...)):
+    def layer_area(name: str, pid: str, body: dict = Body(...), cal: bool = False):
         ring = body.get("ring") or []
         if len(ring) < 3:
             raise HTTPException(400, "ring: at least 3 [lon, lat] vertices")
-        return points.area(points.ensure(product(name, pid), web_cache), ring)
+        return points.area(layer_dir(name, pid, cal), ring)
 
     @app.get("/api/projects/{name}/products/{pid}/layer/disp")
-    def layer_disp(name: str, pid: str):
+    def layer_disp(name: str, pid: str, cal: bool = False):
         """Dates and classes of the cumulative displacement (time animation of the map)."""
-        return points.disp_meta(points.ensure(product(name, pid), web_cache))
+        return points.disp_meta(layer_dir(name, pid, cal))
 
     @app.get("/api/projects/{name}/products/{pid}/layer/disp/{k}.bin")
-    def layer_disp_frame(name: str, pid: str, k: int):
+    def layer_disp_frame(name: str, pid: str, k: int, cal: bool = False):
         try:
-            data = points.disp_frame(points.ensure(product(name, pid), web_cache), k)
+            data = points.disp_frame(layer_dir(name, pid, cal), k)
         except IndexError as exc:
             raise HTTPException(404, str(exc)) from None
         return Response(data, media_type="application/octet-stream",
                         headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/projects/{name}/products/{pid}/layer/profile")
-    def layer_profile(name: str, pid: str, body: dict = Body(...)):
+    def layer_profile(name: str, pid: str, body: dict = Body(...), cal: bool = False):
         line = body.get("line") or []
         if len(line) < 2:
             raise HTTPException(400, "line: at least 2 [lon, lat] vertices")
         w = float(body.get("half_width_m", 50))
         if not 1 <= w <= 2000:
             raise HTTPException(400, "half_width_m: 1 … 2000")
-        return points.profile(points.ensure(product(name, pid), web_cache), line, w)
+        return points.profile(layer_dir(name, pid, cal), line, w)
+
+    # ------------------------------------------------------------ stack quality check (phase before PS)
+    @app.get("/api/projects/{name}/stacks")
+    def stacks(name: str):
+        """The coregistered stacks of the project and their quality check (``qc.json``) when made."""
+        root = project(name).root / "stacks"
+        out = []
+        for d in sorted(root.glob("*/stack.zarr")) if root.exists() else []:
+            qc = d.parent / "qc" / "qc.json"
+            track = d.parent.name.split("-ref")[0]          # <track>-ref<date>: its point run is ps_runs/<track>
+            uw = project(name).ps_run(track) / "qc" / "uw_qc.json"
+            out.append({"stack_id": d.parent.name, "modified": d.stat().st_mtime, "ps_run": track,
+                        "qc": json.loads(qc.read_text(encoding="utf-8")) if qc.exists() else None,
+                        "unwrap_qc": json.loads(uw.read_text(encoding="utf-8")) if uw.exists() else None})
+        return {"stacks": out}
+
+    @app.get("/api/projects/{name}/psruns/{run}/qc/{file}")
+    def psrun_qc_file(name: str, run: str, file: str):
+        """The wrapped phase the point engine unwrapped (``uw_<date>.png``, ``uw_qc.json``)."""
+        import re
+        if not re.fullmatch(r"uw_\d{4}-\d\d-\d\d\.png|uw_qc\.json", file):
+            raise HTTPException(400, "unknown QC file")
+        f = project(name).ps_run(run) / "qc" / file
+        if not f.exists():
+            raise HTTPException(404, f"{file}: not made yet (run the ps phase)")
+        return FileResponse(f, headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/projects/{name}/stacks/{sid}/qc")
+    def stack_qc_run(name: str, sid: str):
+        """Amplitude, interferogram and coherence of every date against the reference, and the offsets left
+        (``processing.stack.qc``): a minute or two on a spotlight stack."""
+        from geoeyes.processing.stack.qc import stack_qc
+        store = project(name).stack_store(sid)
+        if not (store / "zarr.json").exists():
+            raise HTTPException(404, f"no stack {sid}")
+        return stack_qc(store)
+
+    @app.get("/api/projects/{name}/stacks/{sid}/qc/{file}")
+    def stack_qc_file(name: str, sid: str, file: str):
+        import re
+        if not re.fullmatch(r"(amp|ifgL?|cohL?)_\d{4}-\d\d-\d\d\.png|pl_tcoh\.png|qc\.json", file):
+            raise HTTPException(400, "unknown QC file")
+        f = project(name).stack(sid) / "qc" / file
+        if not f.exists():
+            raise HTTPException(404, f"{file}: not made yet")
+        return FileResponse(f, headers={"Cache-Control": "no-cache"})
 
     # flood layer: the results are cached on disk (keyed by the inventory and the product), and the browser may keep
     # them a few minutes: a page reload neither recomputes nor waits
@@ -510,11 +566,13 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         from geoeyes.ml.risk import RiskParams
         product(name, pid)
         from geoeyes.ancillary.geology import GeologyParams
+        from geoeyes.hazard.exposure import ExposureParams
         from geoeyes.ml.consolidation import ConsolidationParams
         from geoeyes.ml.decompose import DecomposeParams
         from geoeyes.ml.lines import LinesParams
         classes = {"behaviour": BehaviourParams, "risk": RiskParams, "lines": LinesParams,
-                   "consolidation": ConsolidationParams, "decompose": DecomposeParams, "geology": GeologyParams}
+                   "consolidation": ConsolidationParams, "decompose": DecomposeParams, "geology": GeologyParams,
+                   "exposure": ExposureParams}
         if kind not in classes:
             raise HTTPException(404, f"{kind}: {' | '.join(classes)}")
         overrides = dict(body.get("params") or {})
@@ -583,6 +641,14 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def geology_cells(name: str, pid: str):
         return _bin(behaviour.geology_cells, name, pid, False)
 
+    @app.get("/api/projects/{name}/products/{pid}/exposure/cells")
+    def exposure_cells_meta(name: str, pid: str):
+        return _bin(behaviour.exposure_cells, name, pid, True)
+
+    @app.get("/api/projects/{name}/products/{pid}/exposure/cells.bin")
+    def exposure_cells(name: str, pid: str):
+        return _bin(behaviour.exposure_cells, name, pid, False)
+
     @app.get("/api/projects/{name}/products/{pid}/consolidation/cells")
     def consolidation_cells_meta(name: str, pid: str):
         return _bin(behaviour.consolidation_cells, name, pid, True)
@@ -632,6 +698,47 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         overrides = dict(body.get("params") or {})
         GnssParams.from_dict({**dict(load(project(name).config).validation.gnss), **overrides})       # validate
         return gnss.start(ws, name, pid, overrides)
+
+    # tie to another product (no GNSS station inside this one): computed at once, a few seconds
+    @app.get("/api/projects/{name}/products/{pid}/tie")
+    def tie_status(name: str, pid: str):
+        from geoeyes.validation.tie import active_calibration, read_tie
+        product(name, pid)
+        return {"tie": read_tie(project(name).analysis("tie", pid)),
+                "active": points.calibration_brief(active_calibration(project(name), pid))}
+
+    @app.post("/api/projects/{name}/products/{pid}/tie")
+    def tie_run(name: str, pid: str, body: dict = Body(...)):
+        """Tie the product to ``reference`` (``<project>/<product_id>``), through its own calibration if it has
+        one; ``cell_m``: the comparison cells (m)."""
+        from geoeyes.validation.tie import active_calibration, tie
+        rp, rpid = _split(str(body.get("reference") or ""))
+        if (rp, rpid) == (name, pid):
+            raise HTTPException(400, "a product cannot be tied to itself")
+        cell = float(body.get("cell_m", 100.0))
+        if not 20 <= cell <= 1000:
+            raise HTTPException(400, "cell_m: 20 … 1000")
+        out = tie(product(name, pid), product(rp, rpid), project(name).analysis("tie", pid),
+                  reference_calibration=active_calibration(project(rp), rpid), cell_m=cell)
+        return {"tie": out, "active": points.calibration_brief(active_calibration(project(name), pid))}
+
+    @app.post("/api/projects/{name}/products/{pid}/export-calibrated")
+    def export_calibrated(name: str, pid: str):
+        """GeoPackage + CSV of the product with its calibration applied (``exports/<pid>/<pid>_calibrated.*``)."""
+        from geoeyes.export.vector import export_product
+        from geoeyes.validation.tie import active_calibration
+        calib = active_calibration(project(name), pid)
+        if not calib:
+            raise HTTPException(404, f"{pid}: no calibration (GNSS comparison or tie to another product)")
+        files = export_product(product(name, pid), project(name).export(pid), ("gpkg", "csv"), calibration=calib)
+        return {"files": [str(f) for f in files], "calibration": points.calibration_brief(calib)}
+
+    @app.delete("/api/projects/{name}/products/{pid}/tie")
+    def tie_remove(name: str, pid: str):
+        import shutil
+        product(name, pid)
+        shutil.rmtree(project(name).analysis("tie", pid), ignore_errors=True)
+        return {"removed": True}
 
     # ------------------------------------------------------------ weather models (tropospheric correction)
     @app.get("/api/projects/{name}/products/{pid}/atmosphere")
@@ -733,6 +840,26 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         try:
             return opendata.stacks(ws, bbox=bbox, start=start, end=end, source=source, mode=mode,
                                    min_scenes=min_scenes, supported=supported)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    # ------------------------------------------------------------ Source Cooperative
+    @app.get("/api/coop")
+    def coop_status():
+        return opendata.coop_status(ws)
+
+    @app.post("/api/coop/sync")
+    def coop_sync():
+        return opendata.coop_sync(ws)
+
+    @app.get("/api/coop/search")
+    def coop_search(q: str = "", layers_only: bool = False, limit: int = 100):
+        return opendata.coop_search(ws, q, layers_only, min(max(limit, 1), 600))
+
+    @app.get("/api/coop/rain")
+    def coop_rain(bbox: str, start: str, end: str):
+        try:
+            return opendata.coop_rain(ws, bbox, start, end)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
 

@@ -8,6 +8,7 @@ import { Ai } from "./pages/Ai";
 import { Hazard } from "./pages/Hazard";
 import { Learn } from "./pages/Learn";
 import { NewProject } from "./pages/NewProject";
+import { Coop } from "./pages/Coop";
 import { OpenData } from "./pages/OpenData";
 import { Overview } from "./pages/Overview";
 import { Project } from "./pages/Project";
@@ -23,6 +24,7 @@ import type { Route } from "./state";
 const PROJECT_TABS: [Route["page"], string][] = [
   ["overview", "My projects"],
   ["opendata", "Open data"],
+  ["coop", "Source Cooperative"],
 ];
 const INSIGHT_TABS: [Route["page"], string][] = [
   ["hazard", "Thematic analysis"],
@@ -103,7 +105,7 @@ function Shell() {
     route.page === "project" ? route.name : Object.values(ws.data?.projects ?? {}).find((p) => p.status === "running")?.name;
   const nav: { label: string; to: string; on: boolean; title?: string }[] = [
     // the open data (stacks to start a project from) is a tab of the Projects page
-    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" || route.page === "opendata" },
+    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" || route.page === "opendata" || route.page === "coop" },
     ...(lastProject
       ? [{ label: t("Processing"), to: href({ page: "project", name: lastProject }), on: route.page === "project", title: lastProject }]
       : []),
@@ -164,7 +166,7 @@ function Shell() {
         <main className="min-w-0 flex-1">
           {PROJECT_TABS.some(([p]) => p === route.page) && (
             <PageTabs tabs={PROJECT_TABS} route={route}>
-              {route.page === "overview" ? <Overview ws={ws.data} /> : <OpenData ws={ws.data} />}
+              {route.page === "overview" ? <Overview ws={ws.data} /> : route.page === "coop" ? <Coop /> : <OpenData ws={ws.data} />}
             </PageTabs>
           )}
           {route.page === "explorer" && <Explorer ws={ws.data} />}
