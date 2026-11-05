@@ -75,8 +75,10 @@ def save_folders(ws: WorkspaceLayout, data: dict) -> dict:
 
 def trash_projects(ws: WorkspaceLayout, names: list[str]) -> list[dict]:
     """Move projects to ``<workspace>/trash/<name>__<time>/`` (recoverable by moving the folder back): a project
-    whose run is in progress is refused, and nothing is moved if any of them is refused."""
-    import shutil
+    whose run is in progress is refused, and nothing is moved if any of them is refused. Only a rename, never a
+    copy: ``shutil.move`` copies the whole project when the rename fails (a file held open, e.g. a served
+    ``.pmtiles``), which filled the disk once (2026-11-03); the move is refused instead."""
+    import os
     from datetime import datetime
     projects = []
     for name in dict.fromkeys(str(n) for n in names):
@@ -91,7 +93,11 @@ def trash_projects(ws: WorkspaceLayout, names: list[str]) -> list[dict]:
     for project in projects:
         dest = ws.root / "trash" / f"{project.name}__{stamp}"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(project.root), str(dest))
+        try:
+            os.rename(project.root, dest)
+        except OSError as e:
+            raise LockedError(f"{project.name}: cannot move it to the trash ({e.strerror}); a file is probably open "
+                              "(map tiles served, a viewer): close it and try again") from e
         out.append({"name": project.name, "trash": str(dest)})
     return out
 

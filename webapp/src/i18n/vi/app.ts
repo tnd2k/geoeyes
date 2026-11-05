@@ -36,6 +36,8 @@ export const APP: Record<string, string> = {
   "GNSS comparison failed: {project}": "So sánh GNSS lỗi: {project}",
   "Weather model comparison finished: {project}": "Đã so sánh các mô hình khí quyển xong: {project}",
   "Weather model comparison failed: {project}": "So sánh các mô hình khí quyển lỗi: {project}",
+  "Exposure count finished: {project}": "Đã đếm xong dân và công trình phơi nhiễm: {project}",
+  "Exposure count failed: {project}": "Đếm dân và công trình phơi nhiễm lỗi: {project}",
   "Corner reflector report finished: {project}": "Đã lập báo cáo gương phản xạ góc: {project}",
   "Corner reflector report failed: {project}": "Báo cáo gương phản xạ góc lỗi: {project}",
   "{n} warning(s): see the notifications": "{n} cảnh báo: xem trong mục thông báo",

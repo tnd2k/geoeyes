@@ -69,6 +69,52 @@ def scenes(ws: WorkspaceLayout, *, bbox: str = "", start: str = "", end: str = "
     return {"total": len(rows), "scenes": rows[-limit:]}
 
 
+_coop: dict = {"running": False, "error": None}
+
+
+def coop_status(ws: WorkspaceLayout) -> dict:
+    """Source Cooperative catalog status and the layers GeoEyes reads; a catalog never synced or a day old is
+    refreshed in the background (a few seconds)."""
+    from geoeyes.opendata import coop
+    if coop.stale(ws) and not _coop["running"] and not _coop["error"]:
+        coop_sync(ws)
+    return {**coop.status(ws), "sync": dict(_coop)}
+
+
+def coop_sync(ws: WorkspaceLayout) -> dict:
+    from geoeyes.opendata import coop
+    with _lock:
+        if _coop["running"]:
+            return dict(_coop)
+        _coop.update(running=True, error=None)
+
+    def work():
+        try:
+            coop.sync(ws)
+            err = None
+        except Exception as exc:                     # reported to the page, the server keeps running
+            err = str(exc)
+        with _lock:
+            _coop.update(running=False, error=err)
+
+    threading.Thread(target=work, name="coop-sync", daemon=True).start()
+    return dict(_coop)
+
+
+def coop_search(ws: WorkspaceLayout, q: str = "", layers_only: bool = False, limit: int = 100) -> dict:
+    from geoeyes.opendata import coop
+    rows = coop.search(ws, q, layers_only=layers_only, limit=limit)
+    return {"total": len(rows), "products": rows, "synced": coop.read_index(ws).get("synced")}
+
+
+def coop_rain(ws: WorkspaceLayout, bbox: str, start: str, end: str) -> dict:
+    from geoeyes.opendata import coop
+    b = _bbox(bbox)
+    if b is None:
+        raise ValueError("bbox: west,south,east,north")
+    return coop.chirps_daily(ws.cache_dir("sourcecoop"), b, start, end)
+
+
 def stacks(ws: WorkspaceLayout, *, bbox: str = "", start: str = "", end: str = "", source: str = "", mode: str = "",
            min_scenes: int = 3, supported: bool = False) -> dict:
     from geoeyes.opendata import find_stacks, load, places, search

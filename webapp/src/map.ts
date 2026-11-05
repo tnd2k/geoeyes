@@ -175,13 +175,15 @@ export async function terrainProfile(line: [number, number][], step: number, zoo
   return out;
 }
 
-export async function loadLayer(project: string, product: string, mode: RenderMode = "auto"): Promise<LayerData> {
-  const meta = await api.layer(project, product);
-  if (mode === "tiles" || (mode === "auto" && meta.tiles.recommended)) {
+/** `cal`: the calibrated velocities (GNSS, else a tie to another product), always as points (the tiles hold the
+ * product's own velocities). */
+export async function loadLayer(project: string, product: string, mode: RenderMode = "auto", cal = false): Promise<LayerData> {
+  const meta = await api.layer(project, product, cal);
+  if (!cal && (mode === "tiles" || (mode === "auto" && meta.tiles.recommended))) {
     if (!meta.tiles.available) meta.tiles = { ...meta.tiles, ...(await api.buildTiles(project, product)) };
     return { kind: "tiles", meta };
   }
-  const buf = await api.layerPoints(project, product);
+  const buf = await api.layerPoints(project, product, cal);
   return { kind: "points", meta, buf, colors: colorize(buf, 3, 2, meta.classes) };
 }
 
@@ -203,7 +205,8 @@ export function terrainLayer(base: Base, exaggeration: number): Layer {
     elevationData: TERRAIN_TILES,
     texture: base === "none" ? null : BASES[base].tiles[0],
     elevationDecoder: { rScaler: 256 * e, gScaler: e, bScaler: e / 256, offset: -32768 * e },
-    meshMaxError: 2,
+    // in exaggerated metres: ~1.5 m of true height whatever the exaggeration (fewer triangles at ×5-×20)
+    meshMaxError: Math.max(2, 1.5 * e),
     color: [26, 36, 56],
     operation: "terrain+draw",
     updateTriggers: { elevationDecoder: e },
@@ -239,6 +242,11 @@ export function productLayer(
     pickable: o.pickable ?? true,
     autoHighlight: o.pickable ?? true,
     highlightColor: [255, 255, 255, 255] as [number, number, number, number],
+    // 3D: the points drawn into the terrain's own texture ("drape"), not raised to its height ("offset", the default
+    // of point layers): the terrain tiles overlap by a pixel and, on steep slopes, the higher edge hid a strip of
+    // raised points along every tile border; draped, they are also not drawn again at every frame of a move
+    // (no hover highlight there: every redraw of a draped layer draws it again into the cover of every terrain tile)
+    ...(o.terrain ? { terrainDrawMode: "drape", autoHighlight: false } : {}),
   };
   if (d.kind === "tiles") {
     const classes = d.meta.classes;
@@ -305,10 +313,11 @@ export function hexSize(sizes: number[] | undefined, zoom: number, lat: number):
 }
 
 /** deck.gl hexagons of a product: `buf` from `api.layerHex` (dlon, dlat, median, count per hexagon). */
-export function hexLayer(l: MapLayer, meta: LayerMeta, buf: Float32Array, size: number, o: { onPick?: (lon: number, lat: number) => void } = {}): Layer {
+export function hexLayer(l: MapLayer, meta: LayerMeta, buf: Float32Array, size: number, o: { onPick?: (lon: number, lat: number) => void; terrain?: boolean } = {}): Layer {
   const n = Math.floor(buf.length / 4);
   return new ColumnLayer({
-    id: `hex-${l.key}-${size}`,
+    id: `hex-${l.key}-${size}${o.terrain ? "-3d" : ""}`,
+    ...(o.terrain ? { extensions: [TERRAIN], terrainDrawMode: "drape" } : {}),   // 3D: on the terrain, not under it
     data: { length: n, attributes: { getPosition: { value: buf, size: 2, stride: 16, offset: 0 }, getFillColor: { value: colorize(buf, 4, 2, meta.classes), size: 3, normalized: true } } } as never,
     coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
     coordinateOrigin: [meta.origin[0], meta.origin[1], 0],

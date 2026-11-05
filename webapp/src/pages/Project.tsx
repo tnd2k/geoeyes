@@ -6,6 +6,7 @@ import { Monitor } from "../components/Monitor";
 import { SettingsForm } from "../components/SettingsForm";
 import { Atmosphere } from "../components/Atmosphere";
 import { Gnss } from "../components/Gnss";
+import { StackQc } from "../components/StackQc";
 import { Validation } from "../components/Validation";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
@@ -24,6 +25,7 @@ const PHASES: { name: string; label: string; what: string }[] = [
 const TABS = [
   ["pipeline", "Pipeline"],
   ["data", "Data"],
+  ["stack", "Stack"],
   ["runs", "Runs"],
   ["monitoring", "Monitoring"],
   ["validation", "Validation"],
@@ -660,6 +662,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
           </div>
         )}
 
+        {tab === "stack" && <StackQc name={name} />}
         {tab === "monitoring" && <Monitor name={name} />}
 
         {tab === "validation" && (

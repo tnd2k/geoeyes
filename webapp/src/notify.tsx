@@ -275,7 +275,7 @@ export function ActivityWatcher({ ws }: { ws: Workspace | undefined }) {
       changed = true;
       if (first) return;                               // already finished before this browser watched it
       const ok = j.state === "done";
-      const what = { hazard: "Hazard zoning", gnss: "GNSS comparison", susceptibility: "Susceptibility model", forecast: "Deformation forecast", atmosphere: "Weather model comparison" }[j.kind];
+      const what = { hazard: "Hazard zoning", gnss: "GNSS comparison", susceptibility: "Susceptibility model", forecast: "Deformation forecast", atmosphere: "Weather model comparison", exposure: "Exposure count" }[j.kind];
       const p = `${encodeURIComponent(j.project)}/${encodeURIComponent(j.product)}`;
       const href = {
         hazard: `#/hazard/${p}`,
@@ -283,6 +283,7 @@ export function ActivityWatcher({ ws }: { ws: Workspace | undefined }) {
         susceptibility: `#/ai/${p}/susceptibility`,
         forecast: `#/ai/${p}/forecast`,
         atmosphere: `#/project/${encodeURIComponent(j.project)}/atmosphere`,
+        exposure: `#/hazard/${p}/exposure`,
       }[j.kind];
       notify(
         { id: `${j.kind}:${j.project}:${j.started}`, level: ok ? "success" : "error", title: t(`${what} ${ok ? "finished" : "failed"}: {project}`, { project: j.project }), body: j.product, href },

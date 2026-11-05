@@ -214,6 +214,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                   <option value="psi">{t("psi — persistent scatterers")}</option>
                   <option value="psds">{t("psds — PS + distributed scatterers")}</option>
                   <option value="ps_lite">{t("ps_lite — fast PS (Capella)")}</option>
+                  <option value="sbas">{t("sbas — small baselines, multilooked (slow slope motion)")}</option>
                 </select>
               </div>
               <div>

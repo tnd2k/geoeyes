@@ -22,7 +22,7 @@ def _summary(project: ProjectLayout, kind: str, pid: str) -> dict | None:
 
 def status(project: ProjectLayout, pid: str) -> dict:
     out = {}
-    for kind in ("behaviour", "risk", "lines", "consolidation", "decompose", "geology"):
+    for kind in ("behaviour", "risk", "lines", "consolidation", "decompose", "geology", "exposure"):
         s = _summary(project, kind, pid)
         out[kind] = {"summary": s, **jobs.state(project, kind, pid, s is not None)}
     out["buildings"] = (project.analysis("buildings", pid) / "buildings.json").exists()
@@ -36,6 +36,7 @@ def start(ws: WorkspaceLayout, name: str, kind: str, pid: str, overrides: dict) 
     _consolidation.cache_clear()
     _decompose.cache_clear()
     _geology.cache_clear()
+    _exposure.cache_clear()
     return jobs.start(ws, name, kind, pid, overrides)
 
 
@@ -272,3 +273,27 @@ def geology_cells(project: ProjectLayout, pid: str) -> tuple[dict, bytes]:
     cv = t["cv_m2_yr"].to_numpy(np.float32) if "cv_m2_yr" in t else np.full(len(t), np.nan, np.float32)
     arr = np.column_stack([t["thickness_m"].to_numpy(np.float32), cv])
     return {"n": len(t), "fields": ["thickness_m", "cv_m2_yr"], "summary": s}, arr.astype(np.float32).tobytes()
+
+
+@lru_cache(maxsize=3)
+def _exposure(path: str, mtime: float) -> tuple[pd.DataFrame, dict]:
+    d = Path(path)
+    return pd.read_parquet(d / "exposure_cells.parquet"), json.loads((d / "exposure.json").read_text(encoding="utf-8"))
+
+
+EXPOSURE_FIELDS = ("lon", "lat", "people", "points", "v_vert_mm_yr", "class", "flooded_share", "glofas_depth_m")
+
+
+def exposure_cells(project: ProjectLayout, pid: str) -> tuple[dict, bytes]:
+    """The population cells with people or points (geoeyes exposure), float32: ``EXPOSURE_FIELDS`` (the flood
+    columns NaN when not run)."""
+    d = project.analysis("exposure", pid)
+    f = d / "exposure.json"
+    if not f.exists():
+        raise FileNotFoundError(f"no exposure analysis of {pid} yet")
+    t, s = _exposure(str(d), f.stat().st_mtime)
+    t = t[(t["people"] > 0.5) | (t["points"] > 0)]
+    arr = np.column_stack([t[c].to_numpy(np.float64) if c in t else np.full(len(t), np.nan)
+                           for c in EXPOSURE_FIELDS]).astype(np.float32)
+    return {"n": len(t), "fields": list(EXPOSURE_FIELDS), "cell_deg": s["cell_deg"], "summary": s}, arr.tobytes()
+

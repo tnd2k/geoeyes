@@ -5,8 +5,9 @@ import { PathLayer, ScatterplotLayer, SolidPolygonLayer, type ScatterplotLayerPr
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type AreaInfo, type CatalogProduct, type CompareMeta, type FloodFeature, type LayerMeta, type Workspace } from "../api";
+import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type CompareMeta, type FloodFeature, type LayerMeta, type Workspace } from "../api";
 import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
+import { calibrationSource } from "../components/Calibration";
 import { FloodHub, LEVEL_COLOR } from "../components/FloodHub";
 import { floodBounds, floodFeatures, floodLayers, floodTooltip } from "../components/FloodReports";
 import { ProfileChart } from "../components/Profile";
@@ -150,6 +151,11 @@ function LayerLegend({ meta, hex, confidence, defaultOpen }: { meta: LayerMeta; 
       {open && (
         <div className="mt-1.5">
           <Legend meta={meta} title="" />
+          {meta.calibration && (
+            <div className="mt-1 text-[11px] text-warn-ink">
+              {t("Calibrated velocities")}: {calibrationSource(meta.calibration)}, {fmt.vel(meta.calibration.rate_offset_mm_yr)} mm/yr
+            </div>
+          )}
           {confidence !== undefined && (
             <div className="mt-2">
               <Confidence level={confidence ?? undefined} />
@@ -158,6 +164,21 @@ function LayerLegend({ meta, hex, confidence, defaultOpen }: { meta: LayerMeta; 
         </div>
       )}
     </div>
+  );
+}
+
+/** Calibrated view of a layer: the product's velocities and series plus its calibration (GNSS, else a tie). */
+function CalibrationToggle({ cal, on, onChange }: { cal: CalibrationBrief; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label
+      className="mt-1 flex cursor-pointer items-center gap-2 pl-6 text-[11px] text-ink-2"
+      title={t("Velocities and series with the calibration added (the product files are unchanged); points only")}
+    >
+      <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} className="h-3.5 w-3.5 accent-accent" />
+      <span className="truncate">
+        {t("Calibrated")} · {calibrationSource(cal)} · <span className="font-mono">{fmt.vel(cal.rate_offset_mm_yr)} mm/yr</span>
+      </span>
+    </label>
   );
 }
 
@@ -185,7 +206,7 @@ function ThemeChips({ project, product, on, toggle }: { project: string; product
 }
 
 export function Explorer({ ws }: { ws: Workspace | undefined }) {
-  const { layers, setOpacity, setMode, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
+  const { layers, setOpacity, setMode, setCalibrated, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
   // 3D view: terrain draped with the base map, the points on it; heights exaggerated (flat deltas)
   const [three, setThree] = usePersisted("explorer.3d", false);
   // in 3D the base map is the texture of the terrain (deck.gl), MapLibre only draws the background
@@ -254,8 +275,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
 
   const data = useQueries({
     queries: layers.map((l) => ({
-      queryKey: ["layer", l.key, l.mode ?? "auto"],
-      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto"),
+      queryKey: ["layer", l.key, l.mode ?? "auto", !!l.calibrated],
+      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto", !!l.calibrated),
       staleTime: Infinity,
       gcTime: 10 * 60_000,
     })),
@@ -336,8 +357,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     queries: layers.map((l) => {
       const size = hexFor(l);
       return {
-        queryKey: ["hex", l.key, size],
-        queryFn: () => api.layerHex(l.project, l.product, size!),
+        queryKey: ["hex", l.key, size, !!l.calibrated],
+        queryFn: () => api.layerHex(l.project, l.product, size!, !!l.calibrated),
         enabled: size != null,
         staleTime: Infinity,
         gcTime: 10 * 60_000,
@@ -375,13 +396,13 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     if (size != null && buf) hexByKey[l.key] = { size, buf };
   });
   const disp = useQuery({
-    queryKey: ["disp", anim?.key],
-    queryFn: () => api.layerDisp(anim!.project, anim!.product),
+    queryKey: ["disp", anim?.key, !!anim?.calibrated],
+    queryFn: () => api.layerDisp(anim!.project, anim!.product, !!anim!.calibrated),
     enabled: !!anim,
     staleTime: Infinity,
   });
-  const frameKey = (k: number) => ["disp-frame", anim?.key, k];
-  const frameFetch = (k: number) => () => api.layerDispFrame(anim!.project, anim!.product, k);
+  const frameKey = (k: number) => ["disp-frame", anim?.key, !!anim?.calibrated, k];
+  const frameFetch = (k: number) => () => api.layerDispFrame(anim!.project, anim!.product, k, !!anim!.calibrated);
   const frameQ = useQuery({
     queryKey: frameKey(frame),
     queryFn: frameFetch(frame),
@@ -407,8 +428,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
 
   // ------------------------------------------------------------ profile
   const profile = useQuery({
-    queryKey: ["profile", top?.key, line, halfWidth],
-    queryFn: () => api.layerProfile(top!.project, top!.product, line, halfWidth),
+    queryKey: ["profile", top?.key, line, halfWidth, !!top?.calibrated],
+    queryFn: () => api.layerProfile(top!.project, top!.product, line, halfWidth, !!top!.calibrated),
     enabled: !!top && !profiling && line.length >= 2,
     staleTime: Infinity,
   });
@@ -421,6 +442,21 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
   });
 
   // ------------------------------------------------------------ map
+
+  // 3D: a compass (drag it to turn and tilt, click it for north up) next to the zoom buttons
+  useEffect(() => {
+    const m = map.current;
+    if (!three || !m) return;
+    const compass = new maplibregl.NavigationControl({ showZoom: false, showCompass: true, visualizePitch: true });
+    m.addControl(compass, "bottom-left");
+    return () => {
+      m.removeControl(compass);
+    };
+  }, [three, mapReady, map]);
+  const turn = (deg: number) => {
+    const m = map.current;
+    if (m) m.easeTo({ bearing: m.getBearing() + deg, duration: 500 });
+  };
 
   const firstThree = useRef(true);
   useEffect(() => {
@@ -521,7 +557,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     if (drawing || ring.length < 3 || !top) return;
     setAreaBusy(true);
     api
-      .area(top.project, top.product, ring)
+      .area(top.project, top.product, ring, !!top.calibrated)
       .then((info) => setArea({ layer: top.key, info }))
       .finally(() => setAreaBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,8 +566,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
   // ------------------------------------------------------------ selected point
   const selLayer = selection ? layers.find((l) => l.key === selection.layer) : undefined;
   const point = useQuery({
-    queryKey: ["point", selection?.layer, selection?.index],
-    queryFn: () => api.point(selLayer!.project, selLayer!.product, selection!.index),
+    queryKey: ["point", selection?.layer, selection?.index, !!selLayer?.calibrated],
+    queryFn: () => api.point(selLayer!.project, selLayer!.product, selection!.index, !!selLayer!.calibrated),
     enabled: !!selLayer,
   });
 
@@ -579,7 +615,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
       const swipe = comparing && cmp.mode === "swipe";
       const hx = hexByKey[l.key];
       if (hx) {
-        deckLayers.push(hexLayer(l, d.meta, hx.buf, hx.size, { onPick: (lon, lat) => map.current?.flyTo({ center: [lon, lat], zoom: Math.min(zoom + 2, 16), duration: 600 }) }));
+        deckLayers.push(hexLayer(l, d.meta, hx.buf, hx.size, { terrain: three, onPick: (lon, lat) => map.current?.flyTo({ center: [lon, lat], zoom: Math.min(zoom + 2, 16), duration: 600 }) }));
         return;
       }
       deckLayers.push(
@@ -827,7 +863,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
             }}
             icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 4.5V8l2.5 1.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
           />
-          <Tool label="3D" hint={t("Terrain in 3D, the points on it; right-drag or Ctrl+drag to tilt and turn")} active={three} onClick={() => setThree(!three)} icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="m1 13 4.5-7 3 4 2-2.5L15 13z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>} />
+          <Tool label="3D" hint={t("Terrain in 3D, the points on it; right-drag, Ctrl+drag or the compass to tilt and turn")} active={three} onClick={() => setThree(!three)} icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="m1 13 4.5-7 3 4 2-2.5L15 13z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>} />
           <span className="mx-1 h-5 w-px bg-line-2" aria-hidden />
           <Tool label={t("Products here")} hint={t("Products of every project over the current view (workspace catalog)")} active={!!finder} onClick={() => (finder ? setFinder(null) : findHere())} icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" strokeWidth="1.4" /></svg>} />
           <Tool
@@ -864,6 +900,19 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
               ))}
             </select>
           </label>
+        )}
+        {three && (
+          <div className="flex h-8 items-center gap-0.5 rounded-lg border border-line-2 bg-panel/95 px-1 text-ink-2 shadow-lg shadow-black/30 backdrop-blur">
+            <button type="button" title={t("Turn left 45°")} onClick={() => turn(-45)} className="grid h-6 w-6 place-items-center rounded hover:bg-sunken hover:text-ink">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden><path d="M3 8a5 5 0 1 0 1.5-3.6M3 2.5v2.8h2.8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <button type="button" title={t("North up")} onClick={() => map.current?.easeTo({ bearing: 0, duration: 500 })} className="grid h-6 min-w-6 place-items-center rounded px-1 font-mono text-[12px] hover:bg-sunken hover:text-ink">
+              N
+            </button>
+            <button type="button" title={t("Turn right 45°")} onClick={() => turn(45)} className="grid h-6 w-6 place-items-center rounded hover:bg-sunken hover:text-ink">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.8h-2.8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
         )}
         {(ring.length > 0 || area) && !drawing && (
           <Button className="h-8 bg-panel/95 shadow-lg shadow-black/30 backdrop-blur" onClick={() => (setRing([]), setArea(null))}>
@@ -1192,6 +1241,9 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         className="ml-auto w-20 accent-accent"
                       />
                     </div>
+                    {d?.meta.calibration_available && (
+                      <CalibrationToggle cal={d.meta.calibration_available} on={!!l.calibrated} onChange={(on) => setCalibrated(l.key, on)} />
+                    )}
                     {d && l.visible && !(cmp.mode === "diff" && comparing) && (
                       <LayerLegend meta={d.meta} hex={hexByKey[l.key]?.size} confidence={tr?.product?.confidence} defaultOpen={l.key === top?.key} />
                     )}
