@@ -3,11 +3,12 @@
 Edge variances come from the temporal residuals (robust MAD per edge, shrunk towards the scene median)
 plus the local-gradient spread, scaled to SNAPHU-like integer costs; each interferogram's nearest-cell
 phase grid is unwrapped by IRLS (``irls``), snapped to the wrapped phase + 2πk, and sampled at the PS cells.
+The interferograms are independent: on large grids they run on worker processes (``SpatialParams.n_jobs``).
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -29,6 +30,9 @@ class SpatialParams:
     irls_target_rms: float = 0.01
     irls_epsilon: float = 0.001
     align: bool = False                # irls.enforce_congruence(align=...): [ps] unwrap_align_constant
+    # worker processes over the interferograms: 0 = auto (CPU, memory), 1 = serial. Out of repr: the checkpoint keys
+    # are built from repr(params), and the result does not depend on it
+    n_jobs: int = field(default=0, repr=False, compare=False)
 
 
 @dataclass
@@ -96,6 +100,7 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
     ph_uw = np.zeros((n_ps, n_ifg), np.float32)
     msd = np.full(n_ifg, np.nan, np.float32)
     pcg = np.full(n_ifg, np.nan)
+    tasks = []                                      # (i, phase grid, row costs, column costs)
     for i in (range(n_ifg) if ifg_index is None else ifg_index):
         col = ph[:, i]
         nz = col != 0
@@ -106,6 +111,9 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
             log.warning("interferogram %d: constant phase, marked NaN", i + 1)
             ph_uw[:, i] = np.nan
             continue
+        tasks.append(i)
+
+    def inputs(i):
         with np.errstate(invalid="ignore"):
             spread_i = np.round((np.abs(st.spread[:, i:i + 1]) * (p.nshortcycle**2)) / (6 * p.costscale)
                                 * n_edges[:, None]).astype(np.int16).ravel()
@@ -116,11 +124,54 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
         col_c[csel] = tot[cidx]
         g = ph[ui.Z, i].reshape(nrow, ncol)
         phase = np.where(np.abs(g) > 0, np.angle(g).astype(np.float32), np.nan)
-        u, rms = irls_unwrap(phase, row_c, col_c, dct_init(phase), p.irls_iter, p.irls_target_rms, p.irls_epsilon)
+        return phase, row_c, col_c
+
+    done = [0]
+
+    def store(i, uw, rms):
+        done[0] += 1
+        log.info("interferogram %d unwrapped (%d/%d), PCG rms %.3g", i + 1, done[0], len(tasks), rms)
         pcg[i] = rms if np.isfinite(rms) else np.nan
-        uw = enforce_congruence(phase, u, align=p.align)
         msd[i] = _msd(uw)
         vals = np.zeros(n_ps, np.float32)
         vals[in_grid] = uw[r_ix[in_grid], c_ix[in_grid]]
         ph_uw[:, i] = vals
+
+    n_jobs = _n_jobs(len(tasks), nrow * ncol, p.n_jobs)
+    if n_jobs <= 1:
+        log.info("spatial unwrapping: %d interferograms, serial (grid %d x %d)", len(tasks), nrow, ncol)
+        for i in tasks:
+            store(i, *_unwrap_one(*inputs(i), p))
+    else:                                           # the interferograms are independent: one per worker process
+        from joblib import Parallel, delayed, parallel_config
+        log.info("spatial unwrapping: %d interferograms on %d workers (grid %d x %d)", len(tasks), n_jobs, nrow, ncol)
+        with parallel_config(backend="loky", inner_max_num_threads=1):
+            par = Parallel(n_jobs=n_jobs, return_as="generator")
+            for i, (uw, rms) in zip(tasks, par(delayed(_unwrap_one)(*inputs(i), p) for i in tasks), strict=True):
+                store(i, uw, rms)
     return SpatialResult(ph_uw=ph_uw, msd=msd, pcg_rms=pcg)
+
+
+def _unwrap_one(phase: np.ndarray, row_c: np.ndarray, col_c: np.ndarray, p: SpatialParams) -> tuple[np.ndarray, float]:
+    """One interferogram: IRLS from the DCT start, snapped to the wrapped phase + 2πk."""
+    u, rms = irls_unwrap(phase, row_c, col_c, dct_init(phase), p.irls_iter, p.irls_target_rms, p.irls_epsilon)
+    return enforce_congruence(phase, u, align=p.align), rms
+
+
+def _n_jobs(n_tasks: int, n_cells: int, requested: int) -> int:
+    """Worker processes for the spatial unwrapping: ``requested`` (0 = auto) capped by the tasks, half the logical
+    CPUs and the free memory (~100 bytes per grid cell per worker: the IRLS arrays and the padded DCT). Small grids
+    stay in-process (starting workers costs more than it saves)."""
+    import os
+    if n_tasks <= 1 or (requested == 0 and n_cells < 1_000_000):
+        return 1
+    if requested > 0:
+        return min(requested, n_tasks)
+    cpu = max(1, (os.cpu_count() or 2) // 2)
+    try:
+        import psutil
+        free = psutil.virtual_memory().available
+    except ImportError:
+        free = 8 * 1024**3
+    by_mem = int(0.6 * free // max(1, 100 * n_cells))
+    return max(1, min(n_tasks, cpu, by_mem))

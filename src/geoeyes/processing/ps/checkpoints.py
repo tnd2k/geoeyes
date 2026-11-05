@@ -2,7 +2,11 @@
 the time). A step is reused when its key is unchanged: the stack and the parameters of that step and of every
 step before it (each key chains the previous one). ``from_step`` computes that step and the following ones
 again; ``stop_after`` ends the run after that step (``PhasePaused``), the next run resumes from the checkpoints.
-A run stopped or killed in the middle resumes from its last finished step."""
+A run stopped or killed in the middle resumes from its last finished step.
+
+``lean`` (project ``[ps] checkpoints = "lean"``, for a small disk): steps 2-4 are not saved, the step-1 data is
+deleted once step 5 is saved (its ``.json`` stays: the step-1 values the later keys need), step 6 once step 7 is
+saved. A stopped run then resumes from step 1, 5, 6 or 7; ``from_step`` 2-5 computes step 1 again."""
 from __future__ import annotations
 
 import json
@@ -27,13 +31,13 @@ DIR = "checkpoints"
 
 class Checkpoints:
     def __init__(self, out: str | Path, *, read_from: str | Path | None = None, from_step: int | None = None,
-                 stop_after: int | None = None):
+                 stop_after: int | None = None, lean: bool = False):
         for n in (from_step, stop_after):
             if n is not None and n not in STEPS:
                 raise ValueError(f"PS step {n}: steps are 1-{max(STEPS)}")
         self.dir = Path(out) / DIR
         self.src = Path(read_from) / DIR if read_from else self.dir
-        self.from_step, self.stop_after = from_step, stop_after
+        self.from_step, self.stop_after, self.lean = from_step, stop_after, lean
         self.keys: dict[int, str] = {}
         self.extra: dict = {}                        # merged into the step-5 checkpoint (the step-1 state it needs)
 
@@ -48,11 +52,14 @@ class Checkpoints:
         except (OSError, ValueError):
             return {}
 
-    def valid(self, n: int) -> bool:
+    def known(self, n: int) -> bool:
+        """Step ``n`` was computed with these parameters (its ``.json``; the data may be gone, see ``lean``)."""
         if self.from_step is not None and n >= self.from_step:
             return False
-        return (n in self.keys and self.meta(n).get("key") == self.keys[n]
-                and (self.src / f"step{n}.pkl").exists())
+        return n in self.keys and self.meta(n).get("key") == self.keys[n]
+
+    def valid(self, n: int) -> bool:
+        return self.known(n) and (self.src / f"step{n}.pkl").exists()
 
     def load(self, n: int):
         """The data of step ``n`` (written by this engine; not for untrusted files)."""
@@ -62,6 +69,8 @@ class Checkpoints:
         return data
 
     def save(self, n: int, data, **meta) -> None:
+        if self.lean and n in (2, 3, 4):
+            return
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / f"step{n}.json").unlink(missing_ok=True)
         if n == 5:
@@ -72,6 +81,15 @@ class Checkpoints:
         tmp.replace(self.dir / f"step{n}.pkl")
         atomic_write_json(self.dir / f"step{n}.json", {"step": n, "name": STEPS[n], "key": self.keys[n],
                                                        "saved": time.strftime("%Y-%m-%d %H:%M:%S"), **meta})
+        if self.lean:
+            for k in {5: (1, 2, 3, 4), 7: (6,)}.get(n, ()):
+                p = self.dir / f"step{k}.pkl"
+                if p.exists():
+                    size = p.stat().st_size
+                    p.unlink()
+                    log.info("PS checkpoint of step %d deleted (lean, %.1f GB freed)", k, size / 1e9)
+                if k != 1:
+                    (self.dir / f"step{k}.json").unlink(missing_ok=True)
 
     def reached(self, n: int) -> None:
         """Step ``n`` is done (computed or reused): the progress event, and the stop when asked for."""

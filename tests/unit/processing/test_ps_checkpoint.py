@@ -36,6 +36,27 @@ def test_steps_reused_with_the_same_keys_only(tmp_path):
     assert [s["saved"] is not None for s in status(tmp_path)][:4] == [True, True, True, False]
 
 
+def test_lean_keeps_only_what_a_resume_needs(tmp_path):
+    def keys(c):
+        for n in range(1, 8):
+            c.key(n, p=n)
+
+    ck = Checkpoints(tmp_path, lean=True)
+    keys(ck)
+    for n in range(1, 8):
+        ck.save(n, {"x": n}, **({"mean_range": 850.0} if n == 1 else {}))
+        names = sorted(p.name for p in (tmp_path / "checkpoints").glob("*.pkl"))
+        if n == 4:
+            assert names == ["step1.pkl"]                 # steps 2-4 are not written
+        if n == 5:
+            assert names == ["step5.pkl"]                 # step 1 deleted once step 5 is saved
+    assert sorted(p.name for p in (tmp_path / "checkpoints").glob("*.pkl")) == ["step5.pkl", "step7.pkl"]
+    again = Checkpoints(tmp_path, lean=True)
+    keys(again)
+    assert again.known(1) and not again.valid(1) and again.meta(1)["mean_range"] == 850.0
+    assert again.valid(5) and not again.valid(6) and again.valid(7)
+
+
 def test_stop_after_pauses(tmp_path):
     ck = Checkpoints(tmp_path, stop_after=2)
     ck.reached(1)
