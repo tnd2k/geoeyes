@@ -128,6 +128,9 @@ class SbasNetwork(_Section):
     redundant_pairs: bool = True
     redundant_max_days: int = Field(24, ge=0)
     max_temporal_days: int = Field(0, ge=0)
+    # pairs shorter than this are not used: over crops the shortest pairs carry a phase bias that does not close
+    # (fading signal) and a chain of them flattens a subsidence rate (0 = keep all)
+    min_temporal_days: int = Field(0, ge=0)
 
 
 class NetworkSection(_Section):

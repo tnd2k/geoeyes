@@ -47,6 +47,18 @@ FIELDS: list[tuple[str, str, str]] = [
     ("phase_linking", "min_shp", "Minimum number of SHP for a distributed scatterer"),
     ("phase_linking", "ps_da_max", "PS below this amplitude dispersion keep their own SLC (0 = link all)"),
     ("phase_linking", "gaussian_sigma", "Gaussian post-filter of the linked phase (0 = off)"),
+    ("sbas", "looks_az", "Azimuth looks of the SBAS grid (Sentinel-1: 1 look ≈ 14 m)"),
+    ("sbas", "looks_rg", "Range looks of the SBAS grid (Sentinel-1: 1 look ≈ 2.3 m slant, ≈ 3.7 m ground)"),
+    ("sbas", "reference", "Stable reference point (lon, lat); empty = the most coherent 10 % of pixels"),
+    ("sbas", "source", "auto: phase-linked SLC when phase linking is on; slc or linked to force one"),
+    ("sbas", "n_nearest", "Pairs per date with the next N dates (when max_temporal_days = 0)"),
+    ("sbas", "min_pair_coherence", "A pixel of a pair below this coherence has no value in that pair"),
+    ("sbas", "min_pair_fraction", "A pixel needs a value in this share of the pairs"),
+    ("sbas", "min_mean_coherence", "Output mask: mean coherence of the pairs"),
+    ("sbas", "min_temporal_coherence", "Output mask: temporal coherence of the inversion"),
+    ("sbas", "troposphere", "Per pair, remove the phase linear in height (can absorb a bowl lower than the "
+                            "reference)"),
+    ("sbas", "goldstein_alpha", "Goldstein filter strength before unwrapping (0 = off)"),
     ("atmosphere", "method", "none, era5 (needs ~/.cdsapirc) or gacos"),
     ("atmosphere", "select", "auto: weather correction kept only where it reduces the phase; all: everywhere"),
     ("export", "formats", "GIS formats written for each product"),
@@ -54,7 +66,7 @@ FIELDS: list[tuple[str, str, str]] = [
 ]
 SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "Acquisition", "network": "Network",
                   "stack": "Stack", "selection": "Point selection", "phase_linking": "Phase linking",
-                  "atmosphere": "Atmosphere", "export": "Export", "report": "Report",
+                  "sbas": "SBAS (method = sbas)", "atmosphere": "Atmosphere", "export": "Export", "report": "Report",
                   "ps": "Point engine (StaMPS parameters)"}
 SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
                ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],

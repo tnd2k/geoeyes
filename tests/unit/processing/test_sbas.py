@@ -171,3 +171,50 @@ def test_closure_finds_the_wrong_pair():
     phase[wrong, :30] += 2 * np.pi                         # an unwrapping error on 60 % of the pixels
     drop, info = cl.bad_pairs(phase, net.pairs)
     assert drop == [wrong] and info["triplets"] > 0
+
+
+def test_baseline_outliers_are_left_out_not_bridged():
+    """Choshui desc 105: two dates ~400 m off the orbital tube formed their own subset; the one bridge pair to it
+    was incoherent and no pixel kept a complete series. Such small subsets are left out; large ones are kept."""
+    from geoeyes.processing.sbas.runner import baseline_outliers
+    d = _dates(40)
+    b = np.zeros(len(d))
+    b[[10, 25]] = -420.0
+    p = NetworkParams(max_perp_m=150, n_nearest=3, redundant=True, redundant_max_days=24)
+    keep, out = baseline_outliers(d, b, p)
+    assert out == [10, 25] and len(keep) == 38 and 10 not in keep
+    assert len(components(38, select_pairs([d[k] for k in keep], b[keep], p).pairs)) == 1
+    b2 = np.zeros(len(d))
+    b2[20:] = 400.0                                   # two halves: both large, bridged as before
+    keep2, out2 = baseline_outliers(d, b2, p)
+    assert out2 == [] and len(keep2) == 40
+
+
+def test_a_date_reached_only_by_year_long_pairs_is_left_out():
+    from geoeyes.processing.sbas.runner import baseline_outliers
+    d = _dates(60)                                    # 12-day steps, ~2 years
+    b = np.zeros(len(d))
+    b[2] = -250.0                                     # its only pairs within 150 m: dates also far off, years later
+    b[50:53] = -120.0
+    p = NetworkParams(max_perp_m=150, n_nearest=3, redundant=True, redundant_max_days=24)
+    keep, out = baseline_outliers(d, b, p)
+    assert out == [2] and len(keep) == 59
+
+
+def test_rank_deficit_of_a_pixel_network():
+    """A pixel whose valid pairs leave an interval tied to nothing is flagged (minimum norm pulls it to 0)."""
+    d = _dates(6)
+    net = select_pairs(d, np.zeros(6), NetworkParams(n_nearest=1, redundant=False))   # chain 0-1-2-3-4-5
+    phase = np.ones((len(net.pairs), 2))
+    phase[2, 1] = np.nan                                  # pixel 1 loses pair (2, 3): its network splits
+    deficit = np.zeros(2, int)
+    iv.invert(phase, net.design(), min_pairs=1, rank_out=deficit)
+    assert deficit.tolist() == [0, 1]
+
+
+def test_min_temporal_days_drops_the_short_pairs():
+    d = _dates(20)                                    # 12-day steps
+    net = select_pairs(d, np.zeros(20), NetworkParams(n_nearest=3, redundant=True, redundant_max_days=24,
+                                                      min_temporal_days=48))
+    assert min((d[j] - d[i]).days for i, j in net.pairs) >= 48
+    assert len(components(20, net.pairs)) == 1
