@@ -275,11 +275,18 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return FileResponse(f, media_type="application/octet-stream",
                             headers={"Cache-Control": "private, max-age=86400"})
 
+    @app.get("/api/projects/{name}/products/{pid}/layer/coherence.bin")
+    def layer_coherence(name: str, pid: str, cal: bool = False, vel: str | None = None):
+        """float32 per point, in the order of ``points.bin``: temporal coherence (the map's coherence slider)."""
+        return Response(points.coherence_bin(layer_dir(name, pid, cal, vel)), media_type="application/octet-stream",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
     @app.get("/api/projects/{name}/products/{pid}/layer/hex.bin")
-    def layer_hex(name: str, pid: str, size: int = 500, cal: bool = False, vel: str | None = None):
-        """The points binned in hexagons (``size`` m, centre to vertex): float32 x 4 (dlon, dlat, median, count)."""
+    def layer_hex(name: str, pid: str, size: int = 500, cal: bool = False, vel: str | None = None, coh: float = 0.0):
+        """The points binned in hexagons (``size`` m, centre to vertex): float32 x 4 (dlon, dlat, median, count);
+        ``coh``: only the points with a temporal coherence at least this."""
         try:
-            data = points.hexbins(layer_dir(name, pid, cal, vel), size)
+            data = points.hexbins(layer_dir(name, pid, cal, vel), size, coh)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         return Response(data, media_type="application/octet-stream",

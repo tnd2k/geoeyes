@@ -30,7 +30,7 @@ relative_orbit = 78
 TRACK = "sentinel1-asc-078"
 
 
-def _ps_run(root, n=80, kinds=False):
+def _ps_run(root, n=80, kinds=False, coherence=None):
     import geopandas as gpd
     run = root / "ps_runs" / TRACK
     rng = np.random.default_rng(3)
@@ -41,7 +41,8 @@ def _ps_run(root, n=80, kinds=False):
     extra = {"vel_do_mm_yr": vel + 3, "vel_dao_mm_yr": vel, "vel_dso_mm_yr": vel / 2} if kinds else {}
     gdf = gpd.GeoDataFrame({"point_uid": uid, "lon": lon, "lat": lat, "height_m": np.float32(2240),
                             "dem_err_m": np.float32(0), "type": "PS", "vel_los_mm_yr": vel,
-                            "temporal_coherence": np.float32(0.9), "amp_dispersion": np.float32(0.2),
+                            "temporal_coherence": np.float32(0.9) if coherence is None else coherence,
+                            "amp_dispersion": np.float32(0.2),
                             "fit_rmse_mm": np.float32(1), "incidence_deg": np.float32(38), **extra},
                            geometry=gpd.points_from_xy(lon, lat), crs="EPSG:4326")
     write_points(run / "points.parquet", gdf)
@@ -102,6 +103,23 @@ def test_product_layer_points_and_area_series(ws):
     assert a["n"] == 80 and len(a["mean_mm"]) == dates.size
     assert c.get(f"/api/projects/alpha/products/{pid}/files/../../project.toml").status_code == 404
     assert c.get(f"/api/projects/alpha/products/{pid}/files/item.json").status_code == 200
+
+
+def test_layer_coherence_and_filtered_hexagons(ws):
+    """The coherence slider: coherence per point in the order of points.bin; hexagons binned above a threshold."""
+    proj = ws.project("alpha")
+    run, *_ = _ps_run(proj.root, n=200, coherence=np.linspace(0.3, 0.99, 200).astype(np.float32))
+    pid = build_product(run, proj.root / "products", project="alpha", track_id=TRACK)["product_id"]
+    c = TestClient(create_app(ws))
+    base = f"/api/projects/alpha/products/{pid}/layer"
+    n = c.get(base).json()["n"]
+    coh = np.frombuffer(c.get(f"{base}/coherence.bin").content, np.float32)
+    assert coh.size == n and np.nanmin(coh) == pytest.approx(0.3, abs=1e-3)
+    size = c.get(base).json()["hex_sizes"][0]
+    count = lambda q: int(np.frombuffer(c.get(f"{base}/hex.bin?size={size}{q}").content, np.float32).reshape(-1, 4)[:, 3].sum())  # noqa: E731
+    assert count("") == n
+    assert count("&coh=0.7") == int((coh >= 0.7).sum())
+    assert c.get(f"{base}/hex.bin?size={size}&coh=1.5").status_code == 400
 
 
 def test_layer_velocity_kinds(ws):
