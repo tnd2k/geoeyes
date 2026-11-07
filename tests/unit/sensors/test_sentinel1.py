@@ -85,3 +85,13 @@ def test_real_burst_metadata_matches_esa_geolocation_grid():
     tz = m.orbit.zero_doppler_time(x, t)
     assert np.abs(tz - t).max() < 1e-5                                   # 10 µs
     assert np.abs(m.orbit.slant_range(x, tz) - g.slant_range_time * C / 2).max() < 0.01
+
+
+def test_fm_rate_polynomial_old_ipf_layout():
+    """Early-2015 S1A annotations write the FM rate as c0, c1, c2 instead of azimuthFmRatePolynomial."""
+    import xml.etree.ElementTree as ET
+
+    from geoeyes.sensors.sentinel1.burst import _poly
+    new = ET.fromstring("<a><azimuthFmRatePolynomial count='3'>-2336.4 448956.1 -7.83e7</azimuthFmRatePolynomial></a>")
+    old = ET.fromstring("<a><c0>-2336.4</c0><c1>448956.1</c1><c2>-7.83e7</c2></a>")
+    assert _poly(new, "azimuthFmRatePolynomial") == _poly(old, "azimuthFmRatePolynomial") == (-2336.4, 448956.1, -7.83e7)

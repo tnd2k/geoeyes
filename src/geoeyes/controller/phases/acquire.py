@@ -137,6 +137,15 @@ def catalogue(ctx) -> list:
         ids = burst_ids_for_aoi(aoi, relative_orbit=ctx.track.relative_orbit, start=start, end=end,
                                 subswaths=ctx.track.subswaths or None)
         refs = search(start=start, end=end, full_burst_ids=ids, relative_orbit=ctx.track.relative_orbit)
+        if ctx.track.frame is not None:              # only the bursts of the SLC products of that frame
+            from geoeyes.core.errors import DataError
+            from geoeyes.sensors.sentinel1.asf import slc_names_in_frame
+            names = slc_names_in_frame(frame=ctx.track.frame, relative_orbit=ctx.track.relative_orbit,
+                                       start=start, end=end)
+            refs = [r for r in refs if r.slc_name in names]
+            if not refs:
+                raise DataError(f"no bursts over the AOI in frame {ctx.track.frame} of relative orbit "
+                                f"{ctx.track.relative_orbit}")
         ctx.cache["acquire"] = _thin(refs, c.acquire.max_per_month)
         log.info("%s: %d bursts in %d acquisitions on ASF (%s..%s)", ctx.track_id, len(ctx.cache["acquire"]),
                  len({r.date for r in ctx.cache["acquire"]}), start, end)

@@ -138,6 +138,23 @@ def _get_json(http: requests.Session, params: dict, timeout: float, attempts: in
     raise DataError(f"ASF search failed after {attempts} attempts: {err}")
 
 
+def slc_names_in_frame(*, frame: int, relative_orbit: int, start: date | str, end: date | str,
+                       session: requests.Session | None = None, timeout: float = 300) -> set[str]:
+    """Names of the IW SLC products with ASF frame number ``frame`` on the track: the burst search has no frame,
+    so bursts are kept by their source SLC. One request per calendar year (as ``search``)."""
+    http = session or requests.Session()
+    q: dict = {"platform": "Sentinel-1", "processingLevel": "SLC", "beamMode": "IW", "relativeOrbit": relative_orbit,
+               "frame": frame, "output": "geojson", "maxResults": 10000}
+    d0, d1 = date.fromisoformat(str(start)[:10]), date.fromisoformat(str(end)[:10])
+    names: set[str] = set()
+    for y in range(d0.year, d1.year + 1):
+        q["start"] = max(d0, date(y, 1, 1)).isoformat()
+        q["end"] = f"{min(d1, date(y, 12, 31))}T23:59:59Z"
+        names |= {f["properties"]["sceneName"] for f in _get_json(http, q, timeout).get("features", [])}
+    log.info("ASF SLC search: %d products in frame %d of relative orbit %d", len(names), frame, relative_orbit)
+    return names
+
+
 def burst_ids_for_aoi(aoi: BBox, *, relative_orbit: int, start: date | str, end: date | str,
                       subswaths: Iterable[str] | None = None, polarization: str = "VV",
                       all_subswaths: bool = False, session: requests.Session | None = None) -> list[str]:

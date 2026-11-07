@@ -91,6 +91,32 @@ def test_acquire_sentinel1_bursts(tmp_path, monkeypatch):
     assert s.action == "up-to-date"
 
 
+def test_acquire_keeps_only_the_frame_of_the_track(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from geoeyes.controller.phases import acquire as acq
+    from geoeyes.sensors.sentinel1 import asf
+    tracks = [{"sensor": "sentinel1", "direction": "descending", "relative_orbit": 18, "frame": 553}]
+    cfg, prj, ws = project(tmp_path, project={"name": "cap", "method": "psi"}, tracks=tracks,
+                           acquire={"date_range": ["2025-04-01", "2025-05-31"], "max_per_month": 0})
+
+    def ref(d, slc):
+        return asf.BurstRef(file_id=f"S1_37527_IW1_{d:%Y%m%d}_VV-BURST", full_burst_id="018_037527_IW1",
+                            relative_burst_id=37527, subswath="IW1", burst_index=1, polarization="VV",
+                            start=datetime.combine(d, datetime.min.time()), slc_name=slc, relative_orbit=18,
+                            absolute_orbit=1, direction=cfg.tracks[0].direction, platform="", data_url="",
+                            metadata_url="", bytes=1, footprint_wkt="")
+
+    refs = [ref(date(2025, 4, 11), "S1A_a"), ref(date(2025, 4, 17), "S1C_b"), ref(date(2025, 4, 23), "S1A_c")]
+    asked = {}
+    monkeypatch.setattr(asf, "burst_ids_for_aoi", lambda *a, **k: ["018_037527_IW1"])
+    monkeypatch.setattr(asf, "search", lambda **k: refs)
+    monkeypatch.setattr(asf, "slc_names_in_frame", lambda **k: asked.update(k) or {"S1A_a", "S1A_c"})
+    s = step(plan(cfg, prj, ws), "acquire")
+    assert [r.date for r in acq.catalogue(s.ctx)] == [date(2025, 4, 11), date(2025, 4, 23)]
+    assert asked["frame"] == 553 and asked["relative_orbit"] == 18
+
+
 def _mark_built(ctx):
     """Pretend build_stack completed: stack store with its fingerprint + state record (as the runner writes)."""
     import numpy as np
