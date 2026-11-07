@@ -50,22 +50,64 @@ def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = N
     return vel, model
 
 
-def remove_stratified(phase: np.ndarray, height: np.ndarray, use: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def remove_stratified(phase: np.ndarray, height: np.ndarray, use: np.ndarray,
+                      adjust=None) -> tuple[np.ndarray, np.ndarray]:
     """Per pair, the least-squares fit φ = a + b·h over the pixels ``use`` (coherent, finite) removed from every
     pixel: the delay of a stratified troposphere grows with height and, in mountains, looks like motion correlated
-    with the relief. Returns the corrected phase and ``b`` (rad / m) per pair."""
+    with the relief. ``adjust(b) -> b'``: the coefficients actually removed (``stratified_without_trend``).
+    Returns the corrected phase and the removed ``b`` (rad / m) per pair."""
     h = np.asarray(height, np.float64)
     out = phase.copy()
     coef = np.full(phase.shape[0], np.nan)
+    h0 = np.full(phase.shape[0], np.nan)
     for k in range(phase.shape[0]):
         ok = use & np.isfinite(phase[k]) & np.isfinite(h)
         if ok.sum() < 100:
             continue
         a = np.column_stack([np.ones(ok.sum()), h[ok]])
-        sol = np.linalg.lstsq(a, phase[k, ok].astype(np.float64), rcond=None)[0]
-        coef[k] = sol[1]
-        out[k] = phase[k] - sol[1] * (h - np.nanmedian(h[ok]))
+        coef[k] = np.linalg.lstsq(a, phase[k, ok].astype(np.float64), rcond=None)[0][1]
+        h0[k] = np.nanmedian(h[ok])
+    if adjust is not None:
+        coef = adjust(coef)
+    for k in np.flatnonzero(np.isfinite(coef)):
+        out[k] = phase[k] - coef[k] * (h - h0[k])
     return out, coef
+
+
+def stratified_without_trend(coef: np.ndarray, pairs: list[tuple[int, int]], days: np.ndarray) -> np.ndarray:
+    """The per-pair height coefficients ``coef`` (rad / m) less their steady trend over the dates.
+
+    The correction b_k·(h − h0) is linear in height for every pixel, so its time series is β(t)·(h − h0) with β the
+    inversion of b over the pairs: the trend of β becomes a velocity proportional to height. A stratified
+    troposphere has no multi-year trend; a fit that has one took deformation correlated with height (the low,
+    young fills of a delta subside more). Remove b_k − s·(t_j − t_i), s the slope of β."""
+    b = np.where(np.isfinite(coef), coef, 0.0)
+    n = len(days)
+    a = np.zeros((len(pairs), n - 1))
+    for k, (i, j) in enumerate(pairs):
+        a[k, i:j] = np.diff(days)[i:j]
+    beta_rate = np.linalg.lstsq(a, b, rcond=None)[0]                 # per interval, rad / m / day
+    beta = np.concatenate([[0.0], np.cumsum(beta_rate * np.diff(days))])
+    s = np.polyfit(days - days[0], beta, 1)[0]
+    span = np.array([days[j] - days[i] for i, j in pairs], np.float64)
+    return np.where(np.isfinite(coef), coef - s * span, coef)
+
+
+def remove_dem_error(series: np.ndarray, days: np.ndarray, bperp: np.ndarray,
+                     min_spread_m: float = 20.0) -> tuple[np.ndarray, np.ndarray]:
+    """Per pixel, the least-squares fit series = c + v·t + K·B⊥ (``series``: dates × pixels, phase; ``bperp`` per
+    date) and the series with K·B⊥ removed; returns (corrected series, K in rad per metre of B⊥). Not estimated
+    (K = 0) when the baselines span less than ``min_spread_m`` (K would be noise)."""
+    b = np.asarray(bperp, np.float64)
+    k = np.zeros(series.shape[1])
+    if np.ptp(b) < min_spread_m or series.shape[0] < 4:
+        return series, k
+    t = (days - days.mean()) / 365.25
+    a = np.column_stack([np.ones_like(t), t, b - b.mean()])
+    ok = np.isfinite(series).all(0)
+    if ok.any():
+        k[ok] = np.linalg.lstsq(a, series[:, ok], rcond=None)[0][2]
+    return series - np.outer(b - b.mean(), k), k
 
 
 def displacement(vel: np.ndarray, days: np.ndarray) -> np.ndarray:

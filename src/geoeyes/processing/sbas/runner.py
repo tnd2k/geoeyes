@@ -117,10 +117,25 @@ def run(store, out_dir: str | Path, sbas, network, *, slc_var: str = "slc", run_
     ref_wide = (reference_mask(geo, mean_coh, sbas.reference, half=5).ravel() if sbas.reference is not None
                 else ref)
     tropo = None
-    if sbas.troposphere and "geometry_hgt" in geo:
+    tropo_mode = "off"
+    day_of = np.array([(d - dates[0]).days for d in dates], np.float64)
+    if sbas.troposphere is not False and "geometry_hgt" in geo:
         use = mean_coh.ravel() >= np.nanpercentile(mean_coh, 70)
-        unw, tropo = iv.remove_stratified(unw, geo["geometry_hgt"].ravel(), use)
-        say(f"sbas: stratified troposphere removed (median {np.nanmedian(np.abs(tropo)) * 1000:.2f} rad/km)")
+        h = geo["geometry_hgt"].ravel()
+        hu = h[use & np.isfinite(h)]
+        relief = float(np.ptp(np.percentile(hu, [5, 95]))) if hu.size else 0.0
+        if sbas.troposphere == "auto" and relief < sbas.troposphere_min_relief_m:
+            say(f"sbas: stratified troposphere not removed: terrain relief {relief:.0f} m (p5-p95 of the coherent "
+                f"pixels) < {sbas.troposphere_min_relief_m:.0f} m, too flat to measure it (the fit would take "
+                "height-correlated deformation)")
+            tropo_mode = f"off (relief {relief:.0f} m)"
+        else:
+            detrend = sbas.troposphere == "auto"
+            unw, tropo = iv.remove_stratified(
+                unw, h, use, adjust=(lambda b: iv.stratified_without_trend(b, net.pairs, day_of)) if detrend else None)
+            tropo_mode = "removed without its steady trend" if detrend else "removed as fitted"
+            say(f"sbas: stratified troposphere {tropo_mode} (relief {relief:.0f} m, median "
+                f"{np.nanmedian(np.abs(tropo)) * 1000:.2f} rad/km)")
     with np.errstate(invalid="ignore"):
         # per pair, the median of the 3 × 3 reference; where fewer than REF_MIN_VALID of them have a value (low
         # coherence there: Choshui desc 105 at dawn, 0.1-0.2 on the reference tableland), the median of a wider
@@ -149,6 +164,14 @@ def run(store, out_dir: str | Path, sbas, network, *, slc_var: str = "slc", run_
     n_pairs = np.isfinite(unw[:, cand]).sum(0)
     days = used.days()
     series = iv.displacement(vel, days)                          # phase, dates × candidates
+    k_dem = np.zeros(series.shape[1])
+    if sbas.dem_error:
+        series, k_dem = iv.remove_dem_error(series, days, bperp)
+        if np.any(k_dem):
+            say(f"sbas: DEM error removed from the series (B⊥ {bperp.min():+.0f}..{bperp.max():+.0f} m; "
+                f"|K| p50 {np.nanmedian(np.abs(k_dem)) * 1000:.2f} rad/km of B⊥)")
+        else:
+            say(f"sbas: DEM error not estimated (B⊥ spread {np.ptp(bperp):.0f} m)")
     tcoh = iv.temporal_coherence(unw[:, cand], model)
     ok = np.isfinite(series).all(0) & (tcoh >= sbas.min_temporal_coherence)
     px = cand[ok]
@@ -171,6 +194,9 @@ def run(store, out_dir: str | Path, sbas, network, *, slc_var: str = "slc", run_
     lat, lon = geo["geometry_lat"].ravel()[px], geo["geometry_lon"].ravel()[px]
     hgt = geo.get("geometry_hgt", np.zeros(shape)).ravel()[px]
     inc = geo.get("geometry_incidence", np.full(shape, np.nan)).ravel()[px]
+    # DEM error (m) from K (rad per metre of B⊥): φ = 4π/λ · B⊥·Δh / (R sin θ), the sign of the ps engine
+    rng = float(np.nanmedian(ds["geometry_slant_range"].values)) if "geometry_slant_range" in ds else np.nan
+    dem_err = (-k_dem[ok] * wl * rng * np.sin(np.radians(inc)) / (4 * np.pi)).astype(np.float32)
     line, sample = np.divmod(px, shape[1])
     uid = np.char.add(np.char.add(f"{track_id or 'track'}:", geohash(lat, lon)),
                       np.char.add(":", np.round(hgt).astype(int).astype(str)))
@@ -180,7 +206,7 @@ def run(store, out_dir: str | Path, sbas, network, *, slc_var: str = "slc", run_
     gdf = gpd.GeoDataFrame({
         "point_uid": uid[sel], "lon": lon[sel], "lat": lat[sel], "line": (line[sel] * la + la // 2),
         "sample": (sample[sel] * lr + lr // 2), "height_m": hgt[sel],
-        "dem_err_m": np.full(len(sel), np.nan, np.float32),
+        "dem_err_m": dem_err[sel] if sbas.dem_error else np.full(len(sel), np.nan, np.float32),
         "type": np.full(len(sel), "SBAS"), "vel_los_mm_yr": v.astype(np.float32),
         "vel_linear_mm_yr": v.astype(np.float32), "temporal_coherence": tcoh[ok][sel].astype(np.float32),
         "amp_dispersion": np.full(len(sel), np.nan, np.float32), "fit_rmse_mm": rmse[sel].astype(np.float32),
@@ -200,7 +226,8 @@ def run(store, out_dir: str | Path, sbas, network, *, slc_var: str = "slc", run_
     summary = {"engine": ENGINE, "reference_date": dates[0].isoformat(), "epochs": len(dates),
                "sbas": {"pairs": len(net.pairs), "pairs_used": len(keep_pairs), "grid": list(shape),
                         "candidates": int(cand.size), "points": int(sel.size)},
-               "aps": "none",
+               "aps": "none", "troposphere": tropo_mode,
+               "dem_error": bool(sbas.dem_error and np.any(k_dem)),
                "reference": ({"lon": float(sbas.reference[0]), "lat": float(sbas.reference[1])}
                              if sbas.reference is not None else "most coherent 10 % of pixels"),
                "velocity_mm_yr": ({"min": float(np.nanmin(v)), "max": float(np.nanmax(v)),

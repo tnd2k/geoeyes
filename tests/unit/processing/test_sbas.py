@@ -142,6 +142,48 @@ def test_pixel_mask_and_stratified_troposphere():
     assert np.allclose(b, [0.002, -0.001], atol=2e-5) and np.ptp(corr[0]) < 1e-6
 
 
+def test_stratified_correction_keeps_the_velocity_of_height_correlated_subsidence():
+    """Flat delta: the low pixels subside (deformation correlated with height). The fitted b·h takes that trend;
+    without its steady trend the correction leaves the velocity, and still removes a date-to-date troposphere."""
+    d = _dates(12)
+    net = select_pairs(d, np.zeros(12), NetworkParams(n_nearest=3, redundant=False))
+    t = net.days().astype(float)
+    rng = np.random.default_rng(0)
+    h = rng.uniform(0, 30, 2000)
+    rate = -0.004 * (30 - h) / 30                                  # rad/day: the lowest pixels subside fastest
+    tropo = rng.normal(0, 0.02, len(t))                            # rad/m per date: a real stratified delay
+    epoch = np.outer(t, rate) + np.outer(tropo, h)
+    ph = np.array([epoch[j] - epoch[i] for i, j in net.pairs])
+    full, _ = iv.remove_stratified(ph, h, np.ones(h.size, bool))
+    kept, _ = iv.remove_stratified(ph, h, np.ones(h.size, bool),
+                                   adjust=lambda b: iv.stratified_without_trend(b, net.pairs, t))
+
+    def velocity(p):
+        v, _ = iv.invert(p, net.design())
+        s = iv.displacement(v, t)
+        return np.polyfit(t, s, 1)[0]
+
+    # what the data hold as a rate: the motion plus the chance trend of 12 random troposphere dates (left by design)
+    held = rate + np.polyfit(t, tropo, 1)[0] * h
+    truth = held - np.median(held)
+    assert np.abs((velocity(full) - np.median(velocity(full))) - truth).max() > 1e-3          # the trend is lost
+    assert np.abs((velocity(kept) - np.median(velocity(kept))) - truth).max() < 1e-5         # kept
+
+
+def test_dem_error_removed_from_the_series():
+    t = np.arange(0, 360, 12, dtype=float)
+    rng = np.random.default_rng(1)
+    b = rng.uniform(-150, 150, t.size)                             # B⊥ per date (m)
+    k = np.array([0.0, 0.01, -0.02])                               # rad per metre of B⊥
+    v = np.array([-0.01, 0.0, 0.005])                              # rad per day
+    series = np.outer(t, v) + np.outer(b - b.mean(), k)
+    corr, k_hat = iv.remove_dem_error(series, t, b)
+    assert np.allclose(k_hat, k, atol=1e-6)
+    assert np.allclose(corr - corr[:1], np.outer(t, v), atol=1e-6)
+    same, k0 = iv.remove_dem_error(series, t, np.full(t.size, 30.0))      # no baseline spread: nothing estimated
+    assert not k0.any() and same is series
+
+
 def test_unwrap_ties_islands_across_a_gap():
     from geoeyes.processing.sbas import pairs as pr
     from geoeyes.processing.unwrap.components import link_components

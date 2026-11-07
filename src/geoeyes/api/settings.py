@@ -56,8 +56,11 @@ FIELDS: list[tuple[str, str, str]] = [
     ("sbas", "min_pair_fraction", "A pixel needs a value in this share of the pairs"),
     ("sbas", "min_mean_coherence", "Output mask: mean coherence of the pairs"),
     ("sbas", "min_temporal_coherence", "Output mask: temporal coherence of the inversion"),
-    ("sbas", "troposphere", "Per pair, remove the phase linear in height (can absorb a bowl lower than the "
-                            "reference)"),
+    ("sbas", "troposphere", "Stratified troposphere (phase linear in height, per pair): auto = off on flat terrain, "
+                            "else removed without its steady trend; true = as fitted; false = off"),
+    ("sbas", "troposphere_min_relief_m", "auto: terrain relief (m, p5-p95) below which the troposphere is not "
+                                         "removed"),
+    ("sbas", "dem_error", "Estimate the DEM error of each pixel from the series and remove it (c + v·t + K·B⊥)"),
     ("sbas", "goldstein_alpha", "Goldstein filter strength before unwrapping (0 = off)"),
     ("atmosphere", "method", "Weather-model APS for step 7: none, era5 (needs ~/.cdsapirc), cerra or gacos"),
     ("atmosphere", "select", "auto: weather correction kept only where it reduces the phase; all: everywhere"),
@@ -107,6 +110,8 @@ SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
                ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],
                ("ps", "max_topo_err"): ["auto", "auto_master"], ("ps", "unwrap_time_win"): ["auto"],
                ("ps", "unwrap_grid_filter_sigma"): ["auto", "cells"], ("ps", "ref_radius"): ["inf"]}
+# fields of a bool-or-word type: offered as text options, written back as true / false / the word
+WORD_BOOL = {("sbas", "troposphere"): ["auto", "true", "false"]}
 # [ps] keys that take a number or one of these words (set from the data when the engine runs)
 PS_WORDS = {"max_topo_err": {"auto", "auto_master"}, "unwrap_time_win": {"auto"},
             "unwrap_grid_filter_sigma": {"auto", "cells"}, "ref_radius": {"inf"}}
@@ -324,6 +329,8 @@ def describe(project: ProjectLayout) -> dict:
     for section, key, help_ in rows:
         if section == "ps":
             kind = _ps_kind(DEFAULTS[key], key)
+        elif (section, key) in WORD_BOOL:
+            kind = {"kind": "enum", "options": WORD_BOOL[(section, key)], "nullable": False}
         else:
             sec = _resolve(schema, schema["properties"][section])
             kind = _kind(schema, sec["properties"][key])
@@ -334,9 +341,12 @@ def describe(project: ProjectLayout) -> dict:
                 auto = u["auto"] or str(value).lower() == "auto"
                 if auto or (str(u["value"]) != str(value) and not _close(u["value"], value)):
                     runs.append({**u, "auto": auto})
+        default = _json(_safe(_get(base, section, key)))
+        if (section, key) in WORD_BOOL:                          # true / false as the option text
+            value, default = (str(x).lower() for x in (value, default))
         sections.setdefault(section, []).append({
             "key": key, "help": help_, **kind, "suggest": SUGGESTIONS.get((section, key)),
-            "value": value, "default": _json(_safe(_get(base, section, key))),
+            "value": value, "default": default,
             "own": key in (raw.get(section) or {}), "used": runs or None})
     return {"sections": _ordered(sections), "toml": text, "tracks": raw.get("tracks", [])}
 
@@ -408,6 +418,8 @@ def apply(project: ProjectLayout, changes: dict[str, Any]) -> dict:
             if section in doc and key in doc[section]:
                 del doc[section][key]
             continue
+        if (section, key) in WORD_BOOL and isinstance(value, str) and value.lower() in ("true", "false"):
+            value = value.lower() == "true"
         if section == "ps" and key in PS_WORDS and isinstance(value, str):
             words = PS_WORDS[key]
             if value.strip().lower() in words:
