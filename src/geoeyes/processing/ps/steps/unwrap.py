@@ -46,6 +46,8 @@ class UnwrapParams:
     # PS rate model (unwrap/ps_rate.py): a linear rate per PS from the PS network is removed before the grid, the
     # grid unwraps the step-5 phase of the PS itself (not the patch phase), and each PS adds its wrapped residual to
     # its cell; the model is added back. Rate bound = edge_rate_max (mm/yr; 0 = none searched)
+    # StaMPS unwrap_patch_phase: True = grid the step-4 patch phase (legacy), False = the step-5 PS phase ph_rc
+    patch_phase: bool = False
     ps_rate: str = "n"                         # "y" | "n" | "auto": >= ps_rate_min_ifg and >= half the arcs reliable
     ps_rate_max_arc: float = 500.0
     ps_rate_min_ifg: int = 40
@@ -108,7 +110,13 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
         if rate is not None:
             ps_model = rate[:, None] * t_yr[None, :]                 # (n, n_ifg), 0 at the master
             ph_w = rc * np.exp(-1j * ps_model)
-    if ps_model is None:
+    use_rc = ps_model is not None or not p.patch_phase
+    if ps_model is None and use_rc:                # StaMPS unwrap_patch_phase = 'n': the PS phase itself
+        ph_w = np.asarray(ph_rc, np.complex128)
+        mag = np.abs(ph_w)
+        ph_w = np.where(mag > 0, ph_w / np.where(mag > 0, mag, 1.0), 0)
+        ph_w[:, master_ix] = 1
+    elif ps_model is None:                         # 'y': the step-4 patch phase, PS residual added back after
         ph_w = _with_master(np.complex128(ph_patch) / np.abs(ph_patch), master_ix, 1)
     k_dem = np.nan_to_num(np.asarray(K, np.float64).reshape(-1))
     has_k = bool(np.any(np.isfinite(K) & (np.asarray(K) != 0)))
@@ -152,9 +160,9 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
     msd = np.zeros(n_ifg, np.float32)
     ph_uw[:, idx] = sp.ph_uw
     msd[idx] = sp.msd
-    if ps_model is not None:
-        # each PS: its cell's unwrapped value + its own wrapped residual to it (the residual of the model-removed
-        # phase is small, so a PS faster than its cell no longer loses cycles)
+    if use_rc:
+        # each PS: its cell's unwrapped value + its own wrapped residual to it (StaMPS uw_unwrap_from_grid; with the
+        # PS rate model the residual is small, so a PS faster than its cell no longer loses cycles)
         cell = ph_uw[:, idx].astype(np.float64)
         ph_uw[:, idx] = (cell + np.angle(ph_w[:, idx] * np.exp(-1j * np.nan_to_num(cell)))).astype(np.float32)
     if restore is not None:
@@ -163,10 +171,10 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
         ph_uw = ph_uw + scla.K_uw[:, None] * bp_ps + scla.C_uw[:, None]
         if ramp is not None:
             ph_uw = ph_uw + ramp
-    if ps_model is None:
+    if not use_rc:
         patch = _with_master(np.asarray(ph_patch) / np.abs(ph_patch), master_ix, 0)
         ph_uw = ph_uw + np.angle(ph_rc * np.conj(patch))
-    else:
+    elif ps_model is not None:
         ph_uw = ph_uw + ps_model.astype(np.float32)
     ph_uw[:, np.setdiff1d(np.arange(n_ifg), idx)] = 0
     if aps_c is not None:
