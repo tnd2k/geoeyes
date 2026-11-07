@@ -2,7 +2,7 @@
 phase of the PS network, and arcs / integration behave."""
 import numpy as np
 
-from geoeyes.processing.ps.unwrap.ps_rate import delaunay_arcs, integrate_l1, ps_rate_model
+from geoeyes.processing.ps.unwrap.ps_rate import closed_arcs, delaunay_arcs, delaunay_network, integrate_l1, ps_rate_model
 
 LAM = 0.0555
 
@@ -41,6 +41,32 @@ def test_arcs_respect_max_length():
     arcs = delaunay_arcs(xy, 100.0)
     assert arcs.size and np.all(np.hypot(*(xy[arcs[:, 1]] - xy[arcs[:, 0]]).T) <= 100.0)
     assert 3 not in arcs
+
+
+def test_unchecked_arcs_and_small_parts_get_no_rate():
+    # a stable scene where some PS are almost pure noise: a noise arc that passes the chance test reaches a pendant
+    # PS or an isolated pair with no closing triangle; it used to become a fake rate up to rate_max
+    rng = np.random.default_rng(0)
+    n, n_ifg = 20000, 98
+    xy = rng.uniform(0, 4000, size=(n, 2))
+    t = (np.arange(n_ifg) - n_ifg // 2) * 12 / 365.25
+    sig = np.where(rng.random(n) < 0.3, 2.5, 0.6)
+    ph = np.exp(1j * rng.normal(0, 1, (n, n_ifg)) * sig[:, None])
+    r = ps_rate_model(ph, xy, t, 4 * np.pi / LAM * 0.1)
+    v = np.abs(r) * LAM / (4 * np.pi) * 1e3
+    assert v.max() < 8.0                                        # was 100 mm/yr (pendants, pairs)
+
+
+def test_closed_arcs_rejects_inconsistent_triangle():
+    arcs, tri = delaunay_network(np.array([[0, 0], [10, 0], [0, 10], [10, 10]], float), 100.0)
+    assert tri.shape == (2, 3)
+    rate = np.zeros(arcs.shape[0])
+    ok = np.ones(arcs.shape[0], bool)
+    assert closed_arcs(tri, rate, ok, 0.1).all()
+    lone = tri[0, 0] if tri[0, 0] not in tri[1] else tri[0, 1]   # a side of triangle 0 only
+    rate[lone] = 5.0
+    out = closed_arcs(tri, rate, ok, 0.1)
+    assert not out[lone] and not out[tri[0]].all() and out[tri[1]].all()
 
 
 def test_l1_ignores_one_bad_arc():
