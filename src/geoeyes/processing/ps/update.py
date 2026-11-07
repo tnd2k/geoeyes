@@ -270,6 +270,8 @@ def update(store, prev: Path, new_dates: list[str], *, weather=None, grid_size: 
     _, first = np.unique(uid, return_index=True)
     sel = np.sort(first)
     gdf = read_points(prev / "points.parquet").set_index("point_uid").loc[uid[sel]].reset_index()
+    # the velocity kinds of the full run are not refitted here: dropped rather than left stale
+    gdf = gdf.drop(columns=["vel_do_mm_yr", "vel_dao_mm_yr", "vel_dso_mm_yr"], errors="ignore")
     gdf["vel_los_mm_yr"] = v[sel].astype(np.float32)
     gdf["vel_linear_mm_yr"] = v_lin[sel].astype(np.float32)
     gdf["vel_los_scn_mm_yr"] = v_scn[sel].astype(np.float32)

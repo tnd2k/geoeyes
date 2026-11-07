@@ -29,7 +29,9 @@ log = logging.getLogger(__name__)
 ENGINE = "geoeyes-product/3"          # /2: timeseries.parquet also carries disp_scn_mm (ps engine)
                                       # /3: series zero at the first date (were zero at the stack reference date)
 _EXTRA = {"vel_los_scn_mm_yr": "vel_scn_mm_yr", "vel_linear_mm_yr": "vel_linear_mm_yr",
-          "spectral_diversity": "spectral_diversity", "phase_std_rad": "phase_std_rad"}
+          "spectral_diversity": "spectral_diversity", "phase_std_rad": "phase_std_rad",
+          # the StaMPS velocity kinds (ps engine), chosen on the map
+          "vel_do_mm_yr": "vel_do_mm_yr", "vel_dao_mm_yr": "vel_dao_mm_yr", "vel_dso_mm_yr": "vel_dso_mm_yr"}
 
 
 def zero_reference(disp: np.ndarray | None) -> np.ndarray | None:

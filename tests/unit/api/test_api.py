@@ -30,17 +30,19 @@ relative_orbit = 78
 TRACK = "sentinel1-asc-078"
 
 
-def _ps_run(root, n=80):
+def _ps_run(root, n=80, kinds=False):
     import geopandas as gpd
     run = root / "ps_runs" / TRACK
     rng = np.random.default_rng(3)
     lon, lat = -99.0 + 0.01 * rng.random(n), 19.3 + 0.01 * rng.random(n)
     uid = np.array([f"{TRACK}:{(7 * i) % n:05d}" for i in range(n)])        # not in sorted order on purpose
     vel = rng.normal(-5, 8, n).astype(np.float32)
+    # the StaMPS velocity kinds (ps engine): the product velocity is v-dao
+    extra = {"vel_do_mm_yr": vel + 3, "vel_dao_mm_yr": vel, "vel_dso_mm_yr": vel / 2} if kinds else {}
     gdf = gpd.GeoDataFrame({"point_uid": uid, "lon": lon, "lat": lat, "height_m": np.float32(2240),
                             "dem_err_m": np.float32(0), "type": "PS", "vel_los_mm_yr": vel,
                             "temporal_coherence": np.float32(0.9), "amp_dispersion": np.float32(0.2),
-                            "fit_rmse_mm": np.float32(1), "incidence_deg": np.float32(38)},
+                            "fit_rmse_mm": np.float32(1), "incidence_deg": np.float32(38), **extra},
                            geometry=gpd.points_from_xy(lon, lat), crs="EPSG:4326")
     write_points(run / "points.parquet", gdf)
     dates = np.arange(np.datetime64("2024-05-03"), np.datetime64("2024-11-01"), 12)
@@ -100,6 +102,32 @@ def test_product_layer_points_and_area_series(ws):
     assert a["n"] == 80 and len(a["mean_mm"]) == dates.size
     assert c.get(f"/api/projects/alpha/products/{pid}/files/../../project.toml").status_code == 404
     assert c.get(f"/api/projects/alpha/products/{pid}/files/item.json").status_code == 200
+
+
+def test_layer_velocity_kinds(ws):
+    """The map can show v-do, v-dao or v-dso of a ps product; the product velocity is recognised as v-dao."""
+    proj = ws.project("alpha")
+    run, *_ = _ps_run(proj.root, kinds=True)
+    pid = build_product(run, proj.root / "products", project="alpha", track_id=TRACK)["product_id"]
+    c = TestClient(create_app(ws))
+    base = f"/api/projects/alpha/products/{pid}/layer"
+    m = c.get(base).json()
+    assert m["velocity_kinds"] == ["do", "dao", "dso"] and m["product_kind"] == "dao" and m["velocity_kind"] is None
+    v0 = np.frombuffer(c.get(f"{base}/points.bin").content, np.float32).reshape(-1, 3)[:, 2]
+    md = c.get(f"{base}?vel=do").json()
+    assert md["velocity_kind"] == "do" and md["vel_min"] == pytest.approx(m["vel_min"] + 3, abs=1e-4)
+    vd = np.frombuffer(c.get(f"{base}/points.bin?vel=do").content, np.float32).reshape(-1, 3)[:, 2]
+    np.testing.assert_allclose(vd, v0 + 3, atol=1e-4)
+    vs = np.frombuffer(c.get(f"{base}/points.bin?vel=dso").content, np.float32).reshape(-1, 3)[:, 2]
+    np.testing.assert_allclose(vs, v0 / 2, atol=1e-4)
+    assert c.get(f"{base}/points/3?vel=do").json()["vel"] == pytest.approx(vd[3], abs=1e-4)
+    assert c.get(f"{base}?vel=xyz").status_code == 404
+    # a product without the kinds offers none
+    beta = ws.project("beta")
+    run_b, *_ = _ps_run(beta.root)
+    pid_b = build_product(run_b, beta.root / "products", project="beta", track_id=TRACK)["product_id"]
+    assert c.get(f"/api/projects/beta/products/{pid_b}/layer").json()["velocity_kinds"] == []
+    assert c.get(f"/api/projects/beta/products/{pid_b}/layer?vel=do").status_code == 404
 
 
 def test_point_series_follow_the_point_order(ws):
