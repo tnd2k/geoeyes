@@ -355,8 +355,12 @@ def points_in_crop(project_root: Path, stack_path: Path, params: PairParams, pro
     if prod is None:
         return {"product": None, "points": []}
     w, s, e, n = meta["bounds"]
-    t = pq.read_table(prod / "points.parquet", columns=["point_uid", "lon", "lat", "vel_los_mm_yr"],
+    pf = pq.ParquetFile(prod / "points.parquet")
+    n_total = pf.metadata.num_rows
+    cols = ["point_uid", "lon", "lat", "vel_los_mm_yr"] + (["type"] if "type" in pf.schema_arrow.names else [])
+    t = pq.read_table(prod / "points.parquet", columns=cols,
                       filters=[("lon", ">=", w), ("lon", "<=", e), ("lat", ">=", s), ("lat", "<=", n)]).to_pandas()
+    n_crop = len(t)
     if len(t) > limit:
         t = t.sample(limit, random_state=0)
     lat, lon = layers["lat"], layers["lon"]
@@ -365,11 +369,15 @@ def points_in_crop(project_root: Path, stack_path: Path, params: PairParams, pro
     d, idx = tree.query(np.column_stack([t.lon.to_numpy() * k, t.lat.to_numpy()]))
     pix = max(meta["spacing_m"]["azimuth"], meta["spacing_m"]["range_ground"]) / 111_000
     inside = d <= 1.5 * pix
-    rows, cols = np.divmod(idx[inside], lat.shape[1])
+    rows, c = np.divmod(idx[inside], lat.shape[1])
     v = t.vel_los_mm_yr.to_numpy()[inside]
+    # what the points are (PS, DS, SBAS pixels of a multilooked grid): the page names them, not always "PS"
+    kinds = t["type"][inside].value_counts().to_dict() if "type" in t else {}
     return {"product": prod.name, "fields": ["row", "col", "vel"], "uids": t.point_uid.to_numpy()[inside].tolist(),
-            "rows": rows.tolist(), "cols": cols.tolist(), "vel": [round(float(x), 2) for x in v],
-            "vel_range": [float(v.min()), float(v.max())] if v.size else None}
+            "rows": rows.tolist(), "cols": c.tolist(), "vel": [round(float(x), 2) for x in v],
+            "vel_range": [float(v.min()), float(v.max())] if v.size else None,
+            "n_total": int(n_total), "n_crop": int(n_crop), "sampled": n_crop > limit,
+            "kinds": {str(k): int(x) for k, x in kinds.items()}}
 
 
 def point_series(project_root: Path, product_id: str, uid: str) -> dict:

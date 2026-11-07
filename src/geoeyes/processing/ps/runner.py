@@ -239,6 +239,7 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
         "type": np.where(is_ds[orig][sel], "DS", "PS"),
         "vel_los_mm_yr": vel.v[sel].astype(np.float32), "vel_linear_mm_yr": vel.v_linear[sel].astype(np.float32),
         "vel_los_scn_mm_yr": P.velocity_scn.v[sel].astype(np.float32),
+        **{f"vel_{k}_mm_yr": v[sel].astype(np.float32) for k, v in (P.velocity_kinds or {}).items()},
         "acc_mm_yr2": vel.acc[sel].astype(np.float32), "temporal_coherence": w.coh[sel].astype(np.float32),
         "amp_dispersion": L.da[ix][sel].astype(np.float32), "fit_rmse_mm": vel.rmse[sel].astype(np.float32),
         "incidence_deg": np.degrees(inc_ps[sel]).astype(np.float32)},
@@ -373,6 +374,7 @@ class Processed:
     aps_linear: np.ndarray | None = None
     aps_choice: np.ndarray | None = None   # (n_sec,) weather APS used (aps_select "auto")
     velocity_scn: Any = None                # velocity with the SCN removed as well (StaMPS v-dso)
+    velocity_kinds: dict | None = None      # {"do", "dao", "dso"}: the StaMPS velocity kinds (mm/yr per PS)
     ifg_std: np.ndarray | None = None       # (n_ifg,) step-5 phase noise per epoch, degrees
     estimated: Any = None                   # Estimated (steps 2-5), what a checkpoint keeps
 
@@ -532,16 +534,25 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
     w = est.weed = dataclasses.replace(w, ph_patch=none)
     cp = est.correct = dataclasses.replace(cp, ph_rc=none, ph_reref=none)
     sm = smooth_scla(sc, xy_ix, bp_ix)
-    vel = velocity(ph_uw=u.ph_uw, scla=sc, aps=aps if prm.two_pass else None, ifgday=L.ifgday, day=L.day,
-                   master_ix=L.master_ix, xy=xy_ix, lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength,
-                   deramp=prm.scla_deramp, ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy,
-                   demean=ref is None and not prm.legacy)
-    if ref is not None:
-        # velocity and time series are linear in the phase: referencing the phase to the reference PS (StaMPS
-        # ps_setref) shifts them by the reference mean; the high-pass correction removes a plane, so it stays
-        off = float(np.nanmean(vel.v_linear[ref]))
-        vel.v, vel.v_linear = vel.v - off, vel.v_linear - off
-        vel.ts_mm = (vel.ts_mm - np.nanmean(vel.ts_mm[ref], axis=0)).astype(np.float32)
+    def _vel(ph, with_aps: bool):
+        v = velocity(ph_uw=ph, scla=sc, aps=aps if with_aps else None, ifgday=L.ifgday, day=L.day,
+                     master_ix=L.master_ix, xy=xy_ix, lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength,
+                     deramp=prm.scla_deramp, ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy,
+                     demean=ref is None and not prm.legacy)
+        if ref is not None:
+            # velocity and time series are linear in the phase: referencing the phase to the reference PS (StaMPS
+            # ps_setref) shifts them by the reference mean; the high-pass correction removes a plane, so it stays
+            off = float(np.nanmean(v.v_linear[ref]))
+            v.v, v.v_linear = v.v - off, v.v_linear - off
+            v.ts_mm = (v.ts_mm - np.nanmean(v.ts_mm[ref], axis=0)).astype(np.float32)
+        return v
+
+    vel = _vel(u.ph_uw, prm.two_pass)
+    # the StaMPS velocity kinds, for the user to choose on the map: v-do (DEM error and orbit ramps removed),
+    # v-dao (+ the APS), v-dso (+ the SCN, no APS); the product velocity is v-dao with the APS ("subtr_tropo"),
+    # else v-do
+    other = _vel(u.ph_uw, not prm.two_pass).v
+    kinds = {"do": other if prm.two_pass else vel.v, "dao": vel.v if prm.two_pass else other}
     scn = scn_filt(ph_uw=u.ph_uw, ph_scla=sc.ph_scla, C_uw=sc.C_uw, ph_ramp=sc.ph_ramp, day=L.day,
                    master_ix=L.master_ix, xy=xy_ix, filter_xy=None if scn_filter_xy is None else scn_filter_xy[ix],
                    time_win=prm.scn_time_win, wavelength=prm.scn_wavelength, method=scn_method,
@@ -559,9 +570,19 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
     if ref is not None:
         vel_scn.v = vel_scn.v - float(np.nanmean(vel_scn.v[ref]))
         vel_scn.ts_mm = (vel_scn.ts_mm - np.nanmean(vel_scn.ts_mm[ref], axis=0)).astype(np.float32)
+    if prm.two_pass:
+        # StaMPS v-dso keeps the APS in: the SCN estimate holds the atmosphere already
+        dso = velocity(ph_uw=ph_dso, scla=sc, aps=None, ifgday=L.ifgday, day=L.day, master_ix=L.master_ix, xy=xy_ix,
+                       lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength, deramp=prm.scla_deramp,
+                       ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy, highpass=False,
+                       demean=ref is None and not prm.legacy).v
+        kinds["dso"] = dso - float(np.nanmean(dso[ref])) if ref is not None else dso
+    else:
+        kinds["dso"] = vel_scn.v
+    del ph_dso
     return Processed(gamma=g, select=s, weed=w, ix=ix, unwrapped=u, aps=aps, scla=sc, scla_smooth=sm, velocity=vel,
                      scn=scn, ref_ps=ref, aps_linear=aps_lin, aps_choice=aps_choice, velocity_scn=vel_scn,
-                     ifg_std=cp.ifg_std, estimated=est)
+                     ifg_std=cp.ifg_std, estimated=est, velocity_kinds=kinds)
 
 
 def _velocity_map(path: Path, lat, lon, v, title: str, ref=None, lim=None) -> Path:

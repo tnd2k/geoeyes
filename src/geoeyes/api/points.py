@@ -23,7 +23,8 @@ from geoeyes.export.styles import CLASSES, jet_r, marker_size_m, pretty_breaks
 from geoeyes.io.points import timeseries_arrays
 from geoeyes.products.builder import zero_reference
 
-CACHE_VERSION = 5                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+CACHE_VERSION = 6                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+                                  # /6: meta lists the velocity kinds (v-do, v-dao, v-dso)
 ATTRS = ("vel_std_mm_yr", "temporal_coherence", "height_m", "acc_los_mm_yr2", "seasonal_amp_mm", "dem_err_m")
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
@@ -53,13 +54,40 @@ def calibration_sig(calib: dict | None) -> str | None:
     return hashlib.sha1(json.dumps(calib, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def _build(product: Path, out: Path, calib: dict | None = None) -> None:
+# the StaMPS velocity kinds a product may carry (ps engine): v-do (DEM error and orbit ramps removed), v-dao (+ APS),
+# v-dso (+ SCN, no APS); products written before them carry the SCN-removed velocity only (as v-dso)
+KINDS = {"do": ("extra_vel_do_mm_yr",), "dao": ("extra_vel_dao_mm_yr",),
+         "dso": ("extra_vel_dso_mm_yr", "extra_vel_scn_mm_yr")}
+
+
+def _kind_columns(names) -> dict[str, str]:
+    """{kind: column} of the kinds present in a points.parquet with these column names."""
+    out = {}
+    for k, cols in KINDS.items():
+        c = next((c for c in cols if c in names), None)
+        if c:
+            out[k] = c
+    return out
+
+
+def kinds_available(product: Path) -> list[str]:
+    return list(_kind_columns(set(pq.read_schema(product / "points.parquet").names)))
+
+
+def _build(product: Path, out: Path, calib: dict | None = None, kind: str | None = None) -> None:
     names = set(pq.read_schema(product / "points.parquet").names)
     geo = [c for c in ("heading_deg", "los_e", "los_n") if c in names]
-    pts = pq.read_table(product / "points.parquet", columns=["point_uid", "lon", "lat", "vel_los_mm_yr", *ATTRS, *geo])
+    kcols = _kind_columns(names)
+    pts = pq.read_table(product / "points.parquet",
+                        columns=["point_uid", "lon", "lat", "vel_los_mm_yr", *ATTRS, *geo, *set(kcols.values())])
     lon = pts["lon"].to_numpy().astype(np.float64)
     lat = pts["lat"].to_numpy().astype(np.float64)
     vel = pts["vel_los_mm_yr"].to_numpy().astype(np.float32)
+    # which kind the product velocity is (v-dao with the APS removed, else v-do)
+    product_kind = next((k for k in ("dao", "do") if k in kcols and np.allclose(
+        pts[kcols[k]].to_numpy().astype(np.float32), vel, atol=1e-4, equal_nan=True)), None)
+    if kind:
+        vel = pts[kcols[kind]].to_numpy().astype(np.float32)
     n = len(lon)
 
     # timeseries.parquet: long format sorted by (point_uid, date), every point at every date
@@ -103,7 +131,9 @@ def _build(product: Path, out: Path, calib: dict | None = None) -> None:
             "bounds": [float(np.nanmin(lon)), float(np.nanmin(lat)), float(np.nanmax(lon)), float(np.nanmax(lat))],
             "dates": [str(d) for d in dates], "vel_min": float(np.nanmin(vel)), "vel_max": float(np.nanmax(vel)),
             "classes": cls, "attrs": list(ATTRS), "has_scn": has_scn,
-            "calibration_sig": calibration_sig(calib), "calibration": calibration_brief(calib)}
+            "calibration_sig": calibration_sig(calib), "calibration": calibration_brief(calib),
+            "velocity_kind": kind, "velocity_kinds": list(kcols), "product_kind": product_kind,
+            "legacy_dso": kcols.get("dso") == "extra_vel_scn_mm_yr"}
     (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
@@ -115,10 +145,13 @@ def calibration_brief(calib: dict | None) -> dict | None:
                                       "reference_product", "reference_calibration", "loo_rms_after_mm_yr")}
 
 
-def ensure(product: Path, cache_root: Path, calib: dict | None = None) -> Path:
+def ensure(product: Path, cache_root: Path, calib: dict | None = None, kind: str | None = None) -> Path:
     """The cache folder of a product, built on first use; with ``calib`` (``validation.tie.active_calibration``),
-    the calibrated one (``<product_id>@cal``), rebuilt when the calibration changes."""
-    out = cache_root / (product.name + ("@cal" if calib else ""))
+    the calibrated one (``<product_id>@cal``), rebuilt when the calibration changes; with ``kind`` (``KINDS``), that
+    velocity in place of the product's (``<product_id>@v-<kind>``)."""
+    if kind is not None and kind not in KINDS:
+        raise ValueError(f"velocity kind {kind!r} (one of {', '.join(KINDS)})")
+    out = cache_root / (product.name + ("@cal" if calib else "") + (f"@v-{kind}" if kind else ""))
     src = product / "points.parquet"
     if not src.exists():
         raise StoreError(f"{product.name}: no points.parquet")
@@ -131,7 +164,7 @@ def ensure(product: Path, cache_root: Path, calib: dict | None = None) -> Path:
             fresh = m.get("version") == CACHE_VERSION and m.get("calibration_sig") == sig
         if not fresh:
             meta.unlink(missing_ok=True)
-            _build(product, out, calib)
+            _build(product, out, calib, kind)
             _arrays.cache_clear()
     return out
 
