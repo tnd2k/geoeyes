@@ -296,7 +296,9 @@ def area(folder: Path, ring: list[list[float]]) -> dict:
            "vel_max": _num(vel.max()), "mean_mm": [_num(x) for x in np.nanmean(sub, axis=0)],
            "std_mm": [_num(x) for x in np.nanstd(sub, axis=0)]}
     if scn is not None:
-        out["mean_scn_mm"] = [_num(x) for x in np.nanmean(np.asarray(scn[rows], dtype=np.float64), axis=0)]
+        s2 = np.asarray(scn[rows], dtype=np.float64)
+        out["mean_scn_mm"] = [_num(x) for x in np.nanmean(s2, axis=0)]
+        out["std_scn_mm"] = [_num(x) for x in np.nanstd(s2, axis=0)]
     return out
 
 
