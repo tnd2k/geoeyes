@@ -138,8 +138,19 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
       method choice, docs and ADR.
     - [ ] Tests: a synthetic stack with a known deformation and noise — the network is connected, the inversion is
       exact on wrapped-free data, closure flags an injected unwrapping error.
-    - [ ] Validation: HCMC and Hanoi stacks against their point products; the landslide pilot (track 120) against
-      PL + DA 0.6.
+    - [~] Validation: HCMC and Hanoi stacks against their point products; the landslide pilot (track 120) against
+      PL + DA 0.6. **HCMC done 2026-11-07** (hcm_d18, 98 dates, 288 pairs, 2 x 8 looks, reference = the SARPROZ
+      point; `ps_exp/sbas_default_fast`, 352 s, 159k points; closure: 0.6 % of the pixels bad per pair, no pair
+      dropped). Against SARPROZ and the GeoEyes PS product v4 per SBAS cell (median of the points within 30 m,
+      homogeneous cells, bins of the mean of the methods so that no method decides the selection):
+      SBAS - SARPROZ -0.3 mm/yr on stable ground, within +-1.2 mm/yr from -2 to -25 mm/yr, +1.7 mm/yr at -25..-35
+      (about 6 % less subsidence); against PS +5 mm/yr beyond -35 mm/yr (178 cells, about 10 %). r SBAS-SARPROZ
+      0.88 (PS-SARPROZ 0.96). Binning by one method alone made SBAS look 15 % low: regression to the mean, not a
+      bias. Ruled out for the residual at the fastest cells: Goldstein (`sbas_nogold` same), DEM error (no
+      correlation), gaps in the series (gap-free cells same), cell mixing (homogeneous cells same). One ~1-year
+      pair per date (`sbas_annual`) is worse in fast areas (ratio 0.40: long pairs lose cycles) though less noisy
+      on stable ground (0.61 vs 0.88 mm/yr). 1 x 4 looks: noisier at slow rates; keep 2 x 8. Still open: Hanoi,
+      the landslide pilot, the fastest-subsidence residual (PL-SBAS source next).
 
 11. **CDSE burst source (fallback of ASF), PARTIAL 2026-11-02.** ASF served HTTP 400 / 500 for a few hours on
     2026-11-02 (its token work-around host was down). `sensors/sentinel1/cdse.py` has the CDSE token (OpenID

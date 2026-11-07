@@ -140,8 +140,19 @@ danh mục, ứng dụng web; đã xoá mã cũ; đã `git init`. Việc còn l�
       phương pháp trong web app, tài liệu và ADR.
     - [ ] Kiểm thử: một stack tổng hợp có chuyển dịch và nhiễu biết trước — mạng liên thông, phép nghịch đảo chính xác
       trên dữ liệu không bị cuộn pha, phép đóng pha phát hiện lỗi giải chập được cài vào.
-    - [ ] Kiểm chứng: stack TP.HCM và Hà Nội so với sản phẩm điểm của chúng; vùng thí điểm trượt lở (quỹ đạo 120) so
-      với PL + DA 0,6.
+    - [~] Kiểm chứng: stack TP.HCM và Hà Nội so với sản phẩm điểm của chúng; vùng thí điểm trượt lở (quỹ đạo 120) so
+      với PL + DA 0,6. **TP.HCM xong 2026-11-07** (hcm_d18, 98 ngày, 288 cặp, 2 x 8 look, tham chiếu = điểm SARPROZ;
+      `ps_exp/sbas_default_fast`, 352 s, 159 nghìn điểm; khép kín: 0,6 % pixel sai mỗi cặp, không cặp nào bị loại).
+      So với SARPROZ và sản phẩm PS v4 của GeoEyes theo từng ô SBAS (trung vị các điểm trong 30 m, ô đồng nhất, chia
+      khoảng theo trung bình các phương pháp để không phương pháp nào quyết định việc chọn): SBAS - SARPROZ -0,3
+      mm/năm ở nền ổn định, trong khoảng +-1,2 mm/năm từ -2 đến -25 mm/năm, +1,7 mm/năm ở -25..-35 (lún ít hơn khoảng
+      6 %); so với PS +5 mm/năm ở vùng nhanh hơn -35 mm/năm (178 ô, khoảng 10 %). r SBAS-SARPROZ 0,88 (PS-SARPROZ
+      0,96). Chia khoảng theo một phương pháp làm SBAS trông thấp 15 %: hồi quy về trung bình, không phải sai lệch.
+      Đã loại trừ cho phần dư ở các ô nhanh nhất: Goldstein (`sbas_nogold` như nhau), sai số DEM (không tương quan),
+      chuỗi bị đứt (ô đủ chuỗi như nhau), trộn ô (ô đồng nhất như nhau). Thêm một cặp ~1 năm cho mỗi ngày
+      (`sbas_annual`) tệ hơn ở vùng lún nhanh (tỉ lệ 0,40: cặp dài mất chu kỳ) dù ít nhiễu hơn ở nền ổn định (0,61 so
+      với 0,88 mm/năm). 1 x 4 look: nhiễu hơn ở tốc độ chậm; giữ 2 x 8. Còn mở: Hà Nội, vùng thí điểm trượt lở, phần
+      dư ở vùng lún nhanh nhất (thử nguồn PL-SBAS tiếp theo).
 
 11. **Nguồn burst CDSE (dự phòng cho ASF), CHƯA XONG 2026-11-02.** Ngày 2026-11-02 ASF trả lỗi HTTP 400 / 500 trong vài
     giờ (máy chủ dùng cho cách lấy cookie bằng token bị hỏng). `sensors/sentinel1/cdse.py` đã có phần lấy token CDSE
