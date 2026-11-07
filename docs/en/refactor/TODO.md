@@ -168,7 +168,8 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
     cover, climate, geology, data) and hand-written rules; no LLM, no tokens. CLI `geoeyes advise`, web app panel,
     optional local MCP. Steps V0 (catalogue) → V1 (profile) → V2 (rules) → V3 (web) → V4 (learn) → V5 (MCP); a
     review gate after each. Status 2026-11-07: V0 done (`advisor/params.toml`, form "why?", `geoeyes params`); V1 done
-    (`advisor/profile.py`, `geoeyes site`); V2 done (`advisor/rules.toml`, `geoeyes advise`); V3 next.
+    (`advisor/profile.py`, `geoeyes site`); V2 done (`advisor/rules.toml`, `geoeyes advise`); V3 done (advisor panel
+    in Settings and the wizard); V4 (`--learn`) next.
 
 The sections below are the historical log, phase by phase.
 

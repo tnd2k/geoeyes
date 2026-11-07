@@ -102,7 +102,15 @@ thực sự đã dùng. Luật được sửa tay từ báo cáo đó; không t�
   có luật: `da_threshold` 0.42 = mặc định, điểm tham chiếu SARPROZ của hcm_d18). hanoi_s1_desc: một thay đổi,
   `acquire.max_per_month` 2 -> 0 (soft-urban-subsidence); luật dữ liệu không đánh giá (chưa có stack). Nam Trà My:
   ERA5 + psds + liên kết pha (ad, adaptive) + DA 0.6 + copernicus-30, ghi chú về đối lưu nhiệt đới và lên + xuống.
-- [ ] **V3** Web app: bảng Tư vấn trong wizard và form cài đặt, áp dụng từng trường / tất cả, en + vi.
+- [x] **V3** (xong 2026-11-07) Web app: `GET /api/projects/{name}/advise` và `POST /api/advise {bbox}`
+  (`api/advise.py`, cùng code với CLI); `components/AdvisorPanel.tsx`.
+  - Form cài đặt: bảng ở trên các mục (tóm tắt khu vực, thay đổi đề xuất với "dùng" / "đưa tất cả vào form", các
+    giá trị đã đúng như luật, ghi chú, giá trị không có luật, "đo lại khu vực"); dưới mỗi trường là giá trị của
+    luật, xanh khi đã đúng, vàng kèm "dùng" khi chưa. "dùng" chỉ điền vào bản nháp: chưa ghi gì cho tới khi bấm Lưu.
+  - Wizard tạo dự án: "Hỏi bộ tư vấn khu vực" sau bước chọn vùng; phương pháp, khí quyển và số ảnh mỗi tháng điền
+    vào các ô của chúng (mặc định ERA5 của wizard được thay ở đồng bằng phẳng), các giá trị khác ghi vào
+    project.toml sau khi tạo nếu đánh dấu ô chọn.
+  - Test `tests/unit/api/test_api_advise.py` (dự án, áp dụng qua endpoint cài đặt, bbox).
 - [ ] **V4** Báo cáo `--learn` so luật với các dự án đã xong.
 - [ ] **V5** (tuỳ chọn) MCP server cục bộ `geoeyes-advisor` với các công cụ `explain_param`, `site_profile`, `recipe`.
 

@@ -169,6 +169,21 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def patch_settings(name: str, changes: dict = Body(...)):
         return settings.apply(project(name), changes)
 
+    @app.get("/api/projects/{name}/advise")
+    def project_advise(name: str, refresh: bool = False):
+        """Site advisor: the site profile, the rules that apply and the suggested values against project.toml."""
+        from geoeyes.api import advise
+        return advise.for_project(ws, project(name), refresh=refresh)
+
+    @app.post("/api/advise")
+    def bbox_advise(body: dict = Body(...)):
+        """Site advisor for an area without a project (the new-project wizard)."""
+        from geoeyes.api import advise
+        bbox = body.get("bbox")
+        if not bbox or len(bbox) != 4:
+            raise HTTPException(400, "bbox: [west, south, east, north]")
+        return advise.for_bbox(ws, [float(v) for v in bbox])
+
     @app.put("/api/projects/{name}/config")
     def put_config(name: str, body: dict = Body(...)):
         return settings.save_toml(project(name), str(body.get("toml", "")))

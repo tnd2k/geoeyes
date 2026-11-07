@@ -1056,6 +1056,34 @@ export interface FieldSpec {
   info?: ParamInfo | null;   // the parameter catalogue (geoeyes/advisor/params.toml)
 }
 
+/** The site advisor (geoeyes/advisor): profile of the AOI, rules that apply, suggested values with reasons. */
+export interface Bilingual {
+  en: string;
+  vi: string;
+}
+
+export interface AdviceSuggestion {
+  path: string; // "section.key"
+  value: unknown;
+  rule: string;
+  why: Bilingual;
+  replaced: { rule: string; value: unknown }[];
+}
+
+export interface Advice {
+  profile: Record<string, unknown>;
+  summary: { en: string[]; vi: string[] };
+  matched: { id: string; why: Bilingual; source: string }[];
+  skipped: Record<string, string[]>;
+  recipe: AdviceSuggestion[];
+  notes: { rule: string; text: Bilingual }[];
+  compare: {
+    changes: { path: string; current: unknown; suggested: unknown; rule: string; own: boolean }[];
+    agree: { path: string; current: unknown; suggested: unknown; rule: string; own: boolean }[];
+    unexplained: { path: string; value: unknown }[];
+  } | null;
+}
+
 export interface ParamText {
   help: string;
   use: string;
@@ -1398,6 +1426,8 @@ export const api = {
     if (q.supported) p.set("supported", "true");
     return request<{ stacks: OpenDataStack[] }>(`/api/opendata/stacks?${p}`);
   },
+  advise: (name: string, refresh = false) => request<Advice>(`${P(name)}/advise${refresh ? "?refresh=true" : ""}`),
+  adviseBbox: (bbox: number[]) => request<Advice>("/api/advise", json({ bbox })),
   asfTracks: (bbox: number[]) => request<{ tracks: AsfTrack[] }>("/api/asf/tracks", json({ bbox })),
   asfPreview: (spec: { bbox: number[]; direction: string; relative_orbit: number; date_range: [string, string]; max_per_month: number; subswaths?: string[] }) =>
     request<AsfPreview>("/api/asf/preview", json(spec)),

@@ -104,7 +104,16 @@ automatic fitting (too few projects).
   unexplained: `da_threshold` 0.42 = default, the SARPROZ reference of hcm_d18). hanoi_s1_desc: one change,
   `acquire.max_per_month` 2 -> 0 (soft-urban-subsidence); data rules not evaluated (no stack yet). Nam Tra My:
   ERA5 + psds + phase linking (ad, adaptive) + DA 0.6 + copernicus-30, notes on tropical convection and asc + desc.
-- [ ] **V3** Web app: Advisor panel in the wizard and the settings form, apply-one / apply-all, en + vi.
+- [x] **V3** (done 2026-11-07) Web app: `GET /api/projects/{name}/advise` and `POST /api/advise {bbox}`
+  (`api/advise.py`, same code as the CLI); `components/AdvisorPanel.tsx`.
+  - Settings form: the panel above the sections (site summary, suggested changes with "use" / "put all in the
+    form", values already as the rules say, notes, values no rule explains, "measure the site again"); under each
+    field the rule's value, green when it holds, amber with "use" when not. "use" only fills the draft: nothing
+    is written until Save.
+  - New-project wizard: "Ask the site advisor" after the area; method, atmosphere and images per month go into
+    their fields (the wizard's own default ERA5 is replaced on flat deltas), the other values are written into
+    project.toml after creation when the box is ticked.
+  - Tests `tests/unit/api/test_api_advise.py` (project, apply through the settings endpoint, bbox).
 - [ ] **V4** `--learn` report comparing rules with finished projects.
 - [ ] **V5** (optional) local MCP server `geoeyes-advisor` with tools `explain_param`, `site_profile`, `recipe`.
 

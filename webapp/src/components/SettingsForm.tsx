@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type FieldSpec, type ParamInfo, type SettingsSpec } from "../api";
 import { lang, t, ts } from "../i18n";
 import { Button, Panel } from "../ui";
+import { AdvisorPanel, FieldSuggestion } from "./AdvisorPanel";
 
 type Draft = Record<string, unknown>; // "section.key" -> new value (null = back to default)
 
@@ -195,11 +196,23 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
   const [toml, setToml] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set(["project", "aoi", "acquire", "network", "stack", "atmosphere"]));
   const [filter, setFilter] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const adv = useQuery({ queryKey: ["advise", name], queryFn: () => api.advise(name), staleTime: 5 * 60_000, retry: false });
+  const sugg = useMemo(() => new Map((adv.data?.recipe ?? []).map((x) => [x.path, x])), [adv.data]);
+  const remeasure = async () => {
+    setRefreshing(true);
+    try {
+      qc.setQueryData(["advise", name], await api.advise(name, true));
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const done = (s: SettingsSpec) => {
     qc.setQueryData(["settings", name], s);
     qc.invalidateQueries({ queryKey: ["project", name] });
     qc.invalidateQueries({ queryKey: ["workspace"] });
     qc.removeQueries({ queryKey: ["plan", name] });
+    qc.invalidateQueries({ queryKey: ["advise", name] });
     setDraft({});
     setToml(s.toml);
   };
@@ -272,6 +285,17 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
         </div>
       )}
 
+      {mode === "form" && !filter && (
+        <AdvisorPanel
+          advice={adv.data}
+          loading={adv.isLoading || refreshing}
+          error={adv.error as Error | null}
+          onUse={(path, v) => setDraft((d) => ({ ...d, [path]: v }))}
+          onUseAll={(c) => setDraft((d) => ({ ...d, ...c }))}
+          onRefresh={remeasure}
+        />
+      )}
+
       {mode === "toml" ? (
         <Panel className="p-0">
           <textarea
@@ -342,6 +366,21 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                           <ParamDetails info={f.info} />
                         ) : (
                           f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>
+                        )}
+                        {sugg.get(k) && (
+                          <FieldSuggestion
+                            s={sugg.get(k)!}
+                            matches={same(value, sugg.get(k)!.value)}
+                            onUse={() =>
+                              setDraft((d) => {
+                                const n = { ...d };
+                                const v = sugg.get(k)!.value;
+                                if (same(v, f.value)) delete n[k];
+                                else n[k] = v;
+                                return n;
+                              })
+                            }
+                          />
                         )}
                         {f.used?.map((u) => (
                           <div key={u.track} className="mt-1 text-[11.5px] leading-snug text-warn">

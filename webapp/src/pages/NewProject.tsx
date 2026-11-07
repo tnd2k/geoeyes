@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AsfPreview, type AsfTrack, type Folder, type Workspace } from "../api";
+import { AdvisorPanel } from "../components/AdvisorPanel";
 import { BasemapPicker } from "../components/BasemapPicker";
 import { t, ts } from "../i18n";
 import { baseSource, DEFAULT_BASE, switchBase, type Base } from "../map";
@@ -71,6 +72,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
   const [archive, setArchive] = useState("");
   const [tracks, setTracks] = useState<AsfTrack[] | null>(null);
   const [preview, setPreview] = useState<AsfPreview | null>(null);
+  const [useAdvice, setUseAdvice] = useState(true);
   const mapEl = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const corner = useRef<maplibregl.LngLat | null>(null);
@@ -158,6 +160,20 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
       api.asfPreview({ bbox: bbox!, direction, relative_orbit: Number(orbit), date_range: [start, end], max_per_month: perMonth }),
     onSuccess: setPreview,
   });
+  // site advisor: the values the wizard has a field for go into those fields; the rest is written after creation
+  const WIZARD_OWN = ["project.method", "atmosphere.method", "acquire.max_per_month"];
+  const ask = useMutation({
+    mutationFn: () => api.adviseBbox(bbox!),
+    onSuccess: (a) => {
+      for (const s of a.recipe) {
+        if (s.path === "project.method" && typeof s.value === "string") setMethod(s.value);
+        if (s.path === "atmosphere.method" && typeof s.value === "string") setAtmosphere(s.value);
+        if (s.path === "acquire.max_per_month" && typeof s.value === "number") setPerMonth(s.value);
+      }
+    },
+  });
+  const askReset = ask.reset;
+  useEffect(() => askReset(), [bbox, askReset]);
   const create = useMutation({
     mutationFn: () =>
       api.createProject({
@@ -172,7 +188,15 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
         archive: archive || undefined,
         atmosphere,
       }),
-    onSuccess: ({ name }) => {
+    onSuccess: async ({ name }) => {
+      const rest = useAdvice && ask.data ? ask.data.recipe.filter((s) => !WIZARD_OWN.includes(s.path)) : [];
+      if (rest.length) {
+        try {
+          await api.patchSettings(name, Object.fromEntries(rest.map((s) => [s.path, s.value])));
+        } catch {
+          /* the project exists; the values can be set in Settings */
+        }
+      }
       qc.invalidateQueries({ queryKey: ["workspace"] });
       go({ page: "project", name, tab: "pipeline" });
     },
@@ -258,6 +282,22 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                 />
               ))}
             </div>
+            <div className="mt-3">
+              <Button disabled={!bbox || ask.isPending} onClick={() => ask.mutate()}>
+                {ask.isPending ? t("Measuring the site…") : t("Ask the site advisor")}
+              </Button>
+            </div>
+            {(ask.data || ask.isPending || ask.error) && (
+              <div className="mt-3 space-y-2">
+                <AdvisorPanel advice={ask.data} loading={ask.isPending} error={ask.error as Error | null} />
+                {ask.data && (
+                  <label className="flex items-start gap-2 text-[12.5px] text-ink-2">
+                    <input type="checkbox" className="mt-0.5" checked={useAdvice} onChange={(e) => setUseAdvice(e.target.checked)} />
+                    <span>{t("Write the other suggested values into project.toml when creating (method, atmosphere and images per month are already in the fields; everything can be changed later in Settings)")}</span>
+                  </label>
+                )}
+              </div>
+            )}
           </Step>
 
           <Step n={3} title={s1 ? t("Track and dates") : t("Track and data")}>
