@@ -178,7 +178,11 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
   const sections = useMemo(() => {
     const s = filter.trim().toLowerCase();
     return (q.data?.sections ?? [])
-      .map((sec) => ({ ...sec, fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help}`.toLowerCase().includes(s)) }))
+      .map((sec) => ({
+        ...sec,
+        id: sec.id ?? sec.name,
+        fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help} ${ts(f.help)} ${ts(sec.title)}`.toLowerCase().includes(s)),
+      }))
       .filter((sec) => sec.fields.length);
   }, [q.data, filter]);
 
@@ -244,13 +248,13 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
         </Panel>
       ) : (
         sections.map((sec) => {
-          const isOpen = open.has(sec.name) || !!filter;
+          const isOpen = open.has(sec.id) || !!filter;
           const own = sec.fields.filter((f) => f.own).length;
           return (
-            <Panel key={sec.name}>
+            <Panel key={sec.id}>
               <button
                 type="button"
-                onClick={() => setOpen((s) => (s.has(sec.name) ? new Set([...s].filter((x) => x !== sec.name)) : new Set([...s, sec.name])))}
+                onClick={() => setOpen((s) => (s.has(sec.id) ? new Set([...s].filter((x) => x !== sec.id)) : new Set([...s, sec.id])))}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left"
                 aria-expanded={isOpen}
               >
