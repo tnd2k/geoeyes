@@ -171,7 +171,7 @@ danh mục, ứng dụng web; đã xoá mã cũ; đã `git init`. Việc còn l�
     trong web app, MCP cục bộ tuỳ chọn. Các bước V0 (danh mục) → V1 (hồ sơ) → V2 (luật) → V3 (web) → V4 (học) → V5
     (MCP); duyệt sau mỗi bước. Trạng thái 2026-11-07: xong V0 (`advisor/params.toml`, "vì sao?" trong form,
     `geoeyes params`); xong V1 (`advisor/profile.py`, `geoeyes site`); xong V2 (`advisor/rules.toml`, `geoeyes advise`); xong V3 (bảng tư vấn
-    trong Cài đặt và wizard); tiếp theo V4 (`--learn`).
+    trong Cài đặt và wizard); xong V4 (`advise --learn`) và V5 (`geoeyes mcp`): hoàn tất kế hoạch.
 
 Các mục dưới đây là nhật ký theo từng giai đoạn.
 

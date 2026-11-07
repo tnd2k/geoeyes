@@ -45,6 +45,8 @@ geoeyes catalog search --bbox W,S,E,N    # products of every project over an are
 geoeyes params unwrap_grid_size          # what a parameter is for, its risk, usual values (--lang vi)
 geoeyes site   <project>                 # site profile: relief, slopes, land cover, geology, climate, data
 geoeyes advise <project>                 # suggested parameters for the site, with the reason of each (--apply)
+geoeyes advise --learn                   # every project against the rules: agreements, differences, candidates
+geoeyes mcp                              # the advisor as a local MCP server for Claude Code (read only)
 geoeyes serve --open            # web app on http://localhost:8765
 ```
 

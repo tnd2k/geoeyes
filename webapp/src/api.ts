@@ -1081,6 +1081,7 @@ export interface Advice {
     changes: { path: string; current: unknown; suggested: unknown; rule: string; own: boolean }[];
     agree: { path: string; current: unknown; suggested: unknown; rule: string; own: boolean }[];
     unexplained: { path: string; value: unknown }[];
+    ignored?: { path: string; value: unknown; did_you_mean: string | null }[];
   } | null;
 }
 

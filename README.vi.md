@@ -46,6 +46,8 @@ geoeyes catalog search --bbox W,S,E,N    # tìm sản phẩm của mọi dự á
 geoeyes params unwrap_grid_size          # tham số dùng để làm gì, rủi ro, giá trị thường dùng (--lang vi)
 geoeyes site   <project>                 # hồ sơ khu vực: chênh cao, độ dốc, lớp phủ, địa chất, khí hậu, dữ liệu
 geoeyes advise <project>                 # tham số đề xuất cho khu vực, kèm lý do từng giá trị (--apply)
+geoeyes advise --learn                   # mọi dự án so với bộ luật: chỗ khớp, chỗ khác, ứng viên luật mới
+geoeyes mcp                              # bộ tư vấn dạng MCP server cục bộ cho Claude Code (chỉ đọc)
 geoeyes serve --open            # mở ứng dụng web tại http://localhost:8765
 ```
 

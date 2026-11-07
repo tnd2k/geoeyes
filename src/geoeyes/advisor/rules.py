@@ -179,8 +179,12 @@ def same(a: Any, b: Any) -> bool:
 
 def compare(advice: Advice, cfg, raw: dict) -> dict:
     """``changes`` (the recipe differs from the effective value), ``agree`` (it already holds), ``unexplained``
-    (values written in project.toml that no rule sets: project-specific choices, or rules still to write)."""
+    (values written in project.toml that no rule sets: project-specific choices, or rules still to write),
+    ``ignored`` ([ps] keys the engine does not read, with the form parameter of the same name if there is one)."""
+    from geoeyes.advisor import catalog
     from geoeyes.api.settings import _get, _json
+    from geoeyes.processing.ps.params import unknown_keys
+    ignored_keys = set(unknown_keys(raw.get("ps") if isinstance(raw.get("ps"), dict) else {}))
     changes, agree = [], []
     for path, s in advice.recipe.items():
         section, key = path.split(".", 1)
@@ -191,16 +195,20 @@ def compare(advice: Advice, cfg, raw: dict) -> dict:
         own = key in (raw.get(section) or {})
         row = {"path": path, "current": current, "suggested": s.value, "rule": s.rule, "own": own}
         (agree if same(current, s.value) else changes).append(row)
-    unexplained = []
+    unexplained, ignored = [], []
+    for key in sorted(ignored_keys):
+        alt = next((p.path for p in catalog.load().values() if p.key == key and p.section != "ps"), None)
+        ignored.append({"path": f"ps.{key}", "value": _json(raw["ps"][key]), "did_you_mean": alt})
     for section, table in raw.items():
         if not isinstance(table, dict):
             continue
         for key, value in table.items():
             path = f"{section}.{key}"
-            if path in IDENTITY or path in advice.recipe or isinstance(value, dict):
+            if path in IDENTITY or path in advice.recipe or isinstance(value, dict) or (
+                    section == "ps" and key in ignored_keys):
                 continue
             unexplained.append({"path": path, "value": _json(value)})
-    return {"changes": changes, "agree": agree, "unexplained": unexplained}
+    return {"changes": changes, "agree": agree, "unexplained": unexplained, "ignored": ignored}
 
 
 def report(advice: Advice, cmp: dict | None = None, lang: str = "en") -> str:
@@ -225,6 +233,13 @@ def report(advice: Advice, cmp: dict | None = None, lang: str = "en") -> str:
             out.append(L("Already as the rules say:", "Đã đúng như luật:"))
             for r in cmp["agree"]:
                 out.append(f"  {r['path']} = {r['suggested']!r}   [{r['rule']}]")
+        if cmp.get("ignored"):
+            out.append(L("Not read by the engine (ignored; move or remove):",
+                         "Engine không đọc (bị bỏ qua; chuyển chỗ hoặc xoá):"))
+            for r in cmp["ignored"]:
+                hint = (L(f" -> did you mean {r['did_you_mean']}?", f" -> có phải ý là {r['did_you_mean']}?")
+                        if r["did_you_mean"] else "")
+                out.append(f"  [ps] {r['path'][3:]} = {r['value']!r}{hint}")
         if cmp["unexplained"]:
             out.append(L("Set in project.toml, no rule (project-specific, or a rule to write):",
                          "Đặt trong project.toml nhưng không có luật (riêng của dự án, hoặc cần viết luật):"))

@@ -108,7 +108,9 @@ def test_rules_reproduce_hcm_d18():
                          "unwrap_grid_filter_unit": "y"})
     cmp = rules.compare(rules.evaluate(_profile()), cfg, raw)
     assert cmp["changes"] == []
-    assert {r["path"] for r in cmp["unexplained"]} == {"ps.da_threshold", "ps.ref_centre_lonlat", "ps.ref_radius"}
+    assert {r["path"] for r in cmp["unexplained"]} == {"ps.ref_centre_lonlat", "ps.ref_radius"}
+    # [ps] da_threshold is not read by the engine (the threshold is [selection] da_threshold): reported apart
+    assert cmp["ignored"] == [{"path": "ps.da_threshold", "value": 0.42, "did_you_mean": "selection.da_threshold"}]
 
 
 def test_rules_reproduce_hp_maychai():

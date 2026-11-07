@@ -114,8 +114,22 @@ automatic fitting (too few projects).
     their fields (the wizard's own default ERA5 is replaced on flat deltas), the other values are written into
     project.toml after creation when the box is ticked.
   - Tests `tests/unit/api/test_api_advise.py` (project, apply through the settings endpoint, bbox).
-- [ ] **V4** `--learn` report comparing rules with finished projects.
-- [ ] **V5** (optional) local MCP server `geoeyes-advisor` with tools `explain_param`, `site_profile`, `recipe`.
+- [x] **V4** (done 2026-11-07) `geoeyes advise --learn [--lang vi] [--out report.md]` (`advisor/learn.py`): every
+  project of the workspace through the rules. Finished projects (with a product) count as evidence, others are
+  listed only. Sections: projects, rules (where each applies, values kept / changed in finished projects), where a
+  finished project differs from a rule, [ps] keys the engine does not read, values set in two or more finished
+  projects without a rule (candidate rules), rules that apply nowhere yet.
+  - First report (2026-11-07, 2 finished projects): no finished project differs from a rule. Found on the way:
+    `[ps] da_threshold` in hcm_d18 and hp_maychai is **not read by the engine** (the threshold is `[selection]
+    da_threshold`; harmless there, 0.42 is the default). The engine now logs `[ps]` keys it does not read
+    (`processing/ps/params.py` `OPTIONAL`, `unknown_keys`), and the advisor lists them with the key they belong to.
+- [x] **V5** (done 2026-11-07) Local MCP server `geoeyes mcp` (`advisor/mcp.py`, standard library only: JSON-RPC 2.0
+  on stdin / stdout). Tools, read only: `explain_param`, `site_profile`, `advise`, `list_rules`. The advisor never
+  calls a model; the server only lets Claude read it. Registering it in Claude Code:
+  - CLI: `claude mcp add geoeyes-advisor -- geoeyes --workspace <workspace> mcp`;
+  - or a `.mcp.json` at the repository root (kept out of git: machine paths):
+    `{"mcpServers": {"geoeyes-advisor": {"type": "stdio", "command": "<env>/Scripts/geoeyes.exe",
+    "args": ["--workspace", "<workspace>", "mcp"]}}}`; Claude Code asks once to allow it.
 
 ## 4. Difficulty
 

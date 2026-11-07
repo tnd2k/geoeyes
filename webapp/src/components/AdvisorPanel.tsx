@@ -145,6 +145,15 @@ export function AdvisorPanel({
                 </div>
               )}
 
+              {cmp && (cmp.ignored ?? []).length > 0 && (
+                <div className="text-bad">
+                  {t("Not read by the engine (ignored; move or remove):")}{" "}
+                  <span className="font-mono text-[11.5px]">
+                    {(cmp.ignored ?? []).map((i) => `[ps] ${i.path.slice(3)} = ${showValue(i.value)}${i.did_you_mean ? ` → ${i.did_you_mean}?` : ""}`).join("; ")}
+                  </span>
+                </div>
+              )}
+
               {cmp && cmp.unexplained.length > 0 && (
                 <div className="text-faint">
                   {t("Set in project.toml, no rule (project-specific, or a rule to write):")}{" "}

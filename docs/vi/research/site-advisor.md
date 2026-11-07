@@ -111,8 +111,22 @@ thực sự đã dùng. Luật được sửa tay từ báo cáo đó; không t�
     vào các ô của chúng (mặc định ERA5 của wizard được thay ở đồng bằng phẳng), các giá trị khác ghi vào
     project.toml sau khi tạo nếu đánh dấu ô chọn.
   - Test `tests/unit/api/test_api_advise.py` (dự án, áp dụng qua endpoint cài đặt, bbox).
-- [ ] **V4** Báo cáo `--learn` so luật với các dự án đã xong.
-- [ ] **V5** (tuỳ chọn) MCP server cục bộ `geoeyes-advisor` với các công cụ `explain_param`, `site_profile`, `recipe`.
+- [x] **V4** (xong 2026-11-07) `geoeyes advise --learn [--lang vi] [--out report.md]` (`advisor/learn.py`): mọi dự án
+  của workspace qua bộ luật. Dự án đã xong (có sản phẩm) được tính là bằng chứng, dự án khác chỉ được liệt kê. Các
+  mục: dự án, luật (áp dụng ở đâu, giá trị giữ đúng / đặt khác trong dự án đã xong), chỗ dự án đã xong khác luật,
+  khoá [ps] engine không đọc, giá trị đặt ở từ hai dự án đã xong trở lên mà chưa có luật (ứng viên luật mới), luật
+  chưa áp dụng ở đâu.
+  - Báo cáo đầu tiên (2026-11-07, 2 dự án đã xong): không dự án đã xong nào khác luật. Phát hiện thêm: `[ps]
+    da_threshold` trong hcm_d18 và hp_maychai **không được engine đọc** (ngưỡng nằm ở `[selection] da_threshold`; ở
+    đó vô hại vì 0.42 là mặc định). Engine giờ ghi log các khoá `[ps]` nó không đọc (`processing/ps/params.py`
+    `OPTIONAL`, `unknown_keys`), và bộ tư vấn liệt kê chúng kèm khoá đúng.
+- [x] **V5** (xong 2026-11-07) MCP server cục bộ `geoeyes mcp` (`advisor/mcp.py`, chỉ dùng thư viện chuẩn: JSON-RPC 2.0
+  qua stdin / stdout). Các công cụ, chỉ đọc: `explain_param`, `site_profile`, `advise`, `list_rules`. Bộ tư vấn không
+  bao giờ gọi mô hình; server chỉ cho Claude đọc nó. Đăng ký trong Claude Code:
+  - CLI: `claude mcp add geoeyes-advisor -- geoeyes --workspace <workspace> mcp`;
+  - hoặc file `.mcp.json` ở thư mục gốc repo (không đưa vào git: đường dẫn riêng của máy):
+    `{"mcpServers": {"geoeyes-advisor": {"type": "stdio", "command": "<env>/Scripts/geoeyes.exe",
+    "args": ["--workspace", "<workspace>", "mcp"]}}}`; Claude Code hỏi cho phép một lần.
 
 ## 4. Độ khó
 

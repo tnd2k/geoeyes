@@ -386,6 +386,15 @@ def cmd_advise(args) -> int:
     from geoeyes.config.settings import load_settings
     from geoeyes.workspace import WorkspaceLayout
     project = cfg = raw = None
+    if args.learn:
+        from geoeyes.advisor import learn
+        ws = WorkspaceLayout.at(args.workspace) if args.workspace else load_settings().workspace_layout()
+        text = learn.report(learn.collect(ws, progress=lambda m: print(m, file=sys.stderr)), args.lang)
+        if args.out:
+            Path(args.out).write_text(text, encoding="utf-8")
+            print(f"written {args.out}", file=sys.stderr)
+        print(text)
+        return 0
     if args.project:
         cfg, project, ws = _open(args)
         raw = tomllib.loads(project.config.read_text(encoding="utf-8"))
@@ -426,6 +435,16 @@ def cmd_advise(args) -> int:
         settings.apply(project, todo)
         print(f"\napplied {len(todo)} value(s) to {project.config} (previous file kept in .state/)")
     return 0
+
+
+def cmd_mcp(args) -> int:
+    """The site advisor as a local MCP server on stdin / stdout (site advisor V5)."""
+    import os
+
+    from geoeyes.advisor.mcp import serve
+    if args.workspace:
+        os.environ["GEOEYES_WORKSPACE"] = args.workspace
+    return serve()
 
 
 def cmd_catalog(args) -> int:
@@ -990,7 +1009,13 @@ def build_parser() -> argparse.ArgumentParser:
     av.add_argument("--json", action="store_true")
     av.add_argument("--apply", action="store_true", help="write the suggested changes into project.toml "
                                                          "(validated; the previous file is kept)")
+    av.add_argument("--learn", action="store_true", help="every project of the workspace against the rules: where "
+                                                         "they agree, differ, and values that recur without a rule")
+    av.add_argument("--out", help="with --learn: also write the report (Markdown) to this file")
     av.set_defaults(func=cmd_advise)
+    mc = sub.add_parser("mcp", help="site advisor as a local MCP server on stdin / stdout (for Claude Code: "
+                                    "claude mcp add geoeyes-advisor -- geoeyes mcp)")
+    mc.set_defaults(func=cmd_mcp)
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")

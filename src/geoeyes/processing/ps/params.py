@@ -2,6 +2,7 @@
 ``parms.json``), with the legacy defaults."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +15,8 @@ from geoeyes.processing.ps.steps.select import SelectParams
 from geoeyes.processing.ps.steps.unwrap import UnwrapParams
 from geoeyes.processing.ps.steps.weed import WeedParams
 from geoeyes.processing.ps.unwrap.spatial import SpatialParams
+
+log = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, Any] = {
     # clap_win 16, filter_grid_size 10, PERCENT 80 %, unwrap_gold_n_win 16: the settings tuned on the HCMC
@@ -85,6 +88,15 @@ DEFAULTS: dict[str, Any] = {
     # the ps engine)
     "legacy_quirks": "n",
 }
+# keys read only when present (no default): with DEFAULTS, every key of [ps] the engine reads
+OPTIONAL: frozenset[str] = frozenset({"weed_arc_edge_chunk_cap", "drop_ifg_index", "deramp_non_defo",
+                                      "dem_error_spatial_huber_delta"})
+
+
+def unknown_keys(table: dict[str, Any] | None) -> list[str]:
+    """Keys of a [ps] table the engine does not read (a typo, or a key of another section such as
+    da_threshold, which belongs to [selection]): they would be silently ignored."""
+    return sorted(k for k in (table or {}) if k not in DEFAULTS and k not in OPTIONAL)
 
 
 def hoa_max_topo_err(bperp, wavelength: float, slant_range: float, incidence: float,
@@ -182,6 +194,9 @@ def deramp_mode(v) -> str:
 
 
 def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float) -> EngineParams:
+    unknown = unknown_keys(table)
+    if unknown:
+        log.warning("[ps] keys not read by the engine (ignored): %s", ", ".join(unknown))
     pm = {**DEFAULTS, **(table or {})}
     hd = pm.get("dem_error_spatial_huber_delta")
     dem = DemErrorParams(

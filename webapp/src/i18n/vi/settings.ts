@@ -48,5 +48,6 @@ export const SETTINGS: Record<string, string> = {
   "Measure the site again": "Đo lại khu vực",
   "Measuring the site…": "Đang đo khu vực…",
   "Ask the site advisor": "Hỏi bộ tư vấn khu vực",
+  "Not read by the engine (ignored; move or remove):": "Engine không đọc (bị bỏ qua; chuyển chỗ hoặc xoá):",
   "Write the other suggested values into project.toml when creating (method, atmosphere and images per month are already in the fields; everything can be changed later in Settings)": "Ghi các giá trị đề xuất còn lại vào project.toml khi tạo dự án (phương pháp, khí quyển và số ảnh mỗi tháng đã điền vào các ô; mọi thứ đổi được sau trong Cài đặt)",
 };
