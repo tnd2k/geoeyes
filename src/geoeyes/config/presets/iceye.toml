@@ -20,7 +20,7 @@ robust_da = true
 ds_coherence_min = 0.7
 
 [ps]
-max_topo_err = "auto"
+max_topo_err = "auto_master"       # height of ambiguity / 4 with the master-relative B⊥ (legacy prep)
 select_method = "PERCENT"
 percent_rand = 92
 density_rand = 20

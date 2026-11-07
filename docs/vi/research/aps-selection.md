@@ -136,6 +136,19 @@ Chạy bằng engine (chạy lại bước 6–8 trên cùng bước 1–5, đi�
 Bỏ APS ở cả hai lượt thì chính engine cho mức khớp như v-do mà không cần mặt phẳng quỹ đạo: APS là toàn bộ nguồn của
 độ lệch và mặt nghiêng.
 
+### 5.2 A0 — `hp_maychai` (Hải Phòng, S1 desc 91 frame 522, 36 ngày 07/2025..10/2026)
+
+| Kiểm tra | Giá trị | Kết luận |
+|---|---|---|
+| 1 địa hình | p5–p95 địa hình **9,7 m**; p5–p95 độ cao PS 25,2 m | tắt |
+| 2 rò rỉ | v_aps p5..p95 −0,6..+0,5 mm/năm (độ trải **1,2**); corr(v_aps, v_def) **+0,07**; xu hướng chiếm 2 % phương sai APS | sát ngưỡng, thực chất không rò rỉ |
+| 3 lợi ích | mức giảm trung vị **+4,9 %**; > 5 % ở 49 % số giao thoa đồ; tệ hơn ở **0 %** | sát ngưỡng |
+
+v-dao − v-do: trung vị −0,01, p5..p95 −0,40..+0,46 mm/năm (tương quan 0,999): ở đây APS gần như không ảnh hưởng.
+Khác `hcm_d18`, biến dạng không tương quan với độ cao (corr(v_def, h) −0,06), nên phép khớp a·h không có gì để nuốt.
+Hai vùng đồng bằng, hai cách hành xử: chỉ kiểm tra 1 thì tắt ở cả hai; kiểm tra 2–3 cho thấy APS có hại ở TP.HCM
+và vô hại (hơi có ích cho chuỗi thời gian) ở Hải Phòng.
+
 Còn lại: một vùng núi và CSK Hà Nội.
 
 ## 6. Hạn chế

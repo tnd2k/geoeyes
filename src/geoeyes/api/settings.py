@@ -70,7 +70,7 @@ SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "A
                   "ps": "Point engine (StaMPS parameters)"}
 SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
                ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],
-               ("ps", "max_topo_err"): ["auto"], ("ps", "unwrap_time_win"): ["auto"]}
+               ("ps", "max_topo_err"): ["auto", "auto_master"], ("ps", "unwrap_time_win"): ["auto"]}
 # [ps] keys that take a number or "auto" (set from the data when the engine runs)
 PS_AUTO = {"max_topo_err": "Largest DEM error searched (m), or auto = median height of ambiguity / 4",
            "unwrap_time_win": "Time window of the space-time unwrapping (days), or auto = a quarter of the data "
