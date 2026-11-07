@@ -7,6 +7,7 @@ A pair (i, j), i < j, is kept when ``|B⊥ᵢ − B⊥ⱼ| ≤ max_perp_m`` and:
 
 plus, with ``redundant``, every pair within ``redundant_max_days`` and the baseline limit (the short, coherent pairs
 that tie the network).
+Pairs shorter than ``min_temporal_days`` are never kept (the short-pair phase bias over crops, "fading signal").
 Disconnected subsets are reported; with ``bridge`` the last date of each subset is linked to the first later date of
 the next one, whatever the baseline (the inversion would otherwise need the minimum-norm SVD across them).
 """
@@ -27,6 +28,7 @@ class NetworkParams:
     redundant: bool = True
     redundant_max_days: int = 24
     bridge: bool = True
+    min_temporal_days: int = 0          # pairs shorter than this are left out (short-pair phase bias)
 
 
 @dataclass
@@ -93,7 +95,7 @@ def select_pairs(dates: list[date], bperp_m, p: NetworkParams | None = None) -> 
     n = len(dates)
     keep: set[tuple[int, int]] = set()
     for i in range(n):
-        later = [j for j in range(i + 1, n) if abs(b[j] - b[i]) <= p.max_perp_m]
+        later = [j for j in range(i + 1, n) if abs(b[j] - b[i]) <= p.max_perp_m and t[j] - t[i] >= p.min_temporal_days]
         if p.max_temporal_days > 0:
             keep |= {(i, j) for j in later if t[j] - t[i] <= p.max_temporal_days}
         else:

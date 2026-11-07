@@ -18,16 +18,20 @@ def _pinv(b: np.ndarray, w: np.ndarray | None, rcond: float = 1e-10) -> np.ndarr
 
 
 def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = None,
-           min_pairs: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+           min_pairs: int | None = None, rank_out: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Interval velocities (intervals, pixels; phase per day) and the modelled pair phase (pairs, pixels).
 
-    A pixel needs ``min_pairs`` valid pairs (default: the number of intervals); fewer gives NaN."""
+    A pixel needs ``min_pairs`` valid pairs (default: the number of intervals); fewer gives NaN. ``rank_out``
+    (pixels, int): filled with the rank deficit of each pixel's own network (intervals − rank): above 0, its valid
+    pairs leave some intervals tied to nothing and the minimum-norm solution pulls their velocity toward 0."""
     m, k = design.shape
     phase = np.asarray(phase, np.float64)
     valid = np.isfinite(phase)
     need = k if min_pairs is None else min_pairs
     vel = np.full((k, phase.shape[1]), np.nan)
     model = np.full(phase.shape, np.nan)
+    if rank_out is not None:
+        rank_out[:] = -1
     packed = np.packbits(valid, axis=0)                    # one key per pixel: its pattern of valid pairs
     keys, inv = np.unique(packed, axis=1, return_inverse=True)
     inv = inv.ravel()
@@ -37,6 +41,8 @@ def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = N
         if len(rows) < need:
             continue
         b = design[rows]
+        if rank_out is not None:
+            rank_out[cols] = k - np.linalg.matrix_rank(b)
         p = _pinv(b, None if weights is None else weights[rows])
         v = p @ phase[np.ix_(rows, cols)]
         vel[:, cols] = v
