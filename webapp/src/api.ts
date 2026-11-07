@@ -994,6 +994,7 @@ export interface AreaInfo {
   mean_mm?: (number | null)[];
   std_mm?: (number | null)[];
   mean_scn_mm?: (number | null)[];
+  std_scn_mm?: (number | null)[];
 }
 
 export interface DispMeta {

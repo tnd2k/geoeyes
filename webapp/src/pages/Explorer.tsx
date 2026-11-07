@@ -884,14 +884,11 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick, three, exag, base, anim?.key, frameColors, frameQ.data, disp.data, frame, line, profiling, halfWidth, hoverDist, floodShown, floodSel, floodStats.data, floodRiskColors, outlookQ.data, hexQueries.map((q) => q.dataUpdatedAt).join(), zoom, hexOn, th.themes, themeQueries.map((q) => q.dataUpdatedAt).join(), themeSel]);
 
-  const pointScn = useMemo(
-    () => (point.data?.disp_scn_mm ? { values: point.data.disp_scn_mm, label: t("residual atmosphere (SCN) removed") } : null),
-    [point.data],
-  );
-  const areaScn = useMemo(
-    () => (area?.info.mean_scn_mm ? { values: area.info.mean_scn_mm, label: t("residual atmosphere (SCN) removed") } : null),
-    [area],
-  );
+  // the time-series panel shows the series with the residual atmosphere (SCN) removed (StaMPS v-dso, as SARPROZ's
+  // APS-corrected series); products without it fall back to the raw series. The map keeps its velocity-kind choice.
+  const pointSeries = point.data ? (point.data.disp_scn_mm ?? point.data.disp_mm) : null;
+  const areaSeries = area?.info.mean_scn_mm ?? area?.info.mean_mm;
+  const areaSpread = area?.info.mean_scn_mm ? area.info.std_scn_mm : area?.info.std_mm;
   const selMeta = selection ? byKey[selection.layer]?.meta : undefined;
   const pointRain = useRain(selLayer);
   const areaRain = useRain(area ? layers.find((l) => l.key === area.layer) : undefined);
@@ -1480,7 +1477,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex justify-end">{pointRain.control}</div>
-                  {point.data && <TimeSeries dates={selMeta.dates} values={point.data.disp_mm} extra={pointScn} rain={pointRain.series} height={240} />}
+                  {pointSeries && <TimeSeries dates={selMeta.dates} values={pointSeries} rain={pointRain.series} height={240} />}
                 </div>
               </div>
             )}
@@ -1552,7 +1549,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                   {area && area.info.n > 0 && areaMeta && (
                     <>
                       <div className="mb-1 flex justify-end">{areaRain.control}</div>
-                      <TimeSeries dates={areaMeta.dates} values={area.info.mean_mm!} spread={area.info.std_mm!} extra={areaScn} rain={areaRain.series} height={240} />
+                      <TimeSeries dates={areaMeta.dates} values={areaSeries!} spread={areaSpread ?? undefined} rain={areaRain.series} height={240} />
                     </>
                   )}
                 </div>
