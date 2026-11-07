@@ -37,6 +37,7 @@ VN_BOX = (102.0, 8.0, 110.0, 23.5)
 RES = 0.05
 FIRST_YEAR = 1998
 THREADS = 3                        # 6 got throttled (random days refused)
+TAIL_DAYS = 90                     # days this recent may not be published yet: read one by one, stop at the first gap
 WET_MM = 1.0
 DRY_GAP = 2
 REGIONS = {"north": (19.5, 90.0), "centre": (11.0, 19.5)}
@@ -117,31 +118,42 @@ def year_grid(cache: Path, year: int, progress=None) -> tuple[np.ndarray, list[s
     beyond its last published day and is asked again next time."""
     f = cache / f"chirps3_sat_vn_{year}.npz"
     today = pd.Timestamp.today().normalize()
+    h, w = _shape()
+    old_mm, old_dates = np.zeros((0, h, w), np.float32), []
     if f.exists():
         z = np.load(f)
         dates = [str(d) for d in z["dates"]]
         mm = z["mm"].astype(np.float32) / 10.0
         mm[z["mm"] == np.iinfo(np.uint16).max] = np.nan
-        if year < today.year or z.get("complete", np.array(False)).item():
+        if z.get("complete", np.array(False)).item():
             if not z.get("repaired", np.array(False)).item():          # one slow pass over the missing days
                 mm = _repair(f, mm, dates, progress)
             return mm, dates
-    days = pd.date_range(f"{year}-01-01", min(pd.Timestamp(f"{year}-12-31"), today - pd.Timedelta(days=1)))
+        old_mm, old_dates = mm, dates             # year cached while running: only the days after it are read
+    first = pd.Timestamp(old_dates[-1]) + pd.Timedelta(days=1) if old_dates else pd.Timestamp(f"{year}-01-01")
+    days = pd.date_range(first, min(pd.Timestamp(f"{year}-12-31"), today - pd.Timedelta(days=1)))
+    # days surely published are read in parallel; the recent tail one at a time up to the first day not
+    # published, since every request for an absent file counts as "probing" for the server's CrowdSec
+    sure = days[days < today - pd.Timedelta(days=TAIL_DAYS)]
     with ThreadPoolExecutor(THREADS) as ex:
-        arrs = list(ex.map(_read_day, days))
-    h, w = _shape()
-    mm = np.full((len(days), h, w), np.nan, np.float32)
+        arrs = list(ex.map(_read_day, sure))
+    for day in days[len(sure):]:
+        a = _read_day(day)
+        if a is None:
+            break
+        arrs.append(a)
+    mm = np.full((len(arrs), h, w), np.nan, np.float32)
     for k, a in enumerate(arrs):
         if a is not None:
             mm[k] = a[:h, :w]
-    keep = len(days)
+    keep = len(arrs)
     while keep and arrs[keep - 1] is None:                         # unpublished tail
         keep -= 1
-    mm = mm[:keep]
-    dates = [d.date().isoformat() for d in days[:keep]]
-    _save(f, mm, dates, complete=year < today.year, repaired=False)
+    mm = np.concatenate([old_mm, mm[:keep]])
+    dates = old_dates + [d.date().isoformat() for d in days[:keep]]
+    _save(f, mm, dates, complete=bool(dates) and dates[-1] == f"{year}-12-31", repaired=False)
     if progress:
-        progress(f"L6: CHIRPS {year}: {keep} days, {int(np.isnan(mm).all(axis=(1, 2)).sum())} missing")
+        progress(f"L6: CHIRPS {year}: {len(dates)} days, {int(np.isnan(mm).all(axis=(1, 2)).sum())} missing")
     return mm, dates
 
 
