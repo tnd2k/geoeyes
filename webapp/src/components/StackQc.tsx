@@ -61,6 +61,10 @@ export function StackQc({ name }: { name: string }) {
     api.stackQcUrl(name, stack!.stack_id, `${kind}${lk && kind !== "amp" ? "L" : ""}_${date}.png`, r?.created);
   const uw = stack?.unwrap_qc ?? null;
   const uwRow = uw && sel ? uw.dates.find((x) => x.date === sel.date) : undefined;
+  // one frame size for the four images (the stack images' shape); each image fits inside it with its own shape
+  // (the unwrapping grid covers only the points, on axes turned to the orbit, so its shape differs)
+  const frame = "block overflow-hidden rounded border border-line bg-deep";
+  const frameStyle = { aspectRatio: r?.image_shape ? `${r.image_shape[1]} / ${r.image_shape[0]}` : "1 / 1" };
 
   return (
     <div className="mb-6 space-y-4">
@@ -175,7 +179,7 @@ export function StackQc({ name }: { name: string }) {
                   Bperp {fmt.int(Math.round(sel.bperp_m))} m · {t("{d} days", { d: Math.abs(sel.days - (rows.find((x) => x.reference)?.days ?? 0)) })}
                 </span>
               </div>
-              <div className={`grid gap-3 ${uwRow ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
+              <div className={`grid items-start gap-3 ${uwRow ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3"}`}>
                 {(
                   [
                     ["amp", t("Amplitude ({d})", { d: sel.date })],
@@ -185,8 +189,8 @@ export function StackQc({ name }: { name: string }) {
                 ).map(([k, label]) => (
                   <figure key={k} className="min-w-0">
                     <figcaption className="mb-1 text-[12px] text-muted">{label}</figcaption>
-                    <a href={img(k, sel.date)} target="_blank" rel="noreferrer">
-                      <img src={img(k, sel.date)} alt={label} className="w-full rounded border border-line bg-deep" style={{ imageRendering: "pixelated" }} />
+                    <a href={img(k, sel.date)} target="_blank" rel="noreferrer" className={frame} style={frameStyle}>
+                      <img src={img(k, sel.date)} alt={label} className="h-full w-full object-contain" style={{ imageRendering: "pixelated" }} />
                     </a>
                     {k === "ifg" && <Ramp kind="phase" />}
                     {k === "coh" && <Ramp kind="coh" />}
@@ -198,8 +202,8 @@ export function StackQc({ name }: { name: string }) {
                       {t("Wrapped phase before unwrapping")}
                       {uwRow.jump_frac != null && <span className={uwRow.jump_frac <= 0.15 ? "text-good" : uwRow.jump_frac <= 0.3 ? "text-warn" : "text-bad"}> · {t("jumps {p} %", { p: Math.round(uwRow.jump_frac * 100) })}</span>}
                     </figcaption>
-                    <a href={api.psrunQcUrl(name, stack.ps_run, `uw_${sel.date}.png`, uw.created)} target="_blank" rel="noreferrer">
-                      <img src={api.psrunQcUrl(name, stack.ps_run, `uw_${sel.date}.png`, uw.created)} alt={t("Wrapped phase before unwrapping")} className="w-full rounded border border-line bg-deep" style={{ imageRendering: "pixelated" }} />
+                    <a href={api.psrunQcUrl(name, stack.ps_run, `uw_${sel.date}.png`, uw.created)} target="_blank" rel="noreferrer" className={frame} style={frameStyle}>
+                      <img src={api.psrunQcUrl(name, stack.ps_run, `uw_${sel.date}.png`, uw.created)} alt={t("Wrapped phase before unwrapping")} className="h-full w-full object-contain" style={{ imageRendering: "pixelated" }} />
                     </a>
                     <Ramp kind="phase" />
                   </figure>
