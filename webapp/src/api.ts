@@ -1056,7 +1056,8 @@ export interface FieldSpec {
 }
 
 export interface SettingsSpec {
-  sections: { name: string; title: string; fields: FieldSpec[] }[];
+  // name: the TOML section written to; id: the form's key ([ps] comes in one group per StaMPS step)
+  sections: { name: string; id?: string; title: string; fields: FieldSpec[] }[];
   toml: string;
   tracks: Record<string, unknown>[];
 }

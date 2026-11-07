@@ -41,8 +41,27 @@ def ws(tmp_path):
 
 
 def _field(spec, section, key):
-    sec = next(s for s in spec["sections"] if s["name"] == section)
-    return next(f for f in sec["fields"] if f["key"] == key)
+    # [ps] is shown in several groups (one per StaMPS step): all the form sections of that TOML section
+    return next(f for s in spec["sections"] if s["name"] == section for f in s["fields"] if f["key"] == key)
+
+
+def test_settings_form_order_groups_and_options(ws):
+    c = TestClient(create_app(ws))
+    spec = c.get("/api/projects/alpha/settings").json()
+    ids = [s["id"] for s in spec["sections"]]
+    # pipeline order: acquisition before the stack, phase linking and the point engine; export and report last
+    assert ids.index("acquire") < ids.index("stack") < ids.index("phase_linking") < ids.index("selection") \
+        < ids.index("ps-gamma") < ids.index("ps-unwrap") < ids.index("atmosphere") < ids.index("ps-scn") \
+        < ids.index("export") < ids.index("report")
+    assert len(ids) == len(set(ids))
+    unwrap = next(s for s in spec["sections"] if s["id"] == "ps-unwrap")
+    assert unwrap["name"] == "ps" and "unwrap_ps_rate" in [f["key"] for f in unwrap["fields"]]
+    # every [ps] parameter has a help line; fixed choices offered in full
+    assert all(f["help"] for s in spec["sections"] if s["name"] == "ps" for f in s["fields"])
+    assert _field(spec, "ps", "scla_deramp")["options"] == ["n", "y", "auto"]
+    assert _field(spec, "ps", "ref_centre_lonlat")["kind"] == "pair"
+    assert c.patch("/api/projects/alpha/settings", json={"ps.ref_radius": "300"}).status_code == 200
+    assert tomllib.loads(ws.project("alpha").config.read_text(encoding="utf-8"))["ps"]["ref_radius"] == 300.0
 
 
 def test_settings_form_edit_keeps_comments_and_backs_up(ws):

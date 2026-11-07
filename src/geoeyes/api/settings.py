@@ -59,22 +59,137 @@ FIELDS: list[tuple[str, str, str]] = [
     ("sbas", "troposphere", "Per pair, remove the phase linear in height (can absorb a bowl lower than the "
                             "reference)"),
     ("sbas", "goldstein_alpha", "Goldstein filter strength before unwrapping (0 = off)"),
-    ("atmosphere", "method", "none, era5 (needs ~/.cdsapirc) or gacos"),
+    ("atmosphere", "method", "Weather-model APS for step 7: none, era5 (needs ~/.cdsapirc), cerra or gacos"),
     ("atmosphere", "select", "auto: weather correction kept only where it reduces the phase; all: everywhere"),
     ("export", "formats", "GIS formats written for each product"),
     ("report", "copy_to", "Folder the PDF report is also copied to ('' = none)"),
 ]
-SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "Acquisition", "network": "Network",
-                  "stack": "Stack", "selection": "Point selection", "phase_linking": "Phase linking",
-                  "sbas": "SBAS (method = sbas)", "atmosphere": "Atmosphere", "export": "Export", "report": "Report",
-                  "ps": "Point engine (StaMPS parameters)"}
+# titles of the TOML sections, numbered by the pipeline phase that reads them (the form shows them in that order)
+SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "1 · Acquisition",
+                  "network": "2 · Stack: interferogram network", "stack": "2 · Stack: coregistration",
+                  "phase_linking": "3 · Phase linking (distributed scatterers)",
+                  "selection": "4 · PS step 1 · candidates", "atmosphere": "4 · PS step 7 · weather-model atmosphere",
+                  "sbas": "4 · SBAS (in place of PS when method = sbas)", "export": "5 · Export",
+                  "report": "6 · Report",
+                  "ps": "4 · Point engine (StaMPS parameters)"}
+# the [ps] table in groups, by StaMPS step: (form id, title, keys). Keys not listed land in the last group.
+PS_GROUPS: list[tuple[str, str, list[str]]] = [
+    ("ps-gamma", "4 · PS step 2 · temporal coherence and DEM error",
+     ["max_topo_err", "filter_grid_size", "filter_weighting", "clap_win", "clap_low_pass_wavelength", "clap_alpha",
+      "clap_beta", "gamma_change_convergence", "gamma_max_iterations", "dem_error_ambiguity",
+      "dem_error_amb_auto_threshold", "dem_error_amb_q_reject", "dem_error_amb_q_ok", "dem_error_spatial_lambda",
+      "dem_error_spatial_iters"]),
+    ("ps-select", "4 · PS step 3 · point selection",
+     ["select_method", "percent_rand", "density_rand", "gamma_min_threshold", "gamma_stdev_reject",
+      "select_nr_scaling", "slc_osf", "reest_smoothing_flag"]),
+    ("ps-weed", "4 · PS step 4 · weeding",
+     ["weed_time_win", "weed_standard_dev", "weed_zero_elevation", "weed_neighbours", "weed_adjacent_keep_per_group",
+      "weed_noisy_check"]),
+    ("ps-ref", "4 · PS step 5 · reference area", ["ref_centre_lonlat", "ref_radius", "ref_auto"]),
+    ("ps-unwrap", "4 · PS step 6 · unwrapping",
+     ["unwrap_patch_phase", "unwrap_grid_size", "unwrap_prefilter_flag", "unwrap_grid_filter",
+      "unwrap_grid_filter_sigma", "unwrap_grid_filter_unit", "unwrap_gold_n_win", "unwrap_gold_alpha",
+      "unwrap_gold_coh_floor", "unwrap_time_win", "unwrap_la_error_flag", "unwrap_edge_velocity",
+      "unwrap_max_edge_velocity", "unwrap_model_cycles", "unwrap_ps_rate", "unwrap_ps_rate_max_arc",
+      "unwrap_ps_rate_min_ifg", "unwrap_irls_iter", "unwrap_irls_target_rms", "unwrap_irls_epsilon",
+      "unwrap_align_constant"]),
+    ("ps-scla", "4 · PS step 7 · DEM error, orbit ramps and atmosphere",
+     ["subtr_tropo", "scla_deramp", "ramp_auto_allow_planar"]),
+    ("ps-scn", "4 · PS step 8 · spatially correlated noise (SCN)", ["scn_time_win", "scn_wavelength", "scn_time_fit"]),
+    ("ps-misc", "4 · PS · memory and compatibility",
+     ["topofit_chunk_pixels", "ps_select_smooth_chunk_pixels", "weed_noise_ifg_chunk", "legacy_quirks"]),
+]
+# the order of the form: the pipeline; "@<id>" = a [ps] group
+ORDER = ["project", "aoi", "acquire", "network", "stack", "phase_linking", "selection", "@ps-gamma", "@ps-select",
+         "@ps-weed", "@ps-ref", "@ps-unwrap", "@ps-scla", "atmosphere", "@ps-scn", "@ps-misc", "sbas", "export",
+         "report"]
 SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
                ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],
-               ("ps", "max_topo_err"): ["auto", "auto_master"], ("ps", "unwrap_time_win"): ["auto"]}
-# [ps] keys that take a number or "auto" (set from the data when the engine runs)
-PS_AUTO = {"max_topo_err": "Largest DEM error searched (m), or auto = median height of ambiguity / 4",
-           "unwrap_time_win": "Time window of the space-time unwrapping (days), or auto = a quarter of the data "
-                              "span (at least 4 sampling intervals, 60-730)"}
+               ("ps", "max_topo_err"): ["auto", "auto_master"], ("ps", "unwrap_time_win"): ["auto"],
+               ("ps", "unwrap_grid_filter_sigma"): ["auto", "cells"], ("ps", "ref_radius"): ["inf"]}
+# [ps] keys that take a number or one of these words (set from the data when the engine runs)
+PS_WORDS = {"max_topo_err": {"auto", "auto_master"}, "unwrap_time_win": {"auto"},
+            "unwrap_grid_filter_sigma": {"auto", "cells"}, "ref_radius": {"inf"}}
+# [ps] keys with a fixed set of values (the form offers all of them, not only y / n)
+PS_OPTIONS = {"scla_deramp": ["n", "y", "auto"], "unwrap_ps_rate": ["auto", "y", "n"],
+              "unwrap_grid_filter": ["gaussian", "goldstein", "none"], "select_method": ["PERCENT", "DENSITY"],
+              "scn_time_fit": ["linear", "mean"], "select_nr_scaling": ["low_coherence", "population"],
+              "filter_weighting": ["P-square", "SNR"]}
+PS_HELP = {
+    "max_topo_err": "Largest DEM error searched (m); auto = median height of ambiguity / 4 (baselines about their "
+                    "median); auto_master = the same about the master (legacy CSK / ICEYE)",
+    "filter_grid_size": "Grid cell (m) of the adaptive phase filter that estimates the neighbourhood phase",
+    "filter_weighting": "Weighting of the PS in that filter: P-square (coherence) or SNR",
+    "clap_win": "Window (grid cells) of the CLAP adaptive filter",
+    "clap_low_pass_wavelength": "Low-pass wavelength (m) of the CLAP filter",
+    "clap_alpha": "CLAP: weight of the adaptive (spectral) part",
+    "clap_beta": "CLAP: exponent of the spectral weighting",
+    "gamma_change_convergence": "Stop iterating when the mean temporal coherence changes less than this",
+    "gamma_max_iterations": "Most iterations of the coherence estimation",
+    "dem_error_ambiguity": "y: score the DEM-error fit for ambiguity and regularise it spatially (legacy CSK)",
+    "dem_error_amb_auto_threshold": "Ambiguity thresholds from the data (with dem_error_ambiguity)",
+    "dem_error_amb_q_reject": "Ambiguity score below which the DEM error is rejected",
+    "dem_error_amb_q_ok": "Ambiguity score above which the DEM error is trusted",
+    "dem_error_spatial_lambda": "Weight of the spatial regularisation of the DEM error",
+    "dem_error_spatial_iters": "Iterations of the spatial regularisation",
+    "select_method": "PERCENT: share of random phase allowed; DENSITY: random points per km²",
+    "percent_rand": "PERCENT: % of the selected points allowed to be random phase",
+    "density_rand": "DENSITY: random-phase points per km² allowed",
+    "gamma_min_threshold": "Lowest coherence threshold, whatever the amplitude dispersion",
+    "gamma_stdev_reject": "Drop points whose coherence varies more than this between iterations (0 = off)",
+    "select_nr_scaling": "How the random-phase histogram is scaled: low_coherence or population (legacy CSK)",
+    "slc_osf": "SLC oversampling factor (1 = none)",
+    "reest_smoothing_flag": "Re-estimate the coherence of the selected points with their neighbourhood phase",
+    "weed_time_win": "Time window (days) of the smoothing used to judge the phase noise of a point",
+    "weed_standard_dev": "Drop points whose phase noise (rad) against their neighbours is above this",
+    "weed_zero_elevation": "Drop points at zero height (sea, DEM voids)",
+    "weed_neighbours": "Of adjacent pixels keep only the best one",
+    "weed_adjacent_keep_per_group": "Points kept per group of adjacent pixels",
+    "weed_noisy_check": "Drop points that are noisy against their neighbours",
+    "ref_centre_lonlat": "Centre (lon, lat) of the reference area; 0, 0 = no area (all points, or ref_auto)",
+    "ref_radius": "Radius (m) of the reference area around that centre; inf = all points",
+    "ref_auto": "y: reference = the stable periphery of the scene (when no centre is given)",
+    "unwrap_patch_phase": "n: the grid unwraps the phase of each point (StaMPS default); y: the smoother patch "
+                          "phase, then each point's residual (legacy)",
+    "unwrap_grid_size": "Cell (m) of the unwrapping grid (10 m usual; 50 m HCMC)",
+    "unwrap_prefilter_flag": "Filter the grid phase before unwrapping",
+    "unwrap_grid_filter": "Grid prefilter: gaussian, goldstein (coherence-adaptive) or none",
+    "unwrap_grid_filter_sigma": "σ of the Gaussian prefilter (m); auto = (unwrap_gold_n_win / 8) × 10 m, the same "
+                                "at any grid size; cells = the legacy σ in cells (grows with the grid)",
+    "unwrap_grid_filter_unit": "y: filter the unit phasor of each cell (a cell of many points no longer outweighs "
+                               "its neighbours)",
+    "unwrap_gold_n_win": "Window (cells) of the Goldstein filter; also sets the Gaussian σ in auto",
+    "unwrap_gold_alpha": "Strength of the Goldstein filter (0-1)",
+    "unwrap_gold_coh_floor": "Coherence below which the Goldstein filter acts at full strength",
+    "unwrap_time_win": "Time window (days) of the space-time unwrapping; auto = a quarter of the data span "
+                       "(at least 4 sampling intervals, 60-730)",
+    "unwrap_la_error_flag": "Estimate the look-angle (DEM) error in the space-time unwrapping",
+    "unwrap_edge_velocity": "Unwrap each grid edge in time by its linear rate first (keeps fast motion)",
+    "unwrap_max_edge_velocity": "Largest rate searched for an edge (mm/yr, line of sight)",
+    "unwrap_model_cycles": "The IRLS takes the cycle count of each grid step from the edge model",
+    "unwrap_ps_rate": "Linear rate of every point from the point network, removed before the grid and added back "
+                      "(a road faster than its cell keeps its cycles); auto = with >= unwrap_ps_rate_min_ifg "
+                      "interferograms and a reliable network",
+    "unwrap_ps_rate_max_arc": "Longest arc (m) between two points of that network",
+    "unwrap_ps_rate_min_ifg": "Fewest interferograms for unwrap_ps_rate = auto",
+    "unwrap_irls_iter": "Most iterations of the IRLS spatial unwrapping",
+    "unwrap_irls_target_rms": "IRLS stops below this residual (rad)",
+    "unwrap_irls_epsilon": "IRLS weight floor",
+    "unwrap_align_constant": "Align the IRLS constant before snapping to the wrapped phase (avoids one-cycle region "
+                             "slips near ±π)",
+    "subtr_tropo": "Remove the atmosphere (APS) from the velocity: linear in height, or the weather model of "
+                   "[atmosphere]; n on flat deltas, where it can absorb subsidence (v-do)",
+    "scla_deramp": "Orbit ramps: n = keep, y = remove a plane per interferogram, auto = remove the part that changes "
+                   "between dates",
+    "ramp_auto_allow_planar": "auto may also remove a steady planar trend without a stable area",
+    "scn_time_win": "Time window (days) of the SCN temporal filter (step 8)",
+    "scn_wavelength": "Spatial wavelength (m) of the SCN filter",
+    "scn_time_fit": "SCN temporal low-pass: linear (keeps the trend) or mean (StaMPS)",
+    "topofit_chunk_pixels": "Points per block in step 2 (memory)",
+    "ps_select_smooth_chunk_pixels": "Points per block in step 3 (memory)",
+    "weed_noise_ifg_chunk": "Interferograms per block in step 4 (memory)",
+    "legacy_quirks": "y: reproduce the legacy engine with its bugs (parity tests only)",
+}
 
 
 def _schema() -> dict:
@@ -118,8 +233,12 @@ def _kind(schema: dict, prop: dict) -> dict:
 
 
 def _ps_kind(v: Any, key: str = "") -> dict | None:
-    if key in PS_AUTO:
+    if key in PS_WORDS:
         return {"kind": "string", "nullable": False}
+    if key in PS_OPTIONS:
+        return {"kind": "enum", "options": PS_OPTIONS[key], "nullable": False}
+    if key == "ref_centre_lonlat":
+        return {"kind": "pair", "nullable": False}
     if isinstance(v, bool):
         return {"kind": "bool", "nullable": False}
     if isinstance(v, int):
@@ -199,7 +318,7 @@ def describe(project: ProjectLayout) -> dict:
     cfg = load(project.config)
     base = _base(raw)
     schema = _schema()
-    rows = list(FIELDS) + [("ps", k, PS_AUTO.get(k, "")) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
+    rows = list(FIELDS) + [("ps", k, PS_HELP.get(k, "")) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
     used = _used(project)
     sections: dict[str, list] = {}
     for section, key, help_ in rows:
@@ -219,8 +338,30 @@ def describe(project: ProjectLayout) -> dict:
             "key": key, "help": help_, **kind, "suggest": SUGGESTIONS.get((section, key)),
             "value": value, "default": _json(_safe(_get(base, section, key))),
             "own": key in (raw.get(section) or {}), "used": runs or None})
-    return {"sections": [{"name": s, "title": SECTION_TITLES.get(s, s), "fields": f} for s, f in sections.items()],
-            "toml": text, "tracks": raw.get("tracks", [])}
+    return {"sections": _ordered(sections), "toml": text, "tracks": raw.get("tracks", [])}
+
+
+def _ordered(sections: dict[str, list]) -> list[dict]:
+    """The form's sections in the pipeline order (``ORDER``), [ps] split into its StaMPS-step groups; ``name`` is
+    the TOML section the fields are written to, ``id`` the form's own key."""
+    ps = {f["key"]: f for f in sections.get("ps", [])}
+    listed = {k for _, _, keys in PS_GROUPS for k in keys}
+    out = []
+    for item in ORDER:
+        if item.startswith("@"):
+            gid = item[1:]
+            title, keys = next((t, k) for i, t, k in PS_GROUPS if i == gid)
+            fields = [ps[k] for k in keys if k in ps]
+            if gid == PS_GROUPS[-1][0]:                           # keys no group lists (new engine parameters)
+                fields += [f for k, f in ps.items() if k not in listed]
+            if fields:
+                out.append({"name": "ps", "id": gid, "title": title, "fields": fields})
+        elif item in sections:
+            out.append({"name": item, "id": item, "title": SECTION_TITLES.get(item, item), "fields": sections[item]})
+    seen = {s["name"] for s in out}
+    out += [{"name": s, "id": s, "title": SECTION_TITLES.get(s, s), "fields": f}
+            for s, f in sections.items() if s not in seen]
+    return out
 
 
 def _toml_value(v: Any) -> Any:
@@ -267,11 +408,18 @@ def apply(project: ProjectLayout, changes: dict[str, Any]) -> dict:
             if section in doc and key in doc[section]:
                 del doc[section][key]
             continue
-        if section == "ps" and key in PS_AUTO and isinstance(value, str) and value.strip().lower() != "auto":
-            try:
-                value = float(value)
-            except ValueError:
-                raise ConfigError(f"[ps] {key}: a number or \"auto\", not {value!r}") from None
+        if section == "ps" and key in PS_WORDS and isinstance(value, str):
+            words = PS_WORDS[key]
+            if value.strip().lower() in words:
+                value = value.strip().lower()
+                if value == "inf":
+                    value = float("inf")
+            else:
+                try:
+                    value = float(value)
+                except ValueError:
+                    raise ConfigError(f"[ps] {key}: a number or one of {', '.join(sorted(words))}, "
+                                      f"not {value!r}") from None
         if section not in doc:
             doc.add(tomlkit.nl())
             doc[section] = tomlkit.table()

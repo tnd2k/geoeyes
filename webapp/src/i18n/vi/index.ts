@@ -13,7 +13,8 @@ import { LEARN_SCIENCE } from "./learnScience";
 import { OPENDATA } from "./opendata";
 import { PROJECT } from "./project";
 import { SERVER, SERVER_PATTERNS } from "./server";
+import { SETTINGS } from "./settings";
 import { WORKSPACE } from "./workspace";
 
-export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...LEARN_SCIENCE, ...LEARN_IONOSPHERE, ...OPENDATA, ...ATMOSPHERE, ...SERVER };
+export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...LEARN_SCIENCE, ...LEARN_IONOSPHERE, ...OPENDATA, ...ATMOSPHERE, ...SERVER, ...SETTINGS };
 export const VI_PATTERNS: [RegExp, string][] = SERVER_PATTERNS;
