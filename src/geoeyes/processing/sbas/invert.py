@@ -17,13 +17,23 @@ def _pinv(b: np.ndarray, w: np.ndarray | None, rcond: float = 1e-10) -> np.ndarr
     return np.linalg.pinv(b * sw, rcond=rcond) * sw.T
 
 
+GROUP_MIN = 32            # a pattern of valid pairs shared by fewer pixels is solved in the batched path
+BATCH = 256               # pixels per batch of the batched path (memory: BATCH × pairs × intervals floats)
+
+
 def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = None,
-           min_pairs: int | None = None, rank_out: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+           min_pairs: int | None = None, rank_out: np.ndarray | None = None,
+           group_min: int = GROUP_MIN) -> tuple[np.ndarray, np.ndarray]:
     """Interval velocities (intervals, pixels; phase per day) and the modelled pair phase (pairs, pixels).
 
     A pixel needs ``min_pairs`` valid pairs (default: the number of intervals); fewer gives NaN. ``rank_out``
     (pixels, int): filled with the rank deficit of each pixel's own network (intervals − rank): above 0, its valid
-    pairs leave some intervals tied to nothing and the minimum-norm solution pulls their velocity toward 0."""
+    pairs leave some intervals tied to nothing and the minimum-norm solution pulls their velocity toward 0.
+
+    Pixels that share a pattern of valid pairs share one pseudo-inverse. Masking (coherence, closure) makes many
+    patterns of a few pixels each, and one SVD per pattern took most of the run (hcm_d18, 98 dates: 9 of 13 min at
+    2 × 8 looks, 40 of 57 min at 1 × 4). Patterns of fewer than ``group_min`` pixels are solved together, per pixel,
+    by the normal equations with a tiny ridge (the minimum-norm solution where the network is rank deficient)."""
     m, k = design.shape
     phase = np.asarray(phase, np.float64)
     valid = np.isfinite(phase)
@@ -33,9 +43,10 @@ def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = N
     if rank_out is not None:
         rank_out[:] = -1
     packed = np.packbits(valid, axis=0)                    # one key per pixel: its pattern of valid pairs
-    keys, inv = np.unique(packed, axis=1, return_inverse=True)
+    _, inv, counts = np.unique(packed, axis=1, return_inverse=True, return_counts=True)
     inv = inv.ravel()
-    for g in range(keys.shape[1]):
+    enough = valid.sum(0) >= need
+    for g in np.flatnonzero(counts >= group_min):
         cols = np.flatnonzero(inv == g)
         rows = np.flatnonzero(valid[:, cols[0]])
         if len(rows) < need:
@@ -47,6 +58,22 @@ def invert(phase: np.ndarray, design: np.ndarray, weights: np.ndarray | None = N
         v = p @ phase[np.ix_(rows, cols)]
         vel[:, cols] = v
         model[np.ix_(np.arange(m), cols)] = design @ v
+    rare = np.flatnonzero((counts[inv] < group_min) & enough)
+    w_pair = np.ones(m) if weights is None else np.asarray(weights, np.float64)
+    for s in range(0, rare.size, BATCH):
+        cols = rare[s:s + BATCH]
+        w = valid[:, cols].T * w_pair[None, :]                        # (p, m): 0 where a pair has no value
+        btw = design.T[None, :, :] * w[:, None, :]                    # (p, k, m)
+        n = btw @ design                                              # (p, k, k) normal matrices (batched BLAS)
+        rhs = (btw @ np.nan_to_num(phase[:, cols].T)[:, :, None])[..., 0]
+        scale = np.maximum(np.trace(n, axis1=1, axis2=2) / k, 1e-30)
+        if rank_out is not None:
+            eig = np.linalg.eigvalsh(n)
+            rank_out[cols] = k - (eig > 1e-9 * eig[:, -1:]).sum(1)
+        ridge = 1e-10 * scale
+        v = np.linalg.solve(n + ridge[:, None, None] * np.eye(k)[None], rhs[..., None])[..., 0]   # (p, k)
+        vel[:, cols] = v.T
+        model[:, cols] = design @ v.T
     return vel, model
 
 

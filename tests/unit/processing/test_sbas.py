@@ -170,6 +170,24 @@ def test_stratified_correction_keeps_the_velocity_of_height_correlated_subsidenc
     assert np.abs((velocity(kept) - np.median(velocity(kept))) - truth).max() < 1e-5         # kept
 
 
+def test_batched_inversion_equals_the_per_pattern_svd():
+    """Rare patterns of valid pairs are solved in batches (normal equations + tiny ridge): same velocities, model
+    and rank deficit as one SVD per pattern, including pixels whose network has a gap (rank deficient)."""
+    d = _dates(20)
+    net = select_pairs(d, np.zeros(20), NetworkParams(n_nearest=3, redundant=False))
+    b = net.design()
+    rng = np.random.default_rng(4)
+    ph = b @ rng.normal(0, 0.01, (19, 400)) + rng.normal(0, 0.05, (b.shape[0], 400))
+    ph[rng.random(ph.shape) < 0.05] = np.nan
+    gap = [k for k, (i, j) in enumerate(net.pairs) if i <= 9 < j]
+    ph[np.ix_(gap, np.arange(0, 400, 7))] = np.nan
+    r1, r2 = np.zeros(400, int), np.zeros(400, int)
+    v1, m1 = iv.invert(ph, b, min_pairs=10, rank_out=r1, group_min=1)          # every pattern by SVD
+    v2, m2 = iv.invert(ph, b, min_pairs=10, rank_out=r2, group_min=10**9)      # every pixel batched
+    assert np.array_equal(np.isfinite(v1), np.isfinite(v2)) and np.array_equal(r1, r2) and (r1 > 0).any()
+    assert np.nanmax(np.abs(v1 - v2)) < 1e-8 and np.nanmax(np.abs(m1 - m2)) < 1e-6
+
+
 def test_dem_error_removed_from_the_series():
     t = np.arange(0, 360, 12, dtype=float)
     rng = np.random.default_rng(1)
