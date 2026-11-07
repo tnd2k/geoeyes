@@ -305,10 +305,12 @@ export function productLayer(
   // the kind in the id: deck.gl matches layers by id and would hand the state of a points layer to a tile layer
   const id = `${o.idPrefix ?? "pts-"}${l.key}#${d.kind}${o.terrain ? "-3d" : ""}`;
   const cohMin = l.cohMin ?? 0;
-  const cohOn = cohMin > 0 && (d.kind === "tiles" || !!d.coh);
+  // the filter extension is attached whenever the layer has coherences, threshold or not: deck.gl sets an extension up
+  // only when the layer is created, so one added later to the same layer id (the slider moved) left its shader without
+  // the filter attribute and every point was dropped. Threshold 0: a range that keeps all (no coherence: −1)
+  const cohOn = d.kind === "tiles" || !!d.coh;
   const ext = [...(o.clipLon ? [CLIP] : []), ...(o.terrain ? [TERRAIN] : []), ...(cohOn ? [COH_FILTER] : [])];
-  // a point without a coherence (NaN; -1 in the filter) is hidden as soon as a threshold is set
-  const filter = cohOn ? { filterRange: [cohMin, 1.01] as [number, number] } : {};
+  const filter = cohOn ? { filterRange: (cohMin > 0 ? [cohMin, 1.01] : [-2, 2]) as [number, number] } : {};
   const common = {
     id,
     opacity: l.opacity,
