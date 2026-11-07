@@ -52,4 +52,11 @@ export const APP: Record<string, string> = {
   "Sign in": "Đăng nhập",
   "Hide the project tree": "Ẩn cây dự án",
   "Show the project tree": "Hiện cây dự án",
+  "Open a project from the tree first": "Hãy mở một dự án trong cây dự án trước",
+  "Loading…": "Đang tải…",
+  // ErrorBoundary
+  "This view stopped on an error": "Màn hình này dừng do gặp lỗi",
+  "The rest of the app still works. Retry, or reload the page if it happens again.": "Các phần khác của ứng dụng vẫn hoạt động. Hãy thử lại, hoặc tải lại trang nếu lỗi lặp lại.",
+  Retry: "Thử lại",
+  "Reload the page": "Tải lại trang",
 };

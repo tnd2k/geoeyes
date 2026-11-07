@@ -18,6 +18,25 @@ export const SERVER: Record<string, string> = {
   "the product is referenced to the scene mean: rates are relative, not to stable ground, so the intensity classes are biased (set gnss_tie or reference_bbox); the angular distortion does not depend on the reference":
     "sản phẩm lấy tham chiếu là trung bình cảnh: tốc độ là tương đối, không so với nền ổn định, nên lớp cường độ bị lệch (bật gnss_tie hoặc đặt reference_bbox); góc biến dạng không phụ thuộc tham chiếu",
   "reference_bbox ignored: gnss_tie is set": "bỏ qua reference_bbox vì đã bật gnss_tie",
+  // settings form, [sbas]
+  "SBAS (method = sbas)": "SBAS (method = sbas)",
+  "Azimuth looks of the SBAS grid (Sentinel-1: 1 look ≈ 14 m)": "Số look theo phương vị của lưới SBAS (Sentinel-1: 1 look ≈ 14 m)",
+  "Range looks of the SBAS grid (Sentinel-1: 1 look ≈ 2.3 m slant, ≈ 3.7 m ground)":
+    "Số look theo cự ly của lưới SBAS (Sentinel-1: 1 look ≈ 2,3 m nghiêng, ≈ 3,7 m mặt đất)",
+  "Stable reference point (lon, lat); empty = the most coherent 10 % of pixels":
+    "Điểm tham chiếu ổn định (kinh độ, vĩ độ); để trống = 10 % pixel có độ nhất quán cao nhất",
+  "auto: phase-linked SLC when phase linking is on; slc or linked to force one":
+    "auto: dùng SLC đã liên kết pha khi bật liên kết pha; slc hoặc linked để chọn cố định",
+  "Pairs per date with the next N dates (when max_temporal_days = 0)":
+    "Mỗi ngày chụp ghép cặp với N ngày kế tiếp (khi max_temporal_days = 0)",
+  "A pixel of a pair below this coherence has no value in that pair":
+    "Pixel có độ nhất quán dưới ngưỡng này bị bỏ trong cặp đó",
+  "A pixel needs a value in this share of the pairs": "Pixel cần có giá trị trong tỷ lệ cặp này",
+  "Output mask: mean coherence of the pairs": "Mặt nạ đầu ra: độ nhất quán trung bình của các cặp",
+  "Output mask: temporal coherence of the inversion": "Mặt nạ đầu ra: độ nhất quán thời gian của phép nghịch đảo",
+  "Per pair, remove the phase linear in height (can absorb a bowl lower than the reference)":
+    "Mỗi cặp, loại phần pha tuyến tính theo độ cao (có thể nuốt mất phễu lún nằm thấp hơn điểm tham chiếu)",
+  "Goldstein filter strength before unwrapping (0 = off)": "Độ mạnh lọc Goldstein trước khi unwrap (0 = tắt)",
   "same parameters and inputs, outputs present": "cùng tham số và dữ liệu vào, đã có kết quả",
   "off in the project configuration": "tắt trong cấu hình dự án",
   "not done with these parameters": "chưa chạy với các tham số này",

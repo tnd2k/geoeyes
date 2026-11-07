@@ -5,9 +5,21 @@ import { _TerrainExtension as TerrainExtension, ClipExtension } from "@deck.gl/e
 import { MVTLayer, TerrainLayer } from "@deck.gl/geo-layers";
 import { ColumnLayer, ScatterplotLayer, type ScatterplotLayerProps } from "@deck.gl/layers";
 import type maplibregl from "maplibre-gl";
-import { api, type LayerMeta, type VelClass } from "./api";
+import { api, type LayerMeta, type VelClass, type VelKind } from "./api";
+import { rangeClasses } from "./classes";
 import type { MapLayer } from "./state";
 import { themeColor } from "./theme";
+
+// deck.gl compares a layer's `data` by identity: a new `{length, attributes}` object at each rebuild of the layer list
+// (zoom, hover, swipe) made it upload every point buffer to the GPU again. One object per pair of source arrays.
+const BINARY = new WeakMap<object, WeakMap<object, unknown>>();
+export function binaryData<T>(a: object, b: object, make: () => T): T {
+  let inner = BINARY.get(a);
+  if (!inner) BINARY.set(a, (inner = new WeakMap()));
+  let v = inner.get(b) as T | undefined;
+  if (v === undefined) inner.set(b, (v = make()));
+  return v;
+}
 
 export type Base = "dark" | "light" | "satellite" | "none";
 
@@ -177,14 +189,54 @@ export async function terrainProfile(line: [number, number][], step: number, zoo
 
 /** `cal`: the calibrated velocities (GNSS, else a tie to another product), always as points (the tiles hold the
  * product's own velocities). */
-export async function loadLayer(project: string, product: string, mode: RenderMode = "auto", cal = false): Promise<LayerData> {
-  const meta = await api.layer(project, product, cal);
-  if (!cal && (mode === "tiles" || (mode === "auto" && meta.tiles.recommended))) {
+export const DEFAULT_VEL: VelKind = "do";
+
+/** `vel`: a velocity kind, null for the product velocity, undefined for the default (v-do when the product carries
+ * it, else the product velocity). */
+export async function loadLayer(project: string, product: string, mode: RenderMode = "auto", cal = false, vel?: VelKind | null): Promise<LayerData> {
+  let view = { cal, vel: vel === undefined ? DEFAULT_VEL : vel };
+  let meta: LayerMeta;
+  try {
+    meta = await api.layer(project, product, view);
+  } catch (e) {
+    if (vel !== undefined) throw e;
+    // the product has no v-do (SBAS, ps_lite, an older ps run): its own velocity
+    view = { cal, vel: null };
+    meta = await api.layer(project, product, view);
+  }
+  // v-do is the product velocity itself: the product's own layer (tiles possible, no second cache)
+  if (view.vel && view.vel === meta.product_kind) {
+    view = { cal, vel: null };
+    meta = await api.layer(project, product, view);
+  }
+  vel = view.vel;
+  // the tiles hold the product velocity: another kind is always read as points
+  if (!cal && !vel && (mode === "tiles" || (mode === "auto" && meta.tiles.recommended))) {
     if (!meta.tiles.available) meta.tiles = { ...meta.tiles, ...(await api.buildTiles(project, product)) };
     return { kind: "tiles", meta };
   }
-  const buf = await api.layerPoints(project, product, cal);
+  const buf = await api.layerPoints(project, product, view);
   return { kind: "points", meta, buf, colors: colorize(buf, 3, 2, meta.classes) };
+}
+
+const ranged = new WeakMap<LayerData, Map<string, LayerData>>();
+
+/** The layer with the classes over a range the user chose ([lo, hi] mm/yr; points beyond take the end colours), or
+ * as it is (`range` null: the product's full min-max). Cached: the same object for the same data and range. */
+export function withRange(d: LayerData, range: [number, number] | null | undefined): LayerData {
+  if (!range || !(range[1] > range[0])) return d;
+  let m = ranged.get(d);
+  if (!m) ranged.set(d, (m = new Map()));
+  const key = `${range[0]}|${range[1]}`;
+  let r = m.get(key);
+  if (!r) {
+    const classes = rangeClasses(range[0], range[1], d.kind === "points" ? { buf: d.buf, stride: 3, at: 2 } : undefined);
+    const meta = { ...d.meta, classes, range };
+    r = d.kind === "points" ? { ...d, meta, colors: colorize(d.buf, 3, 2, classes) } : { ...d, meta };
+    m.clear(); // one chosen range at a time per layer
+    m.set(key, r);
+  }
+  return r;
 }
 
 export const CLIP = new ClipExtension();
@@ -275,13 +327,13 @@ export function productLayer(
   const origin = d.meta.origin;
   const props: ScatterplotLayerProps = {
     ...common,
-    data: {
+    data: binaryData(d.buf, o.colors ?? d.colors, () => ({
       length: d.meta.n,
       attributes: {
         getPosition: { value: d.buf, size: 2, stride: 12, offset: 0 },
         getFillColor: { value: o.colors ?? d.colors, size: 3, normalized: true },
       },
-    } as unknown as ScatterplotLayerProps["data"],
+    })) as unknown as ScatterplotLayerProps["data"],
     coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
     coordinateOrigin: [origin[0], origin[1], 0],
     radiusUnits: "meters",
@@ -318,7 +370,8 @@ export function hexLayer(l: MapLayer, meta: LayerMeta, buf: Float32Array, size: 
   return new ColumnLayer({
     id: `hex-${l.key}-${size}${o.terrain ? "-3d" : ""}`,
     ...(o.terrain ? { extensions: [TERRAIN], terrainDrawMode: "drape" } : {}),   // 3D: on the terrain, not under it
-    data: { length: n, attributes: { getPosition: { value: buf, size: 2, stride: 16, offset: 0 }, getFillColor: { value: colorize(buf, 4, 2, meta.classes), size: 3, normalized: true } } } as never,
+    // cached: the colours were also computed again over every hexagon at each rebuild
+    data: binaryData(buf, meta.classes, () => ({ length: n, attributes: { getPosition: { value: buf, size: 2, stride: 16, offset: 0 }, getFillColor: { value: colorize(buf, 4, 2, meta.classes), size: 3, normalized: true } } })) as never,
     coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
     coordinateOrigin: [meta.origin[0], meta.origin[1], 0],
     diskResolution: 6,

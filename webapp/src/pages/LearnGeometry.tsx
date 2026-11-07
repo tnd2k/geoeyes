@@ -8,7 +8,7 @@ import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { EAST_RGB, MOTION_BREAKS, rgb, SOIL_RGB, type Cells, type Geology, type RGB } from "./Hazard";
+import { EAST_RGB, MOTION_BREAKS, rgb, SOIL_RGB, type Cells, type Geology, type RGB } from "../components/hazardKit";
 import { CellMap } from "./LearnHazard";
 import { themeColor } from "../theme";
 

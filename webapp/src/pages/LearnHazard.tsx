@@ -9,7 +9,7 @@ import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Behaviour, type Cells, type Consolidation, type Geology, type RGB, type View } from "./Hazard";
+import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Behaviour, type Cells, type Consolidation, type Geology, type RGB, type View } from "../components/hazardKit";
 import { themeColor } from "../theme";
 
 // ------------------------------------------------------------------ figures

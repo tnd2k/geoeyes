@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 import time
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from geoeyes.api import (
     atmosphere,
     behaviour,
     compare,
+    events,
     gnss,
     hazard,
     jobs,
@@ -47,9 +49,32 @@ def _inside(root: Path, rel: str) -> Path:
     return path
 
 
+def _finite(o):
+    """NaN / ±inf → None, recursively (JSON has no such numbers; a QC file or a statistic can hold them)."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
+class SafeJSONResponse(JSONResponse):
+    """The default response: renders as JSONResponse; on a non-finite number, replaces it with null instead of
+    failing the request with a 500."""
+
+    def render(self, content) -> bytes:
+        try:
+            return super().render(content)
+        except ValueError:
+            return super().render(_finite(content))
+
+
 def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     """``token``: required on every API call except login / health (None = local use, no login)."""
-    app = FastAPI(title="GeoEyes", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(title="GeoEyes", docs_url="/api/docs", openapi_url="/api/openapi.json",
+                  default_response_class=SafeJSONResponse)
     web_cache = ws.cache_dir("web")
 
     def authorised(request: Request) -> bool:
@@ -105,6 +130,11 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def workspace():
         return service.workspace_tree(ws)
 
+    @app.get("/api/events")
+    def workspace_events(request: Request):
+        """Server-sent events: ``workspace`` and ``activity``, sent when they change (see ``events``)."""
+        return events.workspace_events(request, ws)
+
     @app.put("/api/folders")
     def put_folders(data: dict = Body(...)):
         return service.save_folders(ws, data)
@@ -124,6 +154,12 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     @app.get("/api/projects/{name}")
     def project_detail(name: str):
         return service.project_detail(ws, name)
+
+    @app.get("/api/projects/{name}/events")
+    def project_events(request: Request, name: str, run: str = "", after: int = 0):
+        """Server-sent events of one project: ``project``, ``ps-steps`` and, with ``run``, that run's ``log``."""
+        project(name)
+        return events.project_events(request, ws, name, run or None, after)
 
     @app.get("/api/projects/{name}/settings")
     def project_settings(name: str):
@@ -183,19 +219,23 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return {"id": pid, "brief": service._product_brief(project(name), pid), "report": rep,
                 "files": sorted(str(f.relative_to(d).as_posix()) for f in d.rglob("*") if f.is_file())}
 
-    def layer_dir(name: str, pid: str, cal: bool = False) -> Path:
-        """The web cache of a product's points; ``cal``: the calibrated one (GNSS, else a tie to another product)."""
+    def layer_dir(name: str, pid: str, cal: bool = False, vel: str | None = None) -> Path:
+        """The web cache of a product's points; ``cal``: the calibrated one (GNSS, else a tie to another product);
+        ``vel``: a StaMPS velocity kind ("do", "dao", "dso") in place of the product velocity."""
         from geoeyes.validation.tie import active_calibration
         calib = active_calibration(project(name), pid) if cal else None
         if cal and not calib:
             raise HTTPException(404, f"{pid}: no calibration (GNSS comparison or tie to another product)")
-        return points.ensure(product(name, pid), web_cache, calib)
+        d = product(name, pid)
+        if vel and vel not in points.kinds_available(d):
+            raise HTTPException(404, f"{pid}: no velocity v-{vel} (the ps engine writes v-do, v-dao and v-dso)")
+        return points.ensure(d, web_cache, calib, vel or None)
 
     @app.get("/api/projects/{name}/products/{pid}/layer")
-    def layer(name: str, pid: str, cal: bool = False):
+    def layer(name: str, pid: str, cal: bool = False, vel: str | None = None):
         from geoeyes.validation.tie import active_calibration
         d = product(name, pid)
-        m = points.meta(layer_dir(name, pid, cal))
+        m = points.meta(layer_dir(name, pid, cal, vel))
         m["calibration_available"] = points.calibration_brief(active_calibration(project(name), pid))
         tiles = points.pmtiles_path(d, project(name).export(pid), web_cache, build=False)
         m["tiles"] = {"available": tiles is not None, "recommended": m["n"] > points.TILED_ABOVE,
@@ -230,58 +270,58 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return FileResponse(path, filename=f"{pid}.pmtiles", media_type="application/vnd.pmtiles")
 
     @app.get("/api/projects/{name}/products/{pid}/layer/points.bin")
-    def layer_points(name: str, pid: str, cal: bool = False):
-        f = layer_dir(name, pid, cal) / "points.bin"
+    def layer_points(name: str, pid: str, cal: bool = False, vel: str | None = None):
+        f = layer_dir(name, pid, cal, vel) / "points.bin"
         return FileResponse(f, media_type="application/octet-stream",
                             headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/api/projects/{name}/products/{pid}/layer/hex.bin")
-    def layer_hex(name: str, pid: str, size: int = 500, cal: bool = False):
+    def layer_hex(name: str, pid: str, size: int = 500, cal: bool = False, vel: str | None = None):
         """The points binned in hexagons (``size`` m, centre to vertex): float32 x 4 (dlon, dlat, median, count)."""
         try:
-            data = points.hexbins(layer_dir(name, pid, cal), size)
+            data = points.hexbins(layer_dir(name, pid, cal, vel), size)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         return Response(data, media_type="application/octet-stream",
                         headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/api/projects/{name}/products/{pid}/layer/points/{i}")
-    def layer_point(name: str, pid: str, i: int, cal: bool = False):
+    def layer_point(name: str, pid: str, i: int, cal: bool = False, vel: str | None = None):
         try:
-            return points.point(layer_dir(name, pid, cal), i)
+            return points.point(layer_dir(name, pid, cal, vel), i)
         except IndexError as exc:
             raise HTTPException(404, str(exc)) from None
 
     @app.post("/api/projects/{name}/products/{pid}/layer/area")
-    def layer_area(name: str, pid: str, body: dict = Body(...), cal: bool = False):
+    def layer_area(name: str, pid: str, body: dict = Body(...), cal: bool = False, vel: str | None = None):
         ring = body.get("ring") or []
         if len(ring) < 3:
             raise HTTPException(400, "ring: at least 3 [lon, lat] vertices")
-        return points.area(layer_dir(name, pid, cal), ring)
+        return points.area(layer_dir(name, pid, cal, vel), ring)
 
     @app.get("/api/projects/{name}/products/{pid}/layer/disp")
-    def layer_disp(name: str, pid: str, cal: bool = False):
+    def layer_disp(name: str, pid: str, cal: bool = False, vel: str | None = None):
         """Dates and classes of the cumulative displacement (time animation of the map)."""
-        return points.disp_meta(layer_dir(name, pid, cal))
+        return points.disp_meta(layer_dir(name, pid, cal, vel))
 
     @app.get("/api/projects/{name}/products/{pid}/layer/disp/{k}.bin")
-    def layer_disp_frame(name: str, pid: str, k: int, cal: bool = False):
+    def layer_disp_frame(name: str, pid: str, k: int, cal: bool = False, vel: str | None = None):
         try:
-            data = points.disp_frame(layer_dir(name, pid, cal), k)
+            data = points.disp_frame(layer_dir(name, pid, cal, vel), k)
         except IndexError as exc:
             raise HTTPException(404, str(exc)) from None
         return Response(data, media_type="application/octet-stream",
                         headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/projects/{name}/products/{pid}/layer/profile")
-    def layer_profile(name: str, pid: str, body: dict = Body(...), cal: bool = False):
+    def layer_profile(name: str, pid: str, body: dict = Body(...), cal: bool = False, vel: str | None = None):
         line = body.get("line") or []
         if len(line) < 2:
             raise HTTPException(400, "line: at least 2 [lon, lat] vertices")
         w = float(body.get("half_width_m", 50))
         if not 1 <= w <= 2000:
             raise HTTPException(400, "half_width_m: 1 … 2000")
-        return points.profile(layer_dir(name, pid, cal), line, w)
+        return points.profile(layer_dir(name, pid, cal, vel), line, w)
 
     # ------------------------------------------------------------ stack quality check (phase before PS)
     @app.get("/api/projects/{name}/stacks")
@@ -352,7 +392,7 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         return data
 
     def _json(data, max_age_s: int) -> JSONResponse:
-        return JSONResponse(data, headers={"Cache-Control": f"private, max-age={max_age_s}"})
+        return SafeJSONResponse(data, headers={"Cache-Control": f"private, max-age={max_age_s}"})
 
     @app.get("/api/floods")
     def floods():
@@ -957,7 +997,8 @@ def serve(ws: WorkspaceLayout, host: str = "127.0.0.1", port: int = DEFAULT_PORT
         print("  front end not built: cd webapp && npm install && npm run build  (API only meanwhile)")
     if open_browser:
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(ws, token=token), host=host, port=port, log_level="warning")
+    # the event streams stay open: Ctrl+C closes them after 2 s instead of waiting for every tab to go
+    uvicorn.run(create_app(ws, token=token), host=host, port=port, log_level="warning", timeout_graceful_shutdown=2)
 
 
 __all__ = ["DEFAULT_PORT", "create_app", "serve"]

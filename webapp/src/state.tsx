@@ -1,5 +1,6 @@
 // App state shared by the tree, the map and the pages: the route (hash) and the map layers (like QGIS layers).
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { VelKind } from "./api";
 
 export type Route =
   | { page: "overview" }
@@ -65,6 +66,8 @@ export interface MapLayer {
   opacity: number;
   mode?: "auto" | "points" | "tiles";   // points: one binary array; tiles: PMTiles (auto: tiles above 2.5 M points)
   calibrated?: boolean;                 // the calibrated velocities and series (GNSS, else a tie; points only)
+  range?: [number, number] | null;      // colour classes over this range (mm/yr) in place of the full min-max
+  vel?: VelKind | null;                 // a StaMPS velocity kind in place of the product velocity (points only)
 }
 
 export interface Selection {
@@ -81,6 +84,8 @@ interface AppState {
   setOpacity: (key: string, opacity: number) => void;
   setMode: (key: string, mode: MapLayer["mode"]) => void;
   setCalibrated: (key: string, on: boolean) => void;
+  setRange: (key: string, range: [number, number] | null) => void;
+  setVel: (key: string, vel: VelKind | null) => void;
   removeLayer: (key: string) => void;
   focus: string | null;   // layer to zoom to
   setFocus: (key: string | null) => void;
@@ -137,7 +142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLayers((ls) => {
         const rest = ls.filter((l) => l.key !== key).map((l) => (opts.solo ? { ...l, visible: false } : l));
         const old = ls.find((l) => l.key === key);
-        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode }, ...rest];
+        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode, range: old?.range, vel: old?.vel }, ...rest];
       });
       setFocus(key);
       if (opts.open) location.hash = href({ page: "explorer" });
@@ -155,6 +160,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setOpacity: (key, opacity) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, opacity } : l))),
       setMode: (key, mode) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, mode } : l))),
       setCalibrated: (key, on) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, calibrated: on } : l))),
+      setRange: (key, range) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, range } : l))),
+      // another velocity: another min-max, the chosen colour range no longer fits it
+      setVel: (key, vel) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, vel, range: null } : l))),
       removeLayer: (key) => {
         setLayers((ls) => ls.filter((l) => l.key !== key));
         select((s) => (s?.layer === key ? null : s));

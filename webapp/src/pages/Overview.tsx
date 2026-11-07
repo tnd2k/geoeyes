@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { ProjectSummary, Workspace } from "../api";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
-import { Chip, Confidence, fmt, Panel } from "../ui";
+import { Chip, Confidence, fmt, PageSkeleton, Panel } from "../ui";
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <Panel className="px-4 py-3.5">
@@ -96,7 +96,7 @@ function Card({ p }: { p: ProjectSummary }) {
 export function Overview({ ws }: { ws: Workspace | undefined }) {
   const { go } = useApp();
   const [filter, setFilter] = useState<"all" | "attention" | "running">("all");
-  if (!ws) return <div className="p-8 text-muted">{t("Loading…")}</div>;
+  if (!ws) return <PageSkeleton panels={3} />;
   const all = Object.values(ws.projects);
   const products = all.flatMap((p) => p.tracks.map((x) => x.product).filter(Boolean));
   const attention = all.filter((p) => ["failed", "interrupted", "invalid"].includes(p.status) || (p.alerts ?? 0) > 0);

@@ -5,7 +5,7 @@ import { PathLayer, ScatterplotLayer, SolidPolygonLayer, type ScatterplotLayerPr
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type CompareMeta, type FloodFeature, type LayerMeta, type Workspace } from "../api";
+import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type CompareMeta, type FloodFeature, type LayerMeta, type VelKind, type Workspace } from "../api";
 import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
 import { calibrationSource } from "../components/Calibration";
 import { FloodHub, LEVEL_COLOR } from "../components/FloodHub";
@@ -15,7 +15,7 @@ import { TimeBar } from "../components/TimeBar";
 import { TimeSeries } from "../components/TimeSeries";
 import { loadTheme, ThemeCard, ThemeDetail, themeLayers, themeTooltip, THEME_LABEL, useAvailable, useThemes, type ThemeData, type ThemeKind, type ThemeSel } from "../components/ThemeLayers";
 import { t, ts } from "../i18n";
-import { colorize, colorizeFrame, hexLayer, hexSize, loadLayer, pickedVelocity, pointAlong, productLayer, segmentLengths, TERRAIN, TERRAIN_ATTRIBUTION, terrainLayer, terrainProfile, type LayerData } from "../map";
+import { binaryData, colorize, colorizeFrame, hexLayer, hexSize, loadLayer, pickedVelocity, pointAlong, productLayer, segmentLengths, TERRAIN, TERRAIN_ATTRIBUTION, terrainLayer, terrainProfile, withRange, type LayerData } from "../map";
 import { useApp, type MapLayer } from "../state";
 import { Button, ColumnToggle, Confidence, fmt, Fold, usePersisted } from "../ui";
 
@@ -65,9 +65,11 @@ function useRain(layer: MapLayer | undefined) {
   return { series, control };
 }
 
-export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max">; title: string; label?: string }) {
+export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max"> & { range?: [number, number] }; title: string; label?: string }) {
   label ??= t("LOS velocity");
-  const total = meta.classes.reduce((a, c) => a + c.count, 0) || 1;
+  // count -1: not known (a chosen range over tiles, whose values stay on the server)
+  const counted = meta.classes.every((c) => c.count >= 0);
+  const total = meta.classes.reduce((a, c) => a + Math.max(0, c.count), 0) || 1;
   const step = meta.classes.length > 2 ? meta.classes[1].hi - meta.classes[1].lo : 1;
   const d = step >= 5 ? 0 : 1;
   return (
@@ -88,13 +90,22 @@ export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes"
             <span className="w-[92px] font-mono text-[11.5px] text-ink-2">
               {c.lo.toFixed(d)} … {c.hi.toFixed(d)}
             </span>
-            <span className="h-1.5 flex-1 overflow-hidden rounded bg-chip">
-              <span className="block h-full rounded bg-faint" style={{ width: `${Math.max(1, (100 * c.count) / total)}%` }} />
-            </span>
-            <span className="w-11 text-right font-mono text-[11px] text-muted">{((100 * c.count) / total).toFixed(1)}%</span>
+            {counted && (
+              <>
+                <span className="h-1.5 flex-1 overflow-hidden rounded bg-chip">
+                  <span className="block h-full rounded bg-faint" style={{ width: `${Math.max(1, (100 * c.count) / total)}%` }} />
+                </span>
+                <span className="w-11 text-right font-mono text-[11px] text-muted">{((100 * c.count) / total).toFixed(1)}%</span>
+              </>
+            )}
           </div>
         ))}
       </div>
+      {"range" in meta && meta.range && (
+        <div className="mt-1.5 text-[11px] text-warn-ink">
+          {t("Chosen colour range: values beyond it take the end colours.")}
+        </div>
+      )}
       <div className="mt-2 flex justify-between text-[11px] text-muted">
         <span>
           {t("min")} <span className="font-mono text-ink-2">{fmt.vel(meta.vel_min)}</span>
@@ -137,7 +148,19 @@ function Tool({ label, hint, icon, active, disabled, onClick }: { label: string;
 
 /** A layer card's legend: the velocity classes (and, zoomed out, what the hexagons show), folded but for the top
  * layer. */
-function LayerLegend({ meta, hex, confidence, defaultOpen }: { meta: LayerMeta; hex?: number; confidence?: string | null; defaultOpen: boolean }) {
+function LayerLegend({
+  meta,
+  hex,
+  confidence,
+  defaultOpen,
+  onRange,
+}: {
+  meta: LayerMeta;
+  hex?: number;
+  confidence?: string | null;
+  defaultOpen: boolean;
+  onRange: (r: [number, number] | null) => void;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mt-2 border-t border-line pt-1.5 pl-6">
@@ -151,6 +174,7 @@ function LayerLegend({ meta, hex, confidence, defaultOpen }: { meta: LayerMeta; 
       {open && (
         <div className="mt-1.5">
           <Legend meta={meta} title="" />
+          <RangeEditor meta={meta} onRange={onRange} />
           {meta.calibration && (
             <div className="mt-1 text-[11px] text-warn-ink">
               {t("Calibrated velocities")}: {calibrationSource(meta.calibration)}, {fmt.vel(meta.calibration.rate_offset_mm_yr)} mm/yr
@@ -164,6 +188,100 @@ function LayerLegend({ meta, hex, confidence, defaultOpen }: { meta: LayerMeta; 
         </div>
       )}
     </div>
+  );
+}
+
+/** The colour range of a layer: the product's full min-max (default) or two values the user types. */
+function RangeEditor({ meta, onRange }: { meta: LayerMeta; onRange: (r: [number, number] | null) => void }) {
+  const cur = meta.range ?? [meta.vel_min, meta.vel_max];
+  const show = (v: number) => String(Math.round(v * 10) / 10);
+  const [lo, setLo] = useState(show(cur[0]));
+  const [hi, setHi] = useState(show(cur[1]));
+  useEffect(() => {
+    setLo(show(cur[0]));
+    setHi(show(cur[1]));
+  }, [cur[0], cur[1]]);
+  const a = Number(lo);
+  const b = Number(hi);
+  const valid = lo.trim() !== "" && hi.trim() !== "" && Number.isFinite(a) && Number.isFinite(b) && b > a;
+  // unchanged (a blur without an edit): keep the full range exact rather than its rounded display
+  const apply = () => valid && (lo !== show(cur[0]) || hi !== show(cur[1])) && onRange([a, b]);
+  const m = Math.max(Math.abs(a), Math.abs(b));
+  const input = "h-6 w-[62px] rounded border bg-sunken px-1 font-mono text-[11px] focus:border-accent focus:outline-none";
+  return (
+    <form
+      className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted"
+      onSubmit={(e) => {
+        e.preventDefault();
+        apply();
+      }}
+    >
+      <span>{t("Colour range")}</span>
+      <input value={lo} onChange={(e) => setLo(e.target.value)} onBlur={apply} inputMode="decimal" aria-label={t("Lowest value of the colour range (mm/yr)")} className={`${input} ${valid ? "border-line-2" : "border-bad"}`} />
+      <span>…</span>
+      <input value={hi} onChange={(e) => setHi(e.target.value)} onBlur={apply} inputMode="decimal" aria-label={t("Highest value of the colour range (mm/yr)")} className={`${input} ${valid ? "border-line-2" : "border-bad"}`} />
+      <span>mm/yr</span>
+      <button type="button" disabled={!valid || !(m > 0)} onClick={() => onRange([-m, m])} title={t("The same range on both sides of zero")} className="text-accent hover:underline disabled:opacity-40">
+        ±{show(m)}
+      </button>
+      {meta.range && (
+        <button type="button" onClick={() => onRange(null)} title={t("Back to the product's min–max")} className="text-accent hover:underline">
+          {t("full range")}
+        </button>
+      )}
+    </form>
+  );
+}
+
+/** The layer request of a map layer: calibrated or not, and the velocity kind chosen (`undefined`: none chosen,
+ * the default v-do when the product has it). */
+function layerReq(l: MapLayer): { cal: boolean; vel: VelKind | null | "default" } {
+  return { cal: !!l.calibrated, vel: l.vel === undefined ? "default" : l.vel };
+}
+
+// the StaMPS velocity kinds: what is removed from the phase before the fit
+const VEL_KINDS: Record<VelKind, string> = {
+  do: "DEM error and orbit ramps removed",
+  dao: "DEM error, atmosphere (APS) and orbit ramps removed",
+  dso: "DEM error, spatially correlated noise (SCN) and orbit ramps removed",
+};
+
+/** The velocity a layer shows: the product's, or another StaMPS kind the product carries (ps engine). */
+function VelocityKind({ meta, value, onChange }: { meta: LayerMeta; value: VelKind | null; onChange: (v: VelKind | null) => void }) {
+  const kinds = meta.velocity_kinds ?? [];
+  if (!kinds.length) return null;
+  const pk = meta.product_kind ?? null;
+  // always the three kinds; the product's own one is the product velocity (value null), a kind the product does not
+  // carry is shown greyed
+  const ORDER: VelKind[] = ["dao", "dso", "do"];
+  const hint = [
+    ...kinds.map((k) => `v-${k}: ${t(VEL_KINDS[k])}`),
+    meta.legacy_dso ? t("v-dso of this run also has the APS removed when the run removed it (written before the kinds).") : "",
+    t("Another kind is read as points, not tiles."),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <label className="mt-1 flex items-center gap-2 pl-6 text-[11px] text-muted" title={hint}>
+      {t("Velocity")}
+      <select
+        value={meta.velocity_kind ?? value ?? pk ?? ""}
+        onChange={(e) => {
+          const v = (e.target.value || null) as VelKind | null;
+          onChange(v === pk ? null : v);
+        }}
+        className="h-6 min-w-0 flex-1 rounded border border-line-2 bg-sunken px-1 text-[11px] text-ink-2"
+      >
+        {/* the product velocity of an older run, whose kind is not known */}
+        {!pk && <option value="">{t("product")}</option>}
+        {ORDER.map((k) => (
+          <option key={k} value={k} disabled={k !== pk && !kinds.includes(k)}>
+            v-{k} · {t(VEL_KINDS[k])}
+            {k !== pk && !kinds.includes(k) ? ` (${t("not in this product")})` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -206,7 +324,7 @@ function ThemeChips({ project, product, on, toggle }: { project: string; product
 }
 
 export function Explorer({ ws }: { ws: Workspace | undefined }) {
-  const { layers, setOpacity, setMode, setCalibrated, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
+  const { layers, setOpacity, setMode, setCalibrated, setRange, setVel, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
   // 3D view: terrain draped with the base map, the points on it; heights exaggerated (flat deltas)
   const [three, setThree] = usePersisted("explorer.3d", false);
   // in 3D the base map is the texture of the terrain (deck.gl), MapLibre only draws the background
@@ -275,17 +393,27 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
 
   const data = useQueries({
     queries: layers.map((l) => ({
-      queryKey: ["layer", l.key, l.mode ?? "auto", !!l.calibrated],
-      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto", !!l.calibrated),
+      queryKey: ["layer", l.key, l.mode ?? "auto", layerReq(l)],
+      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto", !!l.calibrated, l.vel),
       staleTime: Infinity,
       gcTime: 10 * 60_000,
     })),
   });
   const byKey = useMemo(() => {
     const m: Record<string, LayerData | undefined> = {};
-    layers.forEach((l, i) => (m[l.key] = data[i]?.data));
+    // a range chosen on the layer card: its classes and colours everywhere (map, hexagons, legend, profile)
+    layers.forEach((l, i) => {
+      const d = data[i]?.data;
+      m[l.key] = d && withRange(d, l.range);
+    });
     return m;
   }, [layers, data]);
+  // the view of a layer the other requests (hexagons, point, area, profile, animation) ask for: the velocity kind the
+  // layer was loaded with
+  const lv = (l: MapLayer | undefined): { cal: boolean; vel: VelKind | null } => ({
+    cal: !!l?.calibrated,
+    vel: (l && byKey[l.key]?.meta.velocity_kind) ?? null,
+  });
   const top = layers.find((l) => l.visible && byKey[l.key]);
 
   // reported flood locations over the products
@@ -357,8 +485,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     queries: layers.map((l) => {
       const size = hexFor(l);
       return {
-        queryKey: ["hex", l.key, size, !!l.calibrated],
-        queryFn: () => api.layerHex(l.project, l.product, size!, !!l.calibrated),
+        queryKey: ["hex", l.key, size, lv(l)],
+        queryFn: () => api.layerHex(l.project, l.product, size!, lv(l)),
         enabled: size != null,
         staleTime: Infinity,
         gcTime: 10 * 60_000,
@@ -396,13 +524,13 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     if (size != null && buf) hexByKey[l.key] = { size, buf };
   });
   const disp = useQuery({
-    queryKey: ["disp", anim?.key, !!anim?.calibrated],
-    queryFn: () => api.layerDisp(anim!.project, anim!.product, !!anim!.calibrated),
+    queryKey: ["disp", anim?.key, lv(anim)],
+    queryFn: () => api.layerDisp(anim!.project, anim!.product, lv(anim)),
     enabled: !!anim,
     staleTime: Infinity,
   });
-  const frameKey = (k: number) => ["disp-frame", anim?.key, !!anim?.calibrated, k];
-  const frameFetch = (k: number) => () => api.layerDispFrame(anim!.project, anim!.product, k, !!anim!.calibrated);
+  const frameKey = (k: number) => ["disp-frame", anim?.key, lv(anim), k];
+  const frameFetch = (k: number) => () => api.layerDispFrame(anim!.project, anim!.product, k, lv(anim));
   const frameQ = useQuery({
     queryKey: frameKey(frame),
     queryFn: frameFetch(frame),
@@ -428,8 +556,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
 
   // ------------------------------------------------------------ profile
   const profile = useQuery({
-    queryKey: ["profile", top?.key, line, halfWidth, !!top?.calibrated],
-    queryFn: () => api.layerProfile(top!.project, top!.product, line, halfWidth, !!top!.calibrated),
+    queryKey: ["profile", top?.key, line, halfWidth, lv(top)],
+    queryFn: () => api.layerProfile(top!.project, top!.product, line, halfWidth, lv(top)),
     enabled: !!top && !profiling && line.length >= 2,
     staleTime: Infinity,
   });
@@ -557,7 +685,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     if (drawing || ring.length < 3 || !top) return;
     setAreaBusy(true);
     api
-      .area(top.project, top.product, ring, !!top.calibrated)
+      .area(top.project, top.product, ring, lv(top))
       .then((info) => setArea({ layer: top.key, info }))
       .finally(() => setAreaBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -566,8 +694,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
   // ------------------------------------------------------------ selected point
   const selLayer = selection ? layers.find((l) => l.key === selection.layer) : undefined;
   const point = useQuery({
-    queryKey: ["point", selection?.layer, selection?.index, !!selLayer?.calibrated],
-    queryFn: () => api.point(selLayer!.project, selLayer!.product, selection!.index, !!selLayer!.calibrated),
+    queryKey: ["point", selection?.layer, selection?.index, lv(selLayer)],
+    queryFn: () => api.point(selLayer!.project, selLayer!.product, selection!.index, lv(selLayer)),
     enabled: !!selLayer,
   });
 
@@ -588,13 +716,13 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
         new ScatterplotLayer({
           id: three ? "diff-3d" : "diff",
           extensions: terrainOn,
-          data: {
+          data: binaryData(diff.data.buf, diff.data.colors, () => ({
             length: dm.n,
             attributes: {
-              getPosition: { value: diff.data.buf, size: 2, stride: 20, offset: 0 },
-              getFillColor: { value: diff.data.colors, size: 3, normalized: true },
+              getPosition: { value: diff.data!.buf, size: 2, stride: 20, offset: 0 },
+              getFillColor: { value: diff.data!.colors, size: 3, normalized: true },
             },
-          } as unknown as ScatterplotLayerProps["data"],
+          })) as unknown as ScatterplotLayerProps["data"],
           coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
           coordinateOrigin: [dm.origin![0], dm.origin![1], 0],
           radiusUnits: "meters",
@@ -1241,11 +1369,12 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                         className="ml-auto w-20 accent-accent"
                       />
                     </div>
+                    {d && <VelocityKind meta={d.meta} value={l.vel ?? null} onChange={(v) => setVel(l.key, v)} />}
                     {d?.meta.calibration_available && (
                       <CalibrationToggle cal={d.meta.calibration_available} on={!!l.calibrated} onChange={(on) => setCalibrated(l.key, on)} />
                     )}
                     {d && l.visible && !(cmp.mode === "diff" && comparing) && (
-                      <LayerLegend meta={d.meta} hex={hexByKey[l.key]?.size} confidence={tr?.product?.confidence} defaultOpen={l.key === top?.key} />
+                      <LayerLegend meta={d.meta} hex={hexByKey[l.key]?.size} confidence={tr?.product?.confidence} defaultOpen={l.key === top?.key} onRange={(r) => setRange(l.key, r)} />
                     )}
                     <ThemeChips project={l.project} product={l.product} on={(k) => th.themes.some((x) => x.key === `${l.project}/${l.product}#${k}`)} toggle={(k) => th.toggle(l.project, l.product, k)} />
                     {th.themes

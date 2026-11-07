@@ -7,10 +7,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import { Box, ChapterNav, Lesson } from "../components/LearnKit";
-import { api, type LearnPairMeta, type LearnParams, type LearnSeries, type LearnStack, type Workspace } from "../api";
+import { api, type LearnPairMeta, type LearnParams, type LearnPoints, type LearnSeries, type LearnStack, type Workspace } from "../api";
 import { lang, t, ts } from "../i18n";
-import { href } from "../state";
-import { Button, fmt } from "../ui";
+import { href, useApp } from "../state";
+import { Button, fmt, PageSkeleton } from "../ui";
 import { BehaviourChapter } from "./LearnBehaviour";
 import { GeometryChapter } from "./LearnGeometry";
 import { REFS, SCIENCE, type Science } from "./learnScience";
@@ -473,7 +473,7 @@ const STEPS: Step[] = [
     id: "velocity",
     title: "Velocity from the time series",
     goal: "See why GeoEyes uses all the scenes of the stack to estimate a velocity.",
-    panels: [{ layer: "amp1", title: "PS velocity of the product", cmap: "gray", unit: "mm/yr", points: true }],
+    panels: [{ layer: "amp1", title: "Velocity of the product's points", cmap: "gray", unit: "mm/yr", points: true }],
     what: [
       "With N scenes, GeoEyes forms the interferograms of the whole stack, keeps the points whose phase stays reliable over time (persistent scatterers), and unwraps in space and time.",
       "It then removes the DEM error of each point and the atmosphere, which is random from one date to the next but smooth in space.",
@@ -707,6 +707,28 @@ function Profile({ g, row, ex }: { g: Grid; row: number; ex: boolean }) {
   );
 }
 
+/** What the velocity panel shows: which product, which kind of points, how many here and in the whole product, and
+ *  why they look denser than on the Results map (each fills one image pixel here). */
+function PointsCaption({ d, g, fromMap }: { d: LearnPoints; g: Grid; fromMap: boolean }) {
+  const kinds = Object.entries(d.kinds ?? {}).sort((a, b) => b[1] - a[1]);
+  const kind = kinds.length ? kinds.map(([k]) => k).join(" / ") : "PS";
+  const px = Math.round(Math.max(g.meta.spacing_m.azimuth, g.meta.spacing_m.range_ground));
+  return (
+    <div className="space-y-1 text-[12px] text-muted">
+      <div>
+        <span className="font-mono text-ink-2">{d.product}</span> {fromMap ? t("(the product shown on the Results map)") : t("(the newest product of this track: add it to the Results map to compare)")}
+      </div>
+      <div>
+        {t("{n} {kind} points in this area, out of {total} in the whole product.", { n: fmt.int(d.uids.length), kind, total: fmt.int(d.n_total ?? null) })}{" "}
+        {d.sampled && t("(a random sample of the {m} points here)", { m: fmt.int(d.n_crop ?? null) })}
+      </div>
+      <div className="text-faint">
+        {t("Here each point fills one pixel of the image (about {px} m) in a small area seen up close; the Results map shows the whole product, where fields and the river bed have few points or none.", { px })}
+      </div>
+    </div>
+  );
+}
+
 function SeriesChart({ s, pairRate }: { s: LearnSeries; pairRate: number | null }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -845,9 +867,15 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
   const g: Grid | undefined = pairQ.data;
   const exOn = S.id === "unwrap" && !!g?.meta.params.exercise;
   const panels = exOn ? S.panels.map((x) => ({ ...x, layer: x.layer === "filt" ? "filt_ex" : x.layer === "unw" ? "unw_ex" : x.layer })) : S.panels;
+  // the product the Results map shows for this project and track (the visible layer first), so that both pages
+  // show the same points; none there: the server takes the newest product of the track
+  const { layers } = useApp();
+  const mapProduct = [...layers]
+    .sort((a, b) => Number(b.visible) - Number(a.visible))
+    .find((l) => l.project === name && !!st?.track && l.product.includes(st.track))?.product;
   const ptsQ = useQuery({
-    queryKey: ["learn-points", name, st?.stack_id, debounced && { ...debounced, alpha: 0, coh_win: 0, ref_row: 0, ref_col: 0 }],
-    queryFn: () => api.learnPoints(name!, st!.stack_id, debounced!),
+    queryKey: ["learn-points", name, st?.stack_id, mapProduct, debounced && { ...debounced, alpha: 0, coh_win: 0, ref_row: 0, ref_col: 0 }],
+    queryFn: () => api.learnPoints(name!, st!.stack_id, debounced!, mapProduct),
     enabled: !!g && !!S.velocity,
     staleTime: Infinity,
   });
@@ -896,7 +924,7 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
     ];
   }, [g, hover]);
 
-  if (!ws) return <div className="p-6 text-muted">{t("Loading…")}</div>;
+  if (!ws) return <PageSkeleton tiles={0} />;
   const pairRate = (() => {
     if (!g || sel == null || !pts) return null;
     const v = g.layers.disp[pts.rows[sel] * g.meta.shape[1] + pts.cols[sel]];
@@ -1020,11 +1048,8 @@ function PairChapter({ ws, project, stack, step }: { ws: Workspace | undefined; 
                 <div className="max-w-[760px] space-y-2">
                   {ptsQ.isLoading && <div className="text-[12px] text-muted">{t("Loading the points…")}</div>}
                   {ptsQ.data && !ptsQ.data.product && <div className="text-[12.5px] text-muted">{t("No product with points for this stack yet: run the PS processing first.")}</div>}
-                  {ptsQ.data?.product && (
-                    <div className="text-[12px] text-muted">
-                      {t("{n} points of {p} in the area.", { n: fmt.int(ptsQ.data.uids.length), p: ptsQ.data.product })} {sel == null && t("Click a point.")}
-                    </div>
-                  )}
+                  {ptsQ.data?.product && <PointsCaption d={ptsQ.data} g={g} fromMap={ptsQ.data.product === mapProduct} />}
+                  {ptsQ.data?.product && sel == null && <div className="text-[12px] text-muted">{t("Click a point.")}</div>}
                   {seriesQ.data && <SeriesChart s={seriesQ.data} pairRate={pairRate} />}
                 </div>
               )}
