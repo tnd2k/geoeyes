@@ -28,11 +28,14 @@ class UwGrid:
 
 
 def grid_wrapped(ph_in: np.ndarray, xy_in: np.ndarray, *, grid_size: float, prefilt_win: int, gold_alpha: float,
-                 coh: np.ndarray | None, coh_floor: float = 0.2, prefilter: str | bool = "goldstein") -> UwGrid:
+                 coh: np.ndarray | None, coh_floor: float = 0.2, prefilter: str | bool = "goldstein",
+                 sigma_m: float | None = None, unit: bool = False) -> UwGrid:
     """``ph_in`` (n_ps, n_ifg) complex phasors, ``xy_in`` (n_ps, 3) [id, x, y] m, ``coh`` (n_ps,) per-PS
     coherence used for the adaptive filter (broadcast to every interferogram). ``prefilter``: "goldstein"
-    (coherence-adaptive CLAP + Gaussian low-pass copy, legacy CSK), "gaussian" (σ = prefilt_win/8 cells,
-    legacy S1) or "none"."""
+    (coherence-adaptive CLAP + Gaussian low-pass copy, legacy CSK), "gaussian" or "none". "gaussian" with
+    ``sigma_m``: σ in metres (the legacy σ = prefilt_win/8 cells grows with the grid: 100 m at 50 m); ``unit``:
+    on the unit phasor of each cell (every cell weighs the same) instead of the summed phasors (a cell of many PS
+    outweighs its neighbours). ``sigma_m`` None: the legacy S1 filter."""
     prefilter = {True: "goldstein", False: "none"}.get(prefilter, prefilter)
     n_ps, n_ifg = ph_in.shape
     x_min, y_min = float(np.min(xy_in[:, 1])), float(np.min(xy_in[:, 2]))
@@ -64,6 +67,13 @@ def grid_wrapped(ph_in: np.ndarray, xy_in: np.ndarray, *, grid_size: float, pref
     sigma = max(prefilt_win // 8, 2)
     if prefilter == "none":
         ph = grid.vals
+    elif prefilter == "gaussian" and sigma_m is not None:
+        src = grid
+        if unit:
+            mag = np.abs(grid.vals)
+            src = SparseGrid(grid.shape, grid.idx,
+                             np.where(mag > 0, grid.vals / np.where(mag > 0, mag, 1), 0).astype(np.complex64))
+        ph = gaussian_at(src, float(sigma_m) / grid_size, at)
     elif prefilter == "gaussian":
         ph = gaussian_at(grid, sigma, at)
     else:

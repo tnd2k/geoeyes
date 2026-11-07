@@ -30,6 +30,10 @@ class SpatialParams:
     irls_target_rms: float = 0.01
     irls_epsilon: float = 0.001
     align: bool = False                # irls.enforce_congruence(align=...): [ps] unwrap_align_constant
+    # the cycle count of the grid steps from the space-time model (dph_space_uw), as StaMPS's SNAPHU cost offsets, on
+    # the edges with a temporal rate (SpaceTime.rate != 0; every edge when the rate is off); False = the wrapped
+    # gradients only (legacy IRLS_REFINED): an edge past ±π then takes a wrong cycle
+    model_cycles: bool = False
     # worker processes over the interferograms: 0 = auto (CPU, memory), 1 = serial. Out of repr: the checkpoint keys
     # are built from repr(params), and the result does not depend on it
     n_jobs: int = field(default=0, repr=False, compare=False)
@@ -124,7 +128,19 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
         col_c[csel] = tot[cidx]
         g = ph[ui.Z, i].reshape(nrow, ncol)
         phase = np.where(np.abs(g) > 0, np.angle(g).astype(np.float32), np.nan)
-        return phase, row_c, col_c
+        if not p.model_cycles:
+            return phase, row_c, col_c, None, None
+        # a grid step from the cell with the lower number to the higher one is +edge (dph = ph[e2]·conj(ph[e1])).
+        # Only the edges with a reliable rate (temporal unwrapping) take the model's cycles: elsewhere the model is
+        # the legacy one, fitted to the wrapped phase, which adds nothing but its noise to the wrapped gradient
+        uw_i = np.asarray(st.dph_space_uw[:, i], np.float32)
+        if st.rate is not None:
+            uw_i = np.where(st.rate != 0, uw_i, np.nan).astype(np.float32)
+        mx = np.full(colix.shape, np.nan, np.float32)
+        my = np.full(rowix.shape, np.nan, np.float32)
+        mx[csel] = np.sign(colix[csel]) * uw_i[cidx]
+        my[rsel] = np.sign(rowix[rsel]) * uw_i[ridx]
+        return phase, row_c, col_c, mx, my
 
     done = [0]
 
@@ -152,9 +168,12 @@ def spatial_unwrap(*, grid: UwGrid, ui: UwInterp, st: SpaceTime, params: Spatial
     return SpatialResult(ph_uw=ph_uw, msd=msd, pcg_rms=pcg)
 
 
-def _unwrap_one(phase: np.ndarray, row_c: np.ndarray, col_c: np.ndarray, p: SpatialParams) -> tuple[np.ndarray, float]:
-    """One interferogram: IRLS from the DCT start, snapped to the wrapped phase + 2πk."""
-    u, rms = irls_unwrap(phase, row_c, col_c, dct_init(phase), p.irls_iter, p.irls_target_rms, p.irls_epsilon)
+def _unwrap_one(phase: np.ndarray, row_c: np.ndarray, col_c: np.ndarray, mx: np.ndarray | None,
+                my: np.ndarray | None, p: SpatialParams) -> tuple[np.ndarray, float]:
+    """One interferogram: IRLS from the DCT start, snapped to the wrapped phase + 2πk. ``mx``/``my``: model
+    gradients that set the cycle count of each grid step (None = wrapped gradients)."""
+    u, rms = irls_unwrap(phase, row_c, col_c, dct_init(phase, mx, my), p.irls_iter, p.irls_target_rms,
+                         p.irls_epsilon, model_x=mx, model_y=my)
     return enforce_congruence(phase, u, align=p.align), rms
 
 

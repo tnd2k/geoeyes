@@ -38,6 +38,19 @@ DEFAULTS: dict[str, Any] = {
     # slips of interferograms whose mean phase is near ±π (Tenerife ICEYE); changes the validated CSK Hanoi result
     # (89.6 % of the points matched), so off by default until assessed (memory: ps_lite / ps congruence align)
     "unwrap_align_constant": "n",
+    # space-time unwrapping (steps/unwrap.py). The legacy model is fitted to the wrapped edge phase and the IRLS
+    # follows the wrapped gradients: an edge whose phase difference passes ±π (20 mm/yr between its cells: after
+    # ~250 days on S1) takes a wrong cycle count far from the master (VINSAR / HCMC Binh Chanh vs SARPROZ, 2026-11).
+    # unwrap_edge_velocity: each edge is unwrapped in time by its linear rate (periodogram, up to
+    # unwrap_max_edge_velocity mm/yr); unwrap_model_cycles: the IRLS takes the cycle count of each grid step from
+    # that model (StaMPS's SNAPHU cost offsets). legacy_quirks = "y" turns both off (parity)
+    "unwrap_edge_velocity": "y", "unwrap_max_edge_velocity": 100.0, "unwrap_model_cycles": "y",
+    # unwrap_ps_rate: a linear rate per PS from the PS network (Delaunay arcs <= unwrap_ps_rate_max_arc m,
+    # periodogram, L1 integration; unwrap/ps_rate.py) is removed before the grid and added back: a PS faster than
+    # its cell (a subsiding road through fields) keeps its cycles (HCMC vs SARPROZ: v < -25 bias +3.9 -> +1.4
+    # mm/yr). "auto": only with >= unwrap_ps_rate_min_ifg interferograms and >= half the arcs above chance (CSK
+    # Hanoi, 17 ifgs, moved far from its golden with it). Off with legacy_quirks
+    "unwrap_ps_rate": "auto", "unwrap_ps_rate_max_arc": 500.0, "unwrap_ps_rate_min_ifg": 40,
     # scla_deramp: "n" | "y" (plane / quadratic of every interferogram removed) | "auto" (the part of the ramp that
     # changes between acquisitions always, its steady trend only where a stable background anchors one plane over
     # the whole frame; docs/en/research/ramp-selection.md). deramp_non_defo: lon/lat polygon of a user's stable
@@ -52,6 +65,13 @@ DEFAULTS: dict[str, Any] = {
     # GeoEyes switches between classic StaMPS (defaults, as the legacy S1 engine) and the legacy CSK engine's
     # additions: topofit ambiguity score + spatial K regularisation, population-scaled random histogram
     "dem_error_ambiguity": "n", "select_nr_scaling": "low_coherence", "unwrap_grid_filter": "gaussian",
+    # σ of the "gaussian" grid prefilter in metres. The legacy σ = unwrap_gold_n_win/8 cells grows with the grid:
+    # 100 m at 50 m, which flattened the HCMC Binh Chanh subsidence (vs SARPROZ, 2026-11-07: v < -15 mm/yr bias
+    # +14.7 -> +5.2). "auto" = the legacy σ at a 10 m grid, (unwrap_gold_n_win // 8) × 10 m: 20 m for S1 (16), 80 m
+    # for CSK / ICEYE (64), whatever the grid (identical to the legacy filter at 10 m). "cells" (or legacy_quirks =
+    # "y") keeps the legacy filter. unwrap_grid_filter_unit = "y": filter unit phasors per cell (a cell of many PS no
+    # longer outweighs its neighbours); off by default: CSK Hanoi golden 0.939 / 0.41 -> 0.918 / 0.58 mm/yr
+    "unwrap_grid_filter_sigma": "auto", "unwrap_grid_filter_unit": "n",
     # reference PS (StaMPS ps_setref; default = all PS); ref_auto = "y": stable scene periphery
     "ref_lon": [float("-inf"), float("inf")], "ref_lat": [float("-inf"), float("inf")],
     "ref_centre_lonlat": [0.0, 0.0], "ref_radius": float("inf"), "ref_auto": "n",
@@ -91,6 +111,16 @@ def auto_time_win(days) -> float:
 
 def _yes(v) -> bool:
     return str(v).strip().lower() in ("y", "yes", "1", "true", "on")
+
+
+def _grid_filter_sigma(pm) -> float | None:
+    """σ (m) of the "gaussian" grid prefilter; None = the legacy filter (σ in cells)."""
+    v = str(pm["unwrap_grid_filter_sigma"]).strip().lower()
+    if _yes(pm["legacy_quirks"]) or v == "cells":
+        return None
+    if v == "auto":
+        return float(max(int(pm["unwrap_gold_n_win"]) // 8, 2) * 10)
+    return float(v)
 
 
 def _pair(v) -> tuple[float, float]:
@@ -183,13 +213,23 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
             grid_size=float(pm["unwrap_grid_size"]), prefilt_win=int(pm["unwrap_gold_n_win"]),
             gold_alpha=float(pm["unwrap_gold_alpha"]), coh_floor=float(pm["unwrap_gold_coh_floor"]),
             prefilter=str(pm["unwrap_grid_filter"]) if _yes(pm["unwrap_prefilter_flag"]) else "none",
+            filter_sigma_m=_grid_filter_sigma(pm),
+            filter_unit=_yes(pm["unwrap_grid_filter_unit"]) and not _yes(pm["legacy_quirks"]),
             time_win=float(pm["unwrap_time_win"]),
             la_flag=_yes(pm["unwrap_la_error_flag"]), scla_deramp=deramp_on, drop_ifg_index=drop,
             spatial=SpatialParams(irls_iter=int(pm["unwrap_irls_iter"]),
                                   irls_target_rms=float(pm["unwrap_irls_target_rms"]),
                                   irls_epsilon=float(pm["unwrap_irls_epsilon"]),
-                                  align=_yes(pm.get("unwrap_align_constant", "n"))),
-            legacy=_yes(pm["legacy_quirks"])),
+                                  align=_yes(pm.get("unwrap_align_constant", "n")),
+                                  model_cycles=_yes(pm["unwrap_model_cycles"]) and not _yes(pm["legacy_quirks"])),
+            legacy=_yes(pm["legacy_quirks"]),
+            edge_rate_max=(float(pm["unwrap_max_edge_velocity"])
+                           if _yes(pm["unwrap_edge_velocity"]) and not _yes(pm["legacy_quirks"]) else 0.0),
+            ps_rate=("n" if _yes(pm["legacy_quirks"]) else
+                     "auto" if str(pm["unwrap_ps_rate"]).strip().lower() == "auto" else
+                     "y" if _yes(pm["unwrap_ps_rate"]) else "n"),
+            ps_rate_max_arc=float(pm["unwrap_ps_rate_max_arc"]),
+            ps_rate_min_ifg=int(pm["unwrap_ps_rate_min_ifg"])),
         scla_deramp=deramp_on, two_pass=_yes(pm["subtr_tropo"]),
         scn_time_win=float(pm["scn_time_win"]), scn_wavelength=float(pm["scn_wavelength"]),
         # the legacy engine (parity) has the StaMPS weighted mean

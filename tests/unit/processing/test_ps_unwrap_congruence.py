@@ -37,9 +37,9 @@ def test_worker_processes_give_the_serial_result():
               for k in range(1, 4)]
     r, c = np.ones((59, 80), np.float32), np.ones((60, 79), np.float32)
     p = SpatialParams(irls_iter=10)
-    serial = [_unwrap_one(ph, r, c, p) for ph in phases]
+    serial = [_unwrap_one(ph, r, c, None, None, p) for ph in phases]
     from joblib import Parallel, delayed
-    par = Parallel(n_jobs=2, backend="loky")(delayed(_unwrap_one)(ph, r, c, p) for ph in phases)
+    par = Parallel(n_jobs=2, backend="loky")(delayed(_unwrap_one)(ph, r, c, None, None, p) for ph in phases)
     for (a, _), (b, _) in zip(serial, par, strict=True):
         assert np.array_equal(a, b)
     assert _n_jobs(23, 10_000, 0) == 1 and _n_jobs(23, 10_000, 4) == 4 and _n_jobs(1, 10**8, 0) == 1
