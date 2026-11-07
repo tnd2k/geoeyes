@@ -34,8 +34,12 @@ export const SERVER: Record<string, string> = {
   "A pixel needs a value in this share of the pairs": "Pixel cần có giá trị trong tỷ lệ cặp này",
   "Output mask: mean coherence of the pairs": "Mặt nạ đầu ra: độ nhất quán trung bình của các cặp",
   "Output mask: temporal coherence of the inversion": "Mặt nạ đầu ra: độ nhất quán thời gian của phép nghịch đảo",
-  "Per pair, remove the phase linear in height (can absorb a bowl lower than the reference)":
-    "Mỗi cặp, loại phần pha tuyến tính theo độ cao (có thể nuốt mất phễu lún nằm thấp hơn điểm tham chiếu)",
+  "Stratified troposphere (phase linear in height, per pair): auto = off on flat terrain, else removed without its steady trend; true = as fitted; false = off":
+    "Khí quyển phân tầng (pha tuyến tính theo độ cao, cho từng cặp): auto = tắt ở địa hình phẳng, còn lại thì trừ nhưng bỏ xu hướng nhiều năm của nó; true = trừ nguyên như khớp; false = tắt",
+  "auto: terrain relief (m, p5-p95) below which the troposphere is not removed":
+    "auto: độ chênh cao địa hình (m, p5-p95) dưới ngưỡng này thì không trừ khí quyển",
+  "Estimate the DEM error of each pixel from the series and remove it (c + v·t + K·B⊥)":
+    "Ước lượng sai số DEM của từng pixel từ chuỗi thời gian rồi trừ đi (c + v·t + K·B⊥)",
   "Goldstein filter strength before unwrapping (0 = off)": "Độ mạnh lọc Goldstein trước khi unwrap (0 = tắt)",
   "same parameters and inputs, outputs present": "cùng tham số và dữ liệu vào, đã có kết quả",
   "off in the project configuration": "tắt trong cấu hình dự án",

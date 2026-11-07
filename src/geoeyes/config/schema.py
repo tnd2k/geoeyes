@@ -221,7 +221,16 @@ class SbasSection(_Section):
     irls_iter: int = Field(50, ge=1)
     closure_max_share: float = Field(0.3, ge=0, le=1)       # pairs with more bad-closure pixels are dropped
     closure_pixel_mask: bool = True                         # mask a pair's value where it closes badly locally
-    troposphere: bool = True                                # per pair, remove the phase linear in height
+    # per pair, the phase linear in height (stratified troposphere). "auto": off where the terrain is flat (relief
+    # p5-p95 < troposphere_min_relief_m: nothing to measure, and the fit takes height-correlated subsidence, HCMC);
+    # elsewhere removed without its steady trend over the dates (a real troposphere has none, so it cannot change
+    # the velocities). true: removed as fitted (legacy); false: off
+    troposphere: bool | Literal["auto"] = "auto"
+    troposphere_min_relief_m: float = Field(100.0, ge=0)
+    # per pixel, the DEM error estimated from the series (c + v·t + K·B⊥, Fattahi & Amelung 2013) and its term
+    # K·B⊥ removed: with B⊥ up to max_perp_m and DEM errors of tens of metres (buildings) it otherwise stays in
+    # the series and, where B⊥ drifts with time, in the velocity
+    dem_error: bool = True
     link_islands: bool = True                               # tie disconnected islands by integer cycles
     min_pair_fraction: float = Field(0.7, gt=0, le=1)       # a pixel needs this share of the pairs
     min_mean_coherence: float = Field(0.3, ge=0, le=1)      # output mask: mean pair coherence
