@@ -138,7 +138,8 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
     def amp_corr(a, b):
         a, b = np.log1p(np.abs(a)), np.log1p(np.abs(b))
         a, b = a - a.mean(), b - b.mean()
-        return float((a * b).sum() / np.sqrt((a * a).sum() * (b * b).sum()))
+        den = np.sqrt((a * a).sum() * (b * b).sum())
+        return float((a * b).sum() / den) if den > 0 else 0.0     # an empty crop (no data): no correlation
 
     kh = ds.get("kh", None)
     linked = "slc_linked" in ds

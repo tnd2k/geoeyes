@@ -56,19 +56,22 @@ def find_scenes(ctx) -> dict[date, Path]:
 
 
 def _per_month(ctx, scenes: dict[date, Path]) -> dict[date, Path]:
-    """``[acquire] max_per_month``: the archive is shared, other projects may have added dates. The dates the
-    project's own acquire phase selected win; without an acquire record, the first N dates of each month."""
+    """``[acquire] max_per_month`` or a track ``frame``: the archive is shared, other projects may have added dates.
+    The dates the project's own acquire phase selected win; without an acquire record, the first N dates of each
+    month."""
     from collections import defaultdict
 
     from geoeyes.controller.phase import ProjectState
     per = ctx.cfg.acquire.max_per_month
-    if per <= 0:
+    if per <= 0 and getattr(getattr(ctx, "track", None), "frame", None) is None:
         return scenes
     rec = ProjectState(ctx.project).get(ctx.track_id, "acquire") or {}
     chosen = (rec.get("result") or {}).get("dates") if rec.get("status") == "done" else None
-    if chosen:
+    if chosen:                       # also a [[tracks]] frame: the archive may hold other frames' dates
         keep = set(chosen)
         return {d: p for d, p in scenes.items() if str(d) in keep}
+    if per <= 0:
+        return scenes
     by_month: dict[tuple[int, int], list[date]] = defaultdict(list)
     for d in sorted(scenes):
         by_month[(d.year, d.month)].append(d)
@@ -150,12 +153,38 @@ def _umbra_reference(scenes: dict) -> date:
 def target(ctx) -> dict:
     """Scenes, reference date, stack id and store path of the track (cached in the context)."""
     if "stack" not in ctx.cache:
-        scenes = find_scenes(ctx)
+        try:
+            scenes = find_scenes(ctx)
+        except DataError:
+            kept = _kept_stack(ctx)
+            if kept is None:
+                raise
+            ctx.cache["stack"] = kept
+            return kept
         ref = reference_date(ctx, list(scenes), scenes)
         sid = f"{ctx.track_id}-ref{ref:%Y%m%d}"
         ctx.cache["stack"] = {"scenes": scenes, "reference": ref, "stack_id": sid,
                               "path": ctx.project.stack_store(sid)}
     return ctx.cache["stack"]
+
+
+def _kept_stack(ctx) -> dict | None:
+    """The raw scenes were removed after the stack was built (to free disk): the last completed build and its store,
+    when it still exists, so the later phases run on it. ``scenes`` maps its dates to None (no raw folder); a
+    rebuild needs the raw scenes again."""
+    from geoeyes.io.stack import StackStore
+    prev = previous(ctx)
+    if not prev.get("reference"):
+        return None
+    ref = date.fromisoformat(prev["reference"])
+    sid = f"{ctx.track_id}-ref{ref:%Y%m%d}"
+    path = ctx.project.stack_store(sid)
+    st = StackStore(path)
+    if not st.exists():
+        return None
+    dates = [date.fromisoformat(str(d)[:10]) for d in st.open()["date"].values]
+    log.info("%s: raw scenes not found, using the kept stack %s (%d dates)", ctx.track_id, sid, len(dates))
+    return {"scenes": dict.fromkeys(dates), "reference": ref, "stack_id": sid, "path": path, "raw_removed": True}
 
 
 def problem(ctx) -> str | None:
@@ -203,6 +232,9 @@ def signatures(ctx) -> dict[str, str]:
     signature while none of those files changed after the stack was written (stacks signed before the
     signatures were limited to the stack's bursts stay valid)."""
     t = target(ctx)
+    if "signatures" not in t and t.get("raw_removed"):      # nothing to re-read: the stack's own record
+        from geoeyes.io.stack import StackStore
+        t["signatures"] = StackStore(t["path"]).attrs.get(SIGNATURES_ATTR) or previous(ctx).get("signatures") or {}
     if "signatures" not in t:
         from geoeyes.io.stack import StackStore
         ids = stack_burst_ids(ctx)
@@ -346,8 +378,12 @@ def aoi_burst_ids(reference_scene: Path, aoi, margin_deg: float = 0.01) -> list[
 
     from shapely import wkt
     from shapely.geometry import box
+
+    from geoeyes.processing.stack.native.s1_stack import datatake_slices
     area = box(*aoi.as_tuple()).buffer(margin_deg)
-    bursts = json.loads((reference_scene / "bursts.json").read_text())
+    # the reference date can lie in two slices of its datatake: their bursts together
+    bursts = [b for d in datatake_slices(reference_scene)
+              for b in json.loads((d / "bursts.json").read_text())]
     ids = sorted({b["full_burst_id"] for b in bursts
                   if not b.get("footprint_wkt") or wkt.loads(b["footprint_wkt"]).intersects(area)})
     if not ids:
