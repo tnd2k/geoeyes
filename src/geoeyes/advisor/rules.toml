@@ -17,7 +17,8 @@
 #   geology.soft_share, geology.dominant
 #   climate.koppen, climate.zone (first letter), climate.rain_annual_mm, climate.rh_mean_pct
 #   data.sensor, data.band, data.dates, data.span_years, data.revisit_median_days, data.max_gap_days,
-#   data.coherence_median, data.bperp_spread_m   (the track with the most dates)
+#   data.gap_ratio (largest gap / median revisit), data.coherence_median, data.bperp_spread_m   (the track with the
+#   most dates; before a stack exists only data.sensor and data.band, from the configuration)
 #   site.area_km2, site.regions (names of the [[region]] boxes below that contain the AOI centre)
 
 # ---------------------------------------------------------------- named regions
@@ -69,13 +70,24 @@ source = "aps-selection A0 notes; general"
 # ---------------------------------------------------------------- land cover and method
 [[rule]]
 id = "urban-psi"
-when = ["land_cover.built >= 0.4"]
+when = ["land_cover.built >= 0.4", "data.band == 'C'"]
 set = { "project.method" = "psi", "phase_linking.enabled" = false }
 why = """Mostly built-up: buildings and roads are stable point targets. Persistent scatterers keep the full \
 resolution of single structures; phase linking would smear them and cost hours."""
 why_vi = """Phần lớn là đô thị: nhà và đường là điểm tán xạ ổn định. PS giữ được độ phân giải của từng công trình; \
 liên kết pha sẽ làm nhoè chúng và tốn hàng giờ."""
-source = "hcm_d18, hp_maychai, hanoi_s1_desc (all psi)"
+source = "hcm_d18, hp_maychai, hanoi_s1_desc (all psi, Sentinel-1); X band: see csk-chain"
+
+[[rule]]
+id = "csk-chain"
+when = ["data.sensor == 'cosmo_skymed'"]
+set = { "phase_linking.enabled" = true, "phase_linking.gaussian_sigma" = 1.5 }
+why = """COSMO-SkyMed: phase linking followed by a Gaussian post-filter of the linked pixels (sigma 1.5), even in a city: \
+at 3 m resolution the speckle of the many weak scatterers between buildings is what the linking cleans. No wavelet, \
+no FAMM."""
+why_vi = """COSMO-SkyMed: liên kết pha rồi lọc Gauss các pixel đã liên kết (sigma 1.5), kể cả ở đô thị: ở độ phân giải \
+3 m, đốm nhiễu của nhiều điểm tán xạ yếu giữa các công trình là thứ liên kết pha làm sạch. Không wavelet, không FAMM."""
+source = "owner's CSK chain (2026-10-24); CSK Hanoi: PL + Gaussian on linked pixels, 424.6k points, pair scatter 1.48 mm/yr"
 
 [[rule]]
 id = "vegetated-ds"
@@ -126,13 +138,20 @@ source = "landslide study (Quang Nam): copernicus-30 in the predictors"
 [[rule]]
 id = "soft-urban-subsidence"
 when = ["geology.soft_share >= 0.5", "land_cover.built >= 0.3"]
-set = { "acquire.max_per_month" = 0 }
 note = """City on soft sediments: expect subsidence everywhere, so the scene mean is not zero. Put the reference \
 on a known stable point (GNSS station, old building on piles) with ps.ref_centre_lonlat and ps.ref_radius."""
 note_vi = """Đô thị trên trầm tích mềm: lún ở khắp nơi nên trung bình cả cảnh không bằng 0. Đặt tham chiếu tại một \
 điểm ổn định đã biết (trạm GNSS, công trình cũ trên cọc) bằng ps.ref_centre_lonlat và ps.ref_radius."""
-why = """Every date: fast subsidence (several cm/yr) needs the short revisit to keep its cycles."""
-why_vi = """Mọi ngày ảnh: lún nhanh (vài cm/năm) cần chu kỳ chụp ngắn để giữ được chu kỳ pha."""
+why = "The reference decides what 'stable' means; in a sinking city the scene mean is not stable."
+why_vi = "Điểm tham chiếu quyết định thế nào là 'ổn định'; ở thành phố đang lún, trung bình cả cảnh không ổn định."
+source = "hcm_d18 (SARPROZ reference point), hanoi_s1_desc v1 (scene mean: +10 mm/yr at p98)"
+
+[[rule]]
+id = "s1-every-date"
+when = ["geology.soft_share >= 0.5", "land_cover.built >= 0.3", "data.sensor == 'sentinel1'"]
+set = { "acquire.max_per_month" = 0 }
+why = "Sentinel-1 over soft ground: download every date; fast subsidence (several cm/yr) needs the short revisit to keep its cycles."
+why_vi = "Sentinel-1 trên nền mềm: tải mọi ngày ảnh; lún nhanh (vài cm/năm) cần chu kỳ chụp ngắn để giữ được chu kỳ pha."
 source = "hcm_d18, hp_maychai (max_per_month = 0)"
 
 [[rule]]
@@ -190,14 +209,16 @@ source = "Hanoi GNSS tie (G3)"
 
 [[rule]]
 id = "long-gap"
-when = ["data.max_gap_days > 48"]
-note = """A gap of more than 48 days in the series: fast motion can lose a cycle across it. Check the dates around \
-the gap in the stack QC and the time series."""
-note_vi = """Có khoảng trống quá 48 ngày trong chuỗi: chuyển động nhanh có thể mất một chu kỳ qua khoảng đó. Kiểm \
-tra các ngày quanh khoảng trống trong stack QC và chuỗi thời gian."""
-why = "Phase ambiguity: λ/4 (14 mm in C band) per interval."
-why_vi = "Độ mơ hồ pha: λ/4 (14 mm ở băng C) cho mỗi khoảng."
-source = "hcm_d18 (96-day gap)"
+when = ["data.gap_ratio > 4"]
+note = """A gap of more than 4 revisits in the series: fast motion can lose a cycle across it. Check the dates \
+around the gap in the stack QC and the time series."""
+note_vi = """Có khoảng trống dài hơn 4 chu kỳ chụp trong chuỗi: chuyển động nhanh có thể mất một chu kỳ qua khoảng \
+đó. Kiểm tra các ngày quanh khoảng trống trong stack QC và chuỗi thời gian."""
+why = """Phase ambiguity: an interval holds at most λ/4 of line-of-sight motion (14 mm in C band, 8 mm in X band, \
+59 mm in L band); the gap is measured against the sensor's own revisit."""
+why_vi = """Độ mơ hồ pha: mỗi khoảng chứa tối đa λ/4 chuyển động theo LOS (14 mm ở băng C, 8 mm ở băng X, 59 mm ở \
+băng L); khoảng trống được so với chu kỳ chụp của chính cảm biến."""
+source = "hcm_d18 (96-day gap, 12-day revisit); CSK Hanoi (160-day gap, 64-day revisit)"
 
 [[rule]]
 id = "low-coherence"

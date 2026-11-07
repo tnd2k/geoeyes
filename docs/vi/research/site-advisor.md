@@ -111,6 +111,13 @@ thực sự đã dùng. Luật được sửa tay từ báo cáo đó; không t�
     vào các ô của chúng (mặc định ERA5 của wizard được thay ở đồng bằng phẳng), các giá trị khác ghi vào
     project.toml sau khi tạo nếu đánh dấu ô chọn.
   - Test `tests/unit/api/test_api_advise.py` (dự án, áp dụng qua endpoint cài đặt, bbox).
+- [x] **Luật theo cảm biến** (2026-11-08, sau khi thử bộ luật trên một dự án COSMO-SkyMed ở trung tâm Hà Nội). Bộ luật
+  đầu tiên rút từ các dự án Sentinel-1; với CSK, `urban-psi` tắt liên kết pha, trái với chuỗi CSK của chủ dự án.
+  Giờ có 18 luật: `urban-psi` chỉ cho băng C; `csk-chain` giữ liên kết pha và lọc Gauss σ 1.5 cho COSMO-SkyMed;
+  `s1-every-date` (max_per_month = 0) chỉ cho Sentinel-1, `soft-urban-subsidence` giữ ghi chú về điểm tham chiếu cho
+  mọi cảm biến; `long-gap` so khoảng trống lớn nhất với chu kỳ chụp của cảm biến (`data.gap_ratio > 4`) và ghi λ/4
+  theo băng. `data.sensor` / `data.band` lấy từ cấu hình khi chưa có stack. CSK Hà Nội khi đó: một thay đổi
+  (`ps.subtr_tropo` y -> n), liên kết pha và σ 1.5 đã đúng như preset.
 - [x] **V4** (xong 2026-11-07) `geoeyes advise --learn [--lang vi] [--out report.md]` (`advisor/learn.py`): mọi dự án
   của workspace qua bộ luật. Dự án đã xong (có sản phẩm) được tính là bằng chứng, dự án khác chỉ được liệt kê. Các
   mục: dự án, luật (áp dụng ở đâu, giá trị giữ đúng / đặt khác trong dự án đã xong), chỗ dự án đã xong khác luật,

@@ -114,6 +114,13 @@ automatic fitting (too few projects).
     their fields (the wizard's own default ERA5 is replaced on flat deltas), the other values are written into
     project.toml after creation when the box is ticked.
   - Tests `tests/unit/api/test_api_advise.py` (project, apply through the settings endpoint, bbox).
+- [x] **Sensor-aware rules** (2026-11-08, after trying the rules on a COSMO-SkyMed project over central Hanoi). The
+  first rules came from Sentinel-1 projects; on CSK `urban-psi` turned phase linking off, against the owner's CSK
+  chain. Now 18 rules: `urban-psi` only in C band; `csk-chain` keeps phase linking and the Gaussian σ 1.5 for
+  COSMO-SkyMed; `s1-every-date` (max_per_month = 0) only for Sentinel-1, `soft-urban-subsidence` keeps the
+  reference note for every sensor; `long-gap` compares the largest gap with the sensor's revisit (`data.gap_ratio
+  > 4`) and gives λ/4 per band. `data.sensor` / `data.band` come from the configuration before a stack exists.
+  CSK Hanoi then: one change (`ps.subtr_tropo` y -> n), phase linking and σ 1.5 already as the preset sets them.
 - [x] **V4** (done 2026-11-07) `geoeyes advise --learn [--lang vi] [--out report.md]` (`advisor/learn.py`): every
   project of the workspace through the rules. Finished projects (with a product) count as evidence, others are
   listed only. Sections: projects, rules (where each applies, values kept / changed in finished projects), where a

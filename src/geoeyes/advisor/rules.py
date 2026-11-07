@@ -16,6 +16,9 @@ _COND = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(<=|>=|==|!=|<|>|\bin\b|\bcontains\
 OPS = {"<": lambda a, b: a < b, "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, ">=": lambda a, b: a >= b,
        "==": lambda a, b: a == b, "!=": lambda a, b: a != b, "in": lambda a, b: a in b,
        "contains": lambda a, b: b in a}
+# radar band of each sensor (the profile reads it from the stack's wavelength; this serves before a stack exists)
+SENSOR_BAND = {"sentinel1": "C", "cosmo_skymed": "X", "terrasar_x": "X", "iceye": "X", "capella": "X", "umbra": "X",
+               "alos": "L"}
 # keys of project.toml that name the project rather than set how it is processed: never "unexplained"
 IDENTITY = {"project.name", "project.description", "aoi.bbox", "acquire.date_range", "acquire.archive",
             "acquire.opendata"}
@@ -115,7 +118,8 @@ def metrics(profile: dict, regions: dict[str, list[float]] | None = None) -> dic
     out["climate.koppen"] = c.get("koppen")
     out["climate.zone"] = c["koppen"][0] if c.get("koppen") else None
     out["climate.rain_annual_mm"], out["climate.rh_mean_pct"] = c.get("rain_annual_mm"), c.get("rh_mean_pct")
-    tracks = [d for d in ((profile.get("data") or {}).get("tracks") or {}).values() if "dates" in d]
+    every = list(((profile.get("data") or {}).get("tracks") or {}).values())
+    tracks = [d for d in every if "dates" in d]
     if tracks:
         d = max(tracks, key=lambda x: x["dates"])
         for k in ("sensor", "band", "dates", "span_years", "revisit_median_days", "max_gap_days", "coherence_median",
@@ -123,6 +127,12 @@ def metrics(profile: dict, regions: dict[str, list[float]] | None = None) -> dic
             out[f"data.{k}"] = d.get(k)
         if d.get("warning"):                                       # a QC value known to be wrong is not used
             out["data.coherence_median"] = None
+        if d.get("max_gap_days") and d.get("revisit_median_days"):
+            out["data.gap_ratio"] = round(d["max_gap_days"] / d["revisit_median_days"], 2)
+    elif every:                                                    # no stack yet: the sensor of the configuration
+        out["data.sensor"] = every[0].get("sensor")
+    if out.get("data.sensor") and not out.get("data.band"):
+        out["data.band"] = SENSOR_BAND.get(str(out["data.sensor"]))
     out["site.area_km2"] = profile.get("area_km2")
     lon, lat = profile.get("centre") or (None, None)
     out["site.regions"] = [n for n, (w, s, e, nn) in regions.items()

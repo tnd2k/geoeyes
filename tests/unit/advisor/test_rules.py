@@ -70,6 +70,42 @@ def test_mountain_profile_gives_weather_model_and_phase_linking():
     assert {"tropical-convection", "steep-terrain"} <= {rid for rid, _ in a.notes}
 
 
+def _csk_profile():
+    """Central Hanoi seen by COSMO-SkyMed before its stack exists: the data part holds only the configured sensor."""
+    p = _profile(relief=15.0, built=0.60, tree=0.16, crop=0.02, grass=0.0, water=0.21, koppen="Cwa",
+                 centre=(105.842, 21.033))
+    p["data"] = {"tracks": {"cosmo_skymed-asc": {"source": "configuration (no stack yet)", "sensor": "cosmo_skymed"}}}
+    return p
+
+
+def test_csk_keeps_its_phase_linking_chain():
+    a = rules.evaluate(_csk_profile())
+    r = {k: s.value for k, s in a.recipe.items()}
+    assert a.metrics["data.band"] == "X"                                   # from the sensor, before any stack
+    assert "urban-psi" not in a.matched and "csk-chain" in a.matched
+    assert r["phase_linking.enabled"] is True and r["phase_linking.gaussian_sigma"] == 1.5
+    assert "acquire.max_per_month" not in r                                # the Sentinel-1 download rule
+    assert "project.method" not in r
+    assert "soft-urban-subsidence" in {rid for rid, _ in a.notes}          # the reference note still applies
+
+
+def test_csk_project_from_its_preset_needs_no_linking_change():
+    raw = {"schema": "geoeyes.project/1", "project": {"name": "x", "method": "psi"},
+           "aoi": {"bbox": [105.8092, 21.0012, 105.8754, 21.0639]},
+           "tracks": [{"sensor": "cosmo_skymed", "direction": "ascending"}]}
+    cmp = rules.compare(rules.evaluate(_csk_profile()), load_dict(raw), raw)
+    assert {c["path"] for c in cmp["changes"]} == {"ps.subtr_tropo"}       # the preset already links and filters
+    assert {"phase_linking.enabled", "phase_linking.gaussian_sigma"} <= {a["path"] for a in cmp["agree"]}
+
+
+def test_long_gap_is_measured_in_revisits():
+    s1 = rules.metrics(_profile(gap=96))                                   # 96 days at a 12-day revisit: 8
+    assert s1["data.gap_ratio"] == 8
+    p = _profile(gap=160)
+    p["data"]["tracks"]["t"].update(sensor="cosmo_skymed", band="X", revisit_median_days=64)
+    assert "long-gap" not in rules.evaluate(p).matched                     # 160 days at a 64-day revisit: 2.5
+
+
 def test_missing_metric_is_reported_not_guessed():
     p = _profile()
     p.pop("data")

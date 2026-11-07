@@ -67,7 +67,7 @@ def test_learn_counts_finished_projects_only(ws):
     assert {r["project"]: r["finished"] for r in rows} == {"done_a": True, "done_b": True, "wip": False}
     s = learn.summarise(rows)
     assert s["per_rule"]["flat-no-height-aps"]["fired"] == ["done_a", "done_b", "wip"]
-    assert s["per_rule"]["soft-urban-subsidence"]["agree"] == 2           # wip (2 a month) is not evidence
+    assert s["per_rule"]["s1-every-date"]["agree"] == 2                   # wip (2 a month) is not evidence
     assert s["differ"] == [] and "steep-terrain" in s["never"]
 
 
