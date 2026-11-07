@@ -1,7 +1,8 @@
 """Quality check of a coregistered stack, to see the phase before any PS processing.
 
 For every date against the reference, on the whole stack window, multilooked to about ``size`` pixels on the
-longer side (looks chosen for square ground cells):
+longer side (looks chosen for square ground cells, at least ``MIN_LOOKS`` per cell, so a small stack gets fewer
+image pixels rather than a meaningless coherence):
 
 * the amplitude (dB, 2-98 % stretch);
 * the interferogram ``slc[ref] · conj(slc[k])`` as stored (the geometric phase is already removed: what remains is
@@ -31,6 +32,10 @@ import numpy as np
 from geoeyes.io.stack import StackStore
 
 BLOCK = 1024                     # lines read at a time
+# fewest looks of a coherence cell: one pixel gives |r·s*| / (|r||s|) = 1 whatever the data (a small stack sized to
+# the 1200-pixel image got 1 x 1 looks), and 4 looks still give about 0.44 on pure noise; 16 looks (Sentinel-1: 2 x
+# 8, about 28 x 30 m, the [sbas] cell) bring the noise floor down to about 0.22
+MIN_LOOKS = 16
 
 
 def _looks(st: StackStore, ny: int, nx: int, size: int) -> tuple[int, int]:
@@ -43,7 +48,14 @@ def _looks(st: StackStore, ny: int, nx: int, size: int) -> tuple[int, int]:
         inc = math.radians(float(np.nanmedian(g.isel(y=slice(ny // 2, ny // 2 + 1)).values)))
     gr = rg / max(math.sin(inc), 0.2)                       # ground range spacing
     cell = max(ny * az, nx * gr) / size                     # ground metres per output pixel
-    return max(int(round(cell / az)), 1), max(int(round(cell / gr)), 1)
+    cell = max(cell, math.sqrt(MIN_LOOKS * az * gr))        # never fewer looks than the coherence needs
+    ly, lx = max(int(round(cell / az)), 1), max(int(round(cell / gr)), 1)
+    while ly * lx < MIN_LOOKS:                              # rounding: grow the side that stays closest to square
+        if (ly + 1) * az - lx * gr <= (lx + 1) * gr - ly * az:
+            ly += 1
+        else:
+            lx += 1
+    return ly, lx
 
 
 def _ml(a: np.ndarray, ly: int, lx: int) -> np.ndarray:
@@ -172,11 +184,14 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
         row = {"date": d, "days": int((np.datetime64(d, "D") - t0).astype(int)), "reference": k == ref,
                "bperp_m": round(float(bp[k]), 1)}
         if k != ref:
-            coh = np.abs(cross) / np.sqrt(ref_pow * pw + 1e-30)
+            valid = (ref_pow > 0) & (pw > 0)                 # cells with no data (zero padding) are not 0 coherence
+            with np.errstate(invalid="ignore", divide="ignore"):
+                norm = np.where(valid, np.sqrt(ref_pow * pw), np.nan)
+            coh = np.abs(cross) / norm
             _png(out / f"ifg_{d}.png", smooth_phase(cross, ifg_sigma), "twilight", -np.pi, np.pi)
             _png(out / f"coh_{d}.png", coh, "magma", 0.0, 1.0)
             if linked:
-                coh_l = np.abs(cross_l) / np.sqrt(ref_pow * pw + 1e-30)
+                coh_l = np.abs(cross_l) / norm               # slc_linked keeps the amplitudes of slc
                 _png(out / f"ifgL_{d}.png", smooth_phase(cross_l, ifg_sigma), "twilight", -np.pi, np.pi)
                 _png(out / f"cohL_{d}.png", coh_l, "magma", 0.0, 1.0)
                 row["coherence_linked_mean"] = round(float(np.nanmean(coh_l)), 3)
@@ -193,7 +208,8 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
         rows.append(row)
     summary = {"schema": "geoeyes.stack_qc/1", "stack": Path(store).parent.name,
                "created": datetime.now(UTC).isoformat(timespec="seconds"), "reference_date": dates[ref],
-               "shape": [int(ny), int(nx)], "looks": [ly, lx], "image_shape": [int(ny_ml), int(nx_ml)],
+               "shape": [int(ny), int(nx)], "looks": [ly, lx], "min_looks": MIN_LOOKS,
+               "image_shape": [int(ny_ml), int(nx_ml)],
                "ifg_smoothing_sigma_px": ifg_sigma,
                "crop": [int(cy - h), int(cy + h), int(cx - h), int(cx + h)], "dates": rows, "linked": linked,
                "orientation": "radar geometry: rows = lines (azimuth), columns = samples (range)"}

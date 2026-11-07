@@ -37,6 +37,30 @@ def test_stack_qc_flags_a_misregistered_date(tmp_path):
     assert (tmp_path / "s" / "qc" / "qc.json").exists()
 
 
+def test_small_stack_coherence_is_not_one_on_noise(tmp_path):
+    """A stack smaller than the image size used to get 1 x 1 looks: the coherence of one pixel is 1 whatever the
+    data (hp_maychai, 513 x 1537 Sentinel-1 pixels). The looks never drop below MIN_LOOKS."""
+    from geoeyes.processing.stack.qc import MIN_LOOKS
+    rng = np.random.default_rng(2)
+    ny, nx = 256, 768
+    noise = lambda: (rng.normal(size=(ny, nx)) + 1j * rng.normal(size=(ny, nx))).astype(np.complex64)  # noqa: E731
+    ref = noise()
+    slc = np.stack([ref, noise(), ref * np.exp(0.3j)])               # reference, unrelated date, the same scene
+    slc[:, :, :192] = 0                                              # zero padding (no data) is not 0 coherence
+    st = StackStore.create(tmp_path / "s" / "stack.zarr",
+                           coords={"date": np.array(["2025-01-01", "2025-01-13", "2025-01-25"], dtype="datetime64[D]"),
+                                   "y": np.arange(ny), "x": np.arange(nx)},
+                           attrs={"reference_date": "2025-01-01", "azimuth_pixel_spacing_m": 14.0,
+                                  "range_pixel_spacing_m": 2.33, "incidence_deg": 39.0})
+    st.write("slc", slc, ("date", "y", "x"))
+    s = stack_qc(tmp_path / "s" / "stack.zarr", size=1200, crop=256)
+    ly, lx = s["looks"]
+    assert ly * lx >= MIN_LOOKS and (ly, lx) == (2, 8)               # Sentinel-1: about 28 x 30 m on the ground
+    unrelated, same = s["dates"][1], s["dates"][2]
+    assert unrelated["coherence_mean"] < 0.35                        # noise floor of 16 looks, about 0.22
+    assert same["coherence_mean"] > 0.99
+
+
 def test_smooth_phase_keeps_fringes_and_lowers_noise():
     from geoeyes.processing.stack.qc import smooth_phase
     rng = np.random.default_rng(0)
