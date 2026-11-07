@@ -68,6 +68,7 @@ export interface MapLayer {
   calibrated?: boolean;                 // the calibrated velocities and series (GNSS, else a tie; points only)
   range?: [number, number] | null;      // colour classes over this range (mm/yr) in place of the full min-max
   vel?: VelKind | null;                 // a StaMPS velocity kind in place of the product velocity (points only)
+  cohMin?: number;                      // points below this temporal coherence are hidden (0 / unset: all shown)
 }
 
 export interface Selection {
@@ -86,6 +87,7 @@ interface AppState {
   setCalibrated: (key: string, on: boolean) => void;
   setRange: (key: string, range: [number, number] | null) => void;
   setVel: (key: string, vel: VelKind | null) => void;
+  setCohMin: (key: string, cohMin: number) => void;
   removeLayer: (key: string) => void;
   focus: string | null;   // layer to zoom to
   setFocus: (key: string | null) => void;
@@ -142,7 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLayers((ls) => {
         const rest = ls.filter((l) => l.key !== key).map((l) => (opts.solo ? { ...l, visible: false } : l));
         const old = ls.find((l) => l.key === key);
-        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode, range: old?.range, vel: old?.vel }, ...rest];
+        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode, range: old?.range, vel: old?.vel, cohMin: old?.cohMin }, ...rest];
       });
       setFocus(key);
       if (opts.open) location.hash = href({ page: "explorer" });
@@ -163,6 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRange: (key, range) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, range } : l))),
       // another velocity: another min-max, the chosen colour range no longer fits it
       setVel: (key, vel) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, vel, range: null } : l))),
+      setCohMin: (key, cohMin) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, cohMin } : l))),
       removeLayer: (key) => {
         setLayers((ls) => ls.filter((l) => l.key !== key));
         select((s) => (s?.layer === key ? null : s));

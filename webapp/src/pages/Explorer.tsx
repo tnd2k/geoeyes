@@ -233,6 +233,46 @@ function RangeEditor({ meta, onRange }: { meta: LayerMeta; onRange: (r: [number,
   );
 }
 
+/** Minimum temporal coherence of the points shown (0 = all): drawn on the GPU at once; the hexagons of the zoomed-out
+ * view are binned again on the server with the same threshold. */
+function CoherenceSlider({ d, value, onChange }: { d: LayerData; value: number; onChange: (c: number) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  // let the hand settle before the hexagons are asked again (the points follow at once)
+  useEffect(() => {
+    if (v === value) return;
+    const h = setTimeout(() => onChange(v), 150);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v]);
+  const kept = useMemo(() => {
+    if (d.kind !== "points" || !d.coh) return null;
+    let n = 0;
+    for (let i = 0; i < d.coh.length; i++) if (d.coh[i] >= v) n++;
+    return n;
+  }, [d, v]);
+  if (d.kind === "points" && !d.coh) return null;                 // an older server: no coherence per point
+  return (
+    <div className="mt-1.5 flex items-center gap-2 pl-6 text-[11px] text-muted">
+      <span title={t("Points with a temporal coherence below this are hidden (0: all points)")}>{t("Min coherence")}</span>
+      <input
+        type="range"
+        min={0}
+        max={0.95}
+        step={0.05}
+        value={v}
+        onChange={(e) => setV(Number(e.target.value))}
+        aria-label={t("Min coherence")}
+        className="w-24 accent-accent"
+      />
+      <span className="w-8 font-mono text-ink-2">{v.toFixed(2)}</span>
+      {kept != null && v > 0 && (
+        <span className="truncate">{t("{n} pts ({p} %)", { n: fmt.int(kept), p: Math.round((100 * kept) / Math.max(1, d.meta.n)) })}</span>
+      )}
+    </div>
+  );
+}
+
 /** The layer request of a map layer: calibrated or not, and the velocity kind chosen (`undefined`: none chosen,
  * the default v-do when the product has it). */
 function layerReq(l: MapLayer): { cal: boolean; vel: VelKind | null | "default" } {
@@ -324,7 +364,7 @@ function ThemeChips({ project, product, on, toggle }: { project: string; product
 }
 
 export function Explorer({ ws }: { ws: Workspace | undefined }) {
-  const { layers, setOpacity, setMode, setCalibrated, setRange, setVel, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
+  const { layers, setOpacity, setMode, setCalibrated, setRange, setVel, setCohMin, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
   // 3D view: terrain draped with the base map, the points on it; heights exaggerated (flat deltas)
   const [three, setThree] = usePersisted("explorer.3d", false);
   // in 3D the base map is the texture of the terrain (deck.gl), MapLibre only draws the background
@@ -485,8 +525,9 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     queries: layers.map((l) => {
       const size = hexFor(l);
       return {
-        queryKey: ["hex", l.key, size, lv(l)],
-        queryFn: () => api.layerHex(l.project, l.product, size!, lv(l)),
+        queryKey: ["hex", l.key, size, lv(l), l.cohMin ?? 0],
+        queryFn: () => api.layerHex(l.project, l.product, size!, lv(l), l.cohMin ?? 0),
+        placeholderData: (prev: Float32Array | undefined) => prev,   // the slider: keep the old hexagons until the new
         enabled: size != null,
         staleTime: Infinity,
         gcTime: 10 * 60_000,
@@ -1367,6 +1408,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                       />
                     </div>
                     {d && <VelocityKind meta={d.meta} value={l.vel ?? null} onChange={(v) => setVel(l.key, v)} />}
+                    {d && <CoherenceSlider d={d} value={l.cohMin ?? 0} onChange={(c) => setCohMin(l.key, c)} />}
                     {d?.meta.calibration_available && (
                       <CalibrationToggle cal={d.meta.calibration_available} on={!!l.calibrated} onChange={(on) => setCalibrated(l.key, on)} />
                     )}

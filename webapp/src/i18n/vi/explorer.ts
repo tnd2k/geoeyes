@@ -276,4 +276,8 @@ export const EXPLORER: Record<string, string> = {
   "Back to the product's min–max": "Trở về min–max của sản phẩm",
   "full range": "toàn dải",
   "Chosen colour range: values beyond it take the end colours.": "Dải màu tự chọn: các giá trị nằm ngoài dải mang màu ở hai đầu.",
+  "Min coherence": "Coherence tối thiểu",
+  "Points with a temporal coherence below this are hidden (0: all points)":
+    "Ẩn các điểm có temporal coherence thấp hơn ngưỡng này (0: hiện mọi điểm)",
+  "{n} pts ({p} %)": "{n} điểm ({p} %)",
 };

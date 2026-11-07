@@ -186,22 +186,37 @@ def meta(folder: Path) -> dict:
 HEX_SIZES = (125, 250, 500, 1000, 2000, 4000)   # m, centre to vertex: the map's hexagons when zoomed out
 
 
-def hexbins(folder: Path, size_m: int) -> bytes:
+def coherence_bin(folder: Path) -> bytes:
+    """float32 per point (product order, as ``points.bin``): temporal coherence, NaN where the product has none."""
+    attrs = _arrays(str(folder))[0]
+    c = attrs.get("temporal_coherence")
+    if c is None:
+        c = np.full(attrs["vel"].shape, np.nan, np.float32)
+    return np.asarray(c, np.float32).tobytes()
+
+
+def hexbins(folder: Path, size_m: int, coh_min: float = 0.0) -> bytes:
     """The points binned in flat-top hexagons of ``size_m`` (centre to vertex), in a local metric frame at the
     product's origin: float32 x 4 per hexagon (lon - lon0, lat - lat0, median velocity mm/yr, count). Cached next to
-    the layer (``hex_<size>.bin``), rebuilt with it."""
+    the layer (``hex_<size>[_c<coh_min>].bin``), rebuilt with it. ``coh_min``: only the points with a temporal
+    coherence at least this (the map's coherence slider)."""
     if size_m not in HEX_SIZES:
         raise ValueError(f"hexagon size {size_m} m (one of {HEX_SIZES})")
-    out = folder / f"hex_{size_m}.bin"
+    coh_min = round(float(coh_min), 2)
+    if not 0.0 <= coh_min <= 1.0:
+        raise ValueError(f"coherence threshold {coh_min} (0-1)")
+    out = folder / (f"hex_{size_m}.bin" if coh_min <= 0 else f"hex_{size_m}_c{coh_min:.2f}.bin")
     src = folder / "meta.json"
     if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
         return out.read_bytes()
-    with _lock(f"{folder.name}/hex{size_m}"):
+    with _lock(f"{folder.name}/{out.name}"):
         if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
             return out.read_bytes()
         attrs = _arrays(str(folder))[0]
         lon0, lat0 = meta(folder)["origin"]
         ok = np.isfinite(attrs["vel"])
+        if coh_min > 0 and "temporal_coherence" in attrs:
+            ok &= np.nan_to_num(attrs["temporal_coherence"], nan=0.0) >= coh_min
         lon, lat, vel = attrs["lon"][ok], attrs["lat"][ok], attrs["vel"][ok].astype(np.float64)
         kx = 111_320.0 * np.cos(np.radians(lat0))
         x, y = (lon - lon0) * kx, (lat - lat0) * 110_574.0
@@ -216,6 +231,9 @@ def hexbins(folder: Path, size_m: int) -> bytes:
         fix_z = ~fix_x & (dy <= dz)
         rx = np.where(fix_x, -ry - rz, rx)
         rz = np.where(fix_z, -rx - ry, rz)
+        if vel.size == 0:                                 # nothing above the threshold
+            out.write_bytes(b"")
+            return b""
         key = rx.astype(np.int64) * 1_000_003 + rz.astype(np.int64)
         order = np.lexsort((vel, key))
         key, vel, rx, rz = key[order], vel[order], rx[order], rz[order]

@@ -1,7 +1,7 @@
 // What the Explorer and the map composer share: base maps, product layers (one binary array of points, or vector
 // tiles for large products), velocity colours (QGIS Pretty Breaks classes from the API, jet_r).
 import { COORDINATE_SYSTEM, type Layer } from "@deck.gl/core";
-import { _TerrainExtension as TerrainExtension, ClipExtension } from "@deck.gl/extensions";
+import { _TerrainExtension as TerrainExtension, ClipExtension, DataFilterExtension } from "@deck.gl/extensions";
 import { MVTLayer, TerrainLayer } from "@deck.gl/geo-layers";
 import { ColumnLayer, ScatterplotLayer, type ScatterplotLayerProps } from "@deck.gl/layers";
 import type maplibregl from "maplibre-gl";
@@ -80,7 +80,7 @@ export function switchBase(m: maplibregl.Map, base: Base) {
 export type RenderMode = "auto" | "points" | "tiles";
 
 export type LayerData =
-  | { kind: "points"; meta: LayerMeta; buf: Float32Array; colors: Uint8Array }
+  | { kind: "points"; meta: LayerMeta; buf: Float32Array; colors: Uint8Array; coh?: Float32Array }
   | { kind: "tiles"; meta: LayerMeta };
 
 /** Class colour of a value (upper bounds inclusive, as QGIS). */
@@ -215,8 +215,11 @@ export async function loadLayer(project: string, product: string, mode: RenderMo
     if (!meta.tiles.available) meta.tiles = { ...meta.tiles, ...(await api.buildTiles(project, product)) };
     return { kind: "tiles", meta };
   }
-  const buf = await api.layerPoints(project, product, view);
-  return { kind: "points", meta, buf, colors: colorize(buf, 3, 2, meta.classes) };
+  const [buf, coh] = await Promise.all([
+    api.layerPoints(project, product, view),
+    api.layerCoherence(project, product, view).catch(() => undefined),   // an older server: no slider
+  ]);
+  return { kind: "points", meta, buf, colors: colorize(buf, 3, 2, meta.classes), coh };
 }
 
 const ranged = new WeakMap<LayerData, Map<string, LayerData>>();
@@ -241,6 +244,20 @@ export function withRange(d: LayerData, range: [number, number] | null | undefin
 
 export const CLIP = new ClipExtension();
 export const TERRAIN = new TerrainExtension();
+// the coherence slider: points below the threshold are dropped on the GPU (no reload, no new buffers)
+export const COH_FILTER = new DataFilterExtension({ filterSize: 1 });
+
+const COH_VALUES = new WeakMap<Float32Array, Float32Array>();
+/** The coherence per point as the filter reads it: NaN (no coherence) → −1, below any threshold. */
+function cohValues(c: Float32Array): Float32Array {
+  let v = COH_VALUES.get(c);
+  if (!v) {
+    v = new Float32Array(c.length);
+    for (let i = 0; i < c.length; i++) v[i] = Number.isNaN(c[i]) ? -1 : c[i];
+    COH_VALUES.set(c, v);
+  }
+  return v;
+}
 
 // 3D view: open elevation tiles (Mapzen Terrain Tiles on AWS Open Data, Terrarium encoding, ~30 m at zoom 12+)
 export const TERRAIN_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
@@ -287,7 +304,11 @@ export function productLayer(
   const px = o.pixelScale ?? 1;
   // the kind in the id: deck.gl matches layers by id and would hand the state of a points layer to a tile layer
   const id = `${o.idPrefix ?? "pts-"}${l.key}#${d.kind}${o.terrain ? "-3d" : ""}`;
-  const ext = [...(o.clipLon ? [CLIP] : []), ...(o.terrain ? [TERRAIN] : [])];
+  const cohMin = l.cohMin ?? 0;
+  const cohOn = cohMin > 0 && (d.kind === "tiles" || !!d.coh);
+  const ext = [...(o.clipLon ? [CLIP] : []), ...(o.terrain ? [TERRAIN] : []), ...(cohOn ? [COH_FILTER] : [])];
+  // a point without a coherence (NaN; -1 in the filter) is hidden as soon as a threshold is set
+  const filter = cohOn ? { filterRange: [cohMin, 1.01] as [number, number] } : {};
   const common = {
     id,
     opacity: l.opacity,
@@ -315,6 +336,7 @@ export function productLayer(
       pointRadiusMinPixels: 1.1 * px,
       pointRadiusMaxPixels: 9 * px,
       stroked: false,
+      ...(cohOn ? { getFilterValue: (f: Feature) => f.properties.c ?? -1, ...filter } : {}),
       updateTriggers: { getFillColor: classes },
       onClick: (info: { object?: Feature }) => {
         const fid = info.object?.id;
@@ -327,13 +349,23 @@ export function productLayer(
   const origin = d.meta.origin;
   const props: ScatterplotLayerProps = {
     ...common,
-    data: binaryData(d.buf, o.colors ?? d.colors, () => ({
-      length: d.meta.n,
-      attributes: {
-        getPosition: { value: d.buf, size: 2, stride: 12, offset: 0 },
-        getFillColor: { value: o.colors ?? d.colors, size: 3, normalized: true },
-      },
-    })) as unknown as ScatterplotLayerProps["data"],
+    data: (cohOn
+      ? binaryData(o.colors ?? d.colors, d.coh!, () => ({
+          length: d.meta.n,
+          attributes: {
+            getPosition: { value: d.buf, size: 2, stride: 12, offset: 0 },
+            getFillColor: { value: o.colors ?? d.colors, size: 3, normalized: true },
+            getFilterValue: { value: cohValues(d.coh!), size: 1 },
+          },
+        }))
+      : binaryData(d.buf, o.colors ?? d.colors, () => ({
+          length: d.meta.n,
+          attributes: {
+            getPosition: { value: d.buf, size: 2, stride: 12, offset: 0 },
+            getFillColor: { value: o.colors ?? d.colors, size: 3, normalized: true },
+          },
+        }))) as unknown as ScatterplotLayerProps["data"],
+    ...filter,
     coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
     coordinateOrigin: [origin[0], origin[1], 0],
     radiusUnits: "meters",

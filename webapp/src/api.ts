@@ -1307,14 +1307,21 @@ export const api = {
     request<{ lines: LogLine[]; next: number }>(`${P(name)}/runs/${run}/log?after=${after}`),
   product: (name: string, pid: string) => request<ProductReport>(`${P(name)}/products/${pid}`),
   layer: (name: string, pid: string, cal: LayerView = false) => request<LayerMeta>(`${P(name)}/products/${pid}/layer${vq(cal)}`),
-  layerHex: async (name: string, pid: string, size: number, cal: LayerView = false) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}${vq(cal, "&")}`);
+  layerHex: async (name: string, pid: string, size: number, cal: LayerView = false, coh = 0) => {
+    const c = coh > 0 ? `&coh=${coh.toFixed(2)}` : "";
+    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}${vq(cal, "&")}${c}`);
     if (!r.ok) throw new Error(`hexagons: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer()); // (dlon, dlat, median mm/yr, count) per hexagon
   },
   layerPoints: async (name: string, pid: string, cal: LayerView = false) => {
     const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin${vq(cal)}`);
     if (!r.ok) throw new Error(`points: ${r.statusText}`);
+    return new Float32Array(await r.arrayBuffer());
+  },
+  // temporal coherence per point, in the order of points.bin (the coherence slider)
+  layerCoherence: async (name: string, pid: string, cal: LayerView = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/coherence.bin${vq(cal)}`);
+    if (!r.ok) throw new Error(`coherence: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer());
   },
   buildTiles: (name: string, pid: string) =>
