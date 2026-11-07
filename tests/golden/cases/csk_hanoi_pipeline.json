@@ -2,7 +2,7 @@
   "name": "csk_hanoi_pipeline",
   "sensor": "cosmo_skymed",
   "engine": "pipeline",
-  "description": "COSMO-SkyMed HIMAGE ascending, central Hanoi, 18 epochs 2011-07-01..2014-12-12, the production chain of hanoi_csk: raw HDF5 -> native stripmap stack -> phase linking (adaptive, Anderson-Darling SHP, Gaussian post-filter) -> ps engine -> product. The project configuration is frozen in csk_hanoi_pipeline.toml; the AOI is cut to 2.6 x 2.6 km to keep the run short.",
+  "description": "COSMO-SkyMed HIMAGE ascending, central Hanoi, 18 epochs 2011-07-01..2014-12-12, the production chain of hanoi_csk: raw HDF5 -> native stripmap stack -> phase linking (adaptive, Anderson-Darling SHP, Gaussian post-filter) -> ps engine -> product. The project configuration is frozen in csk_hanoi_pipeline.toml; the AOI is cut to 2.6 x 2.6 km to keep the run short. Reference regenerated 2026-11-07 after the unwrapping changes (unwrap_patch_phase = n: the grid unwraps ph_rc; grid filter sigma in metres; temporal edge rates; PS rate model auto, off at 17 interferograms); the 2026-10-25 reference (patch phase) is kept as expected_2026-10-25_patch_phase.",
   "input": {
     "config": "csk_hanoi_pipeline.toml",
     "aoi": [105.830, 21.020, 105.855, 21.044],
