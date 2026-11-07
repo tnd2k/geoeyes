@@ -3,7 +3,8 @@
 Status: v1 implemented (GLDAS groundwater coupling in the hazard zoning, groundwater features in the forecast).
 Code: `geoeyes.ancillary.groundwater`, `geoeyes.hazard.assess._groundwater`, `geoeyes.hazard.coupling.storage`,
 `geoeyes.ml.forecast._gws_features`. Companion notes: [rainfall-insar-hazard.md](rainfall-insar-hazard.md)
-(the coupling test reused here), [ai-forecasting.md](ai-forecasting.md).
+(the coupling test reused here), [ai-forecasting.md](ai-forecasting.md). With measured heads:
+[choshui-groundwater.md](choshui-groundwater.md) (Choshui fan, Taiwan, plan C0–C8, 2026-11-05).
 
 ## Contents
 

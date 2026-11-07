@@ -6,7 +6,8 @@ Trạng thái: đã triển khai v1 (kiểm định liên hệ với nước ng�
 trong mô hình dự báo).
 Mã nguồn: `geoeyes.ancillary.groundwater`, `geoeyes.hazard.assess._groundwater`, `geoeyes.hazard.coupling.storage`,
 `geoeyes.ml.forecast._gws_features`. Ghi chú liên quan: [rainfall-insar-hazard.md](rainfall-insar-hazard.md)
-(phép kiểm định liên hệ dùng lại ở đây), [ai-forecasting.md](ai-forecasting.md).
+(phép kiểm định liên hệ dùng lại ở đây), [ai-forecasting.md](ai-forecasting.md). Với mực nước đo được:
+[choshui-groundwater.md](choshui-groundwater.md) (quạt Choshui, Đài Loan, kế hoạch C0–C8, 2026-11-05).
 
 ## Mục lục
 

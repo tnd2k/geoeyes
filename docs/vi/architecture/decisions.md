@@ -153,6 +153,10 @@ ngôn ngữ của sản phẩm (mã nguồn, log, báo cáo, tài liệu).
 - Trung tâm thông báo trên web: cảnh báo từ các phân tích và các lần chạy / phân tích đã xong được đưa vào danh sách
   ở biểu tượng chuông (lưu theo trình duyệt), kèm toast và thông báo trên máy (Notification API của trình duyệt, sau
   khi người dùng cho phép); `/api/activity` trả về trạng thái các phân tích đang chạy nền.
+- Trạng thái trực tiếp qua server-sent events (2026-11-06): `/api/events` đẩy `workspace` và `activity`,
+  `/api/projects/{name}/events` đẩy `project`, `ps-steps` và, khi có `?run=&after=`, các dòng `log` mới của lần chạy;
+  mỗi loại chỉ được gửi khi JSON của nó thay đổi (`geoeyes/api/events.py`). Web app (`webapp/src/live.ts`) tắt polling
+  khi luồng đang mở và quay lại polling khi luồng không có (máy chủ cũ, mất kết nối, tab bị ẩn).
 **Hệ quả.** Mọi văn bản mới hiển thị cho người dùng đều phải đi qua `t()` và có mục tiếng Việt tương ứng; mọi thông
 điệp mới của máy chủ hiển thị trên web phải có mục hoặc mẫu trong `server.ts`.
 
