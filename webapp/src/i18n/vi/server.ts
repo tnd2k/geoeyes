@@ -2,6 +2,12 @@
 // patterns ($1, $2 ... keep the values of the English message).
 export const SERVER: Record<string, string> = {
   "radar geometry: rows = lines (azimuth), columns = samples (range)": "hình học radar: hàng = dòng (azimuth), cột = mẫu (range)",
+  "radar grid turned left-right so that north is up and east right (not geocoded: tilted by the orbit heading)":
+    "lưới radar đã lật trái–phải để bắc lên trên, đông bên phải (chưa geocode: nghiêng theo hướng bay của quỹ đạo)",
+  "radar grid turned top-bottom so that north is up and east right (not geocoded: tilted by the orbit heading)":
+    "lưới radar đã lật trên–dưới để bắc lên trên, đông bên phải (chưa geocode: nghiêng theo hướng bay của quỹ đạo)",
+  "radar grid turned top-bottom and left-right so that north is up and east right (not geocoded: tilted by the orbit heading)":
+    "lưới radar đã lật trên–dưới và trái–phải để bắc lên trên, đông bên phải (chưa geocode: nghiêng theo hướng bay của quỹ đạo)",
   "no building analysis: hazards from the cells only": "chưa có phân tích công trình: nguy cơ chỉ lấy từ các ô",
   "scene mean": "trung bình toàn cảnh",
   "rainfall: the hazard analysis": "lượng mưa: lấy từ phân tích nguy cơ",

@@ -54,11 +54,48 @@ def test_small_stack_coherence_is_not_one_on_noise(tmp_path):
                                   "range_pixel_spacing_m": 2.33, "incidence_deg": 39.0})
     st.write("slc", slc, ("date", "y", "x"))
     s = stack_qc(tmp_path / "s" / "stack.zarr", size=1200, crop=256)
-    ly, lx = s["looks"]
-    assert ly * lx >= MIN_LOOKS and (ly, lx) == (2, 8)               # Sentinel-1: about 28 x 30 m on the ground
+    (ly, lx), (wy, wx) = s["looks"], s["coherence_window"]
+    assert (ly, lx) == (1, 4) and s["image_shape"] == [ny, nx // 4]  # square ground cells (14 x 14.8 m), no coarser
+    assert ly * lx * wy * wx >= MIN_LOOKS and (wy, wx) == (2, 2)     # 2 x 8 pixels, about 28 x 30 m
+    from PIL import Image
+    assert Image.open(tmp_path / "s" / "qc" / "ifg_2025-01-13.png").size == (nx // 4, ny)
     unrelated, same = s["dates"][1], s["dates"][2]
     assert unrelated["coherence_mean"] < 0.35                        # noise floor of 16 looks, about 0.22
     assert same["coherence_mean"] > 0.99
+
+
+def test_map_flips_by_heading():
+    from geoeyes.processing.stack.qc import map_flips
+    assert map_flips({"heading_deg": -168.0, "look_side": "right"}) == (False, True)   # descending: east was left
+    assert map_flips({"heading_deg": -12.0, "look_side": "right"}) == (True, False)    # ascending: north was down
+    assert map_flips({"heading_deg": -12.0, "look_side": "left"}) == (True, True)
+    assert map_flips({}) == (False, False)
+
+
+def test_stack_images_read_like_a_map(tmp_path):
+    """Descending Sentinel-1: line 0 is north, sample 0 (near range) is east, so the images are turned left-right;
+    the side taken from the stack's own lat / lon grid. A bright easternmost column must end up on the right."""
+    from PIL import Image
+    rng = np.random.default_rng(3)
+    ny, nx = 64, 96
+    base = (rng.normal(size=(ny, nx)) + 1j * rng.normal(size=(ny, nx))).astype(np.complex64)
+    base[:, :8] *= 30                                                 # bright near range = east
+    slc = np.stack([base, base * np.exp(0.5j)])
+    lat = np.repeat(np.linspace(20.90, 20.84, ny)[:, None], nx, 1)    # rows run north -> south
+    lon = np.repeat(np.linspace(106.72, 106.66, nx)[None, :], ny, 0)  # columns run east -> west
+    st = StackStore.create(tmp_path / "s" / "stack.zarr",
+                           coords={"date": np.array(["2025-01-01", "2025-01-13"], dtype="datetime64[D]"),
+                                   "y": np.arange(ny), "x": np.arange(nx)},
+                           attrs={"reference_date": "2025-01-01", "azimuth_pixel_spacing_m": 14.0,
+                                  "range_pixel_spacing_m": 2.33, "incidence_deg": 39.0, "heading_deg": 12.0})
+    st.write("slc", slc, ("date", "y", "x"))
+    st.write("geometry_lat", lat.astype(np.float32), ("y", "x"))
+    st.write("geometry_lon", lon.astype(np.float32), ("y", "x"))
+    s = stack_qc(tmp_path / "s" / "stack.zarr", size=96, crop=64)
+    assert s["image_flips"] == {"rows": False, "columns": True}       # the grid wins over the (wrong) heading
+    assert "left-right" in s["orientation"]
+    img = np.asarray(Image.open(tmp_path / "s" / "qc" / "amp_2025-01-13.png").convert("L"), float)
+    assert img[:, -4:].mean() > img[:, :4].mean() + 50               # east (bright) on the right
 
 
 def test_smooth_phase_keeps_fringes_and_lowers_noise():

@@ -1,14 +1,14 @@
 """Quality check of a coregistered stack, to see the phase before any PS processing.
 
 For every date against the reference, on the whole stack window, multilooked to about ``size`` pixels on the
-longer side (looks chosen for square ground cells, at least ``MIN_LOOKS`` per cell, so a small stack gets fewer
-image pixels rather than a meaningless coherence):
+longer side (looks chosen for square ground cells):
 
 * the amplitude (dB, 2-98 % stretch);
 * the interferogram ``slc[ref] · conj(slc[k])`` as stored (the geometric phase is already removed: what remains is
   topography left by the DEM, motion, atmosphere and noise), wrapped, after a Gaussian filter of the complex values
   (``ifg_sigma``, 2 multilooked pixels: the pattern shows through the noise of distributed scatterers);
-* the coherence |Σ r·s*| / sqrt(Σ|r|² Σ|s|²) over the looks;
+* the coherence |Σ r·s*| / sqrt(Σ|r|² Σ|s|²) over the looks and a moving window of image cells, so that every
+  estimate sums at least ``MIN_LOOKS`` pixels (a small stack keeps its full-resolution images);
 * when the stack was phase-linked (``slc_linked``, the input of the point engine then), the same interferogram and
   coherence of the linked phase (``ifgL_`` / ``cohL_``), and the temporal coherence of the linking (``pl_tcoh.png``).
 
@@ -32,13 +32,15 @@ import numpy as np
 from geoeyes.io.stack import StackStore
 
 BLOCK = 1024                     # lines read at a time
-# fewest looks of a coherence cell: one pixel gives |r·s*| / (|r||s|) = 1 whatever the data (a small stack sized to
-# the 1200-pixel image got 1 x 1 looks), and 4 looks still give about 0.44 on pure noise; 16 looks (Sentinel-1: 2 x
-# 8, about 28 x 30 m, the [sbas] cell) bring the noise floor down to about 0.22
+# fewest looks of a coherence estimate: one pixel gives |r·s*| / (|r||s|) = 1 whatever the data (a small stack sized
+# to the 1200-pixel image got 1 x 1 looks), and 4 looks still give about 0.44 on pure noise; 16 looks (Sentinel-1:
+# 2 x 8, about 28 x 30 m, the [sbas] cell) bring the noise floor down to about 0.22. The images keep their own looks;
+# the coherence is summed over a moving window of image cells (``_coherence_window``) that reaches MIN_LOOKS.
 MIN_LOOKS = 16
 
 
-def _looks(st: StackStore, ny: int, nx: int, size: int) -> tuple[int, int]:
+def _spacing(st: StackStore, ny: int) -> tuple[float, float]:
+    """Azimuth and ground-range pixel spacing (m)."""
     a = st.attrs
     az = float(a.get("azimuth_pixel_spacing_m") or 1.0)
     rg = float(a.get("range_pixel_spacing_m") or 1.0)
@@ -46,21 +48,74 @@ def _looks(st: StackStore, ny: int, nx: int, size: int) -> tuple[int, int]:
     if st.has("geometry_incidence"):
         g = st.open()["geometry_incidence"]
         inc = math.radians(float(np.nanmedian(g.isel(y=slice(ny // 2, ny // 2 + 1)).values)))
-    gr = rg / max(math.sin(inc), 0.2)                       # ground range spacing
+    return az, rg / max(math.sin(inc), 0.2)                 # ground range spacing
+
+
+def _looks(az: float, gr: float, ny: int, nx: int, size: int) -> tuple[int, int]:
+    """Looks of the images: about ``size`` pixels on the longer side, square ground cells."""
     cell = max(ny * az, nx * gr) / size                     # ground metres per output pixel
-    cell = max(cell, math.sqrt(MIN_LOOKS * az * gr))        # never fewer looks than the coherence needs
-    ly, lx = max(int(round(cell / az)), 1), max(int(round(cell / gr)), 1)
-    while ly * lx < MIN_LOOKS:                              # rounding: grow the side that stays closest to square
-        if (ly + 1) * az - lx * gr <= (lx + 1) * gr - ly * az:
-            ly += 1
+    cell = max(cell, az, gr)        # never below the coarser pixel: a small stack kept 1 x 1 looks, 14 x 3.7 m cells
+    return max(int(round(cell / az)), 1), max(int(round(cell / gr)), 1)
+
+
+def _coherence_window(ly: int, lx: int, az: float, gr: float) -> tuple[int, int]:
+    """Moving window (image cells) of the coherence: at least MIN_LOOKS pixels, as square on the ground as the image
+    cells allow (1 x 1 when the image cells already hold enough looks)."""
+    cy, cx = ly * az, lx * gr                               # ground size of one image cell
+    wy, wx = 1, 1
+    while wy * wx * ly * lx < MIN_LOOKS:                    # grow the side that keeps the window closest to square
+        if (wy + 1) * cy - wx * cx <= (wx + 1) * cx - wy * cy:
+            wy += 1
         else:
-            lx += 1
-    return ly, lx
+            wx += 1
+    return wy, wx
+
+
+def _box(a: np.ndarray, wy: int, wx: int) -> np.ndarray:
+    if wy == 1 and wx == 1:
+        return a
+    from scipy.ndimage import uniform_filter
+    if np.iscomplexobj(a):
+        return uniform_filter(a.real, (wy, wx), mode="nearest") + 1j * uniform_filter(a.imag, (wy, wx), mode="nearest")
+    return uniform_filter(a, (wy, wx), mode="nearest")
 
 
 def _ml(a: np.ndarray, ly: int, lx: int) -> np.ndarray:
     ny, nx = (a.shape[0] // ly) * ly, (a.shape[1] // lx) * lx
     return a[:ny, :nx].reshape(ny // ly, ly, nx // lx, lx).sum(axis=(1, 3))
+
+
+def map_flips(attrs: dict) -> tuple[bool, bool]:
+    """(rows, columns) to reverse so that a radar-grid image reads like a map, north up and east right: rows when
+    the satellite flies north (ascending: the first line is the southernmost), columns when the range grows
+    westward (descending right-looking, ascending left-looking). Without a heading: no flip."""
+    h = attrs.get("heading_deg")
+    if h is None:
+        return False, False
+    h = float(h)
+    look = h + (90.0 if str(attrs.get("look_side", "right")).lower() == "right" else -90.0)
+    return math.cos(math.radians(h)) > 0, math.sin(math.radians(look)) < 0
+
+
+def _flips(st: StackStore, ds, attrs: dict) -> tuple[bool, bool]:
+    """From the stack's own latitude / longitude grid when it has one (any sensor, any line order), else from the
+    heading (``map_flips``)."""
+    if st.has("geometry_lat") and st.has("geometry_lon"):
+        la, lo = ds["geometry_lat"], ds["geometry_lon"]
+        ny, nx = la.shape
+        first, last = (float(np.nanmean(la.isel(y=i).values)) for i in (0, ny - 1))
+        west, east = (float(np.nanmean(lo.isel(x=j).values)) for j in (0, nx - 1))
+        if np.isfinite([first, last, west, east]).all():
+            return first < last, west > east
+    return map_flips(attrs)
+
+
+def orientation_text(flip_rows: bool, flip_cols: bool) -> str:
+    if not (flip_rows or flip_cols):
+        return "radar geometry: rows = lines (azimuth), columns = samples (range)"
+    turned = " and ".join(x for x, f in (("top-bottom", flip_rows), ("left-right", flip_cols)) if f)
+    return (f"radar grid turned {turned} so that north is up and east right (not geocoded: tilted by the orbit "
+            "heading)")
 
 
 def _png(path: Path, img: np.ndarray, cmap: str, vmin: float, vmax: float) -> None:
@@ -133,8 +188,16 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
     ref_date = str(attrs.get("reference_date") or "")
     bp = ds["bperp"].values if "bperp" in ds else np.zeros(nt)
     ref = dates.index(ref_date) if ref_date in dates else int(np.argmin(np.abs(bp)))
-    ly, lx = _looks(st, ny, nx, size)
-    say(f"{nt} dates, {ny} x {nx} pixels, looks {ly} x {lx}")
+    flip_rows, flip_cols = _flips(st, ds, attrs)
+
+    def save(path: Path, img: np.ndarray, cmap: str, vmin: float, vmax: float) -> None:
+        """An image of the radar grid turned toward the map: north up, east right (not geocoded)."""
+        _png(path, img[::-1 if flip_rows else 1, ::-1 if flip_cols else 1], cmap, vmin, vmax)
+
+    az, gr = _spacing(st, ny)
+    ly, lx = _looks(az, gr, ny, nx, size)
+    wy, wx = _coherence_window(ly, lx, az, gr)
+    say(f"{nt} dates, {ny} x {nx} pixels, looks {ly} x {lx}, coherence window {wy} x {wx} cells")
     ny_ml, nx_ml = ny // ly, nx // lx
     y0 = (ny // ly) * ly
 
@@ -159,7 +222,7 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
         tc = ds["pl_temporal_coherence"].values if "pl_temporal_coherence" in ds else None
         if tc is not None:
             tcm = _ml(np.nan_to_num(tc[:y0]), ly, lx) / np.maximum(_ml(np.isfinite(tc[:y0]).astype(float), ly, lx), 1)
-            _png(out / "pl_tcoh.png", tcm, "viridis", 0.0, 1.0)
+            save(out / "pl_tcoh.png", tcm, "viridis", 0.0, 1.0)
     rows = []
     t0 = np.datetime64(dates[0], "D")
     for k, d in enumerate(dates):
@@ -180,20 +243,21 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
                     cross_l[r0 // ly:r1 // ly] = _ml(rl * np.conj(sl), ly, lx)
         amp = 10 * np.log10(pw / (ly * lx) + 1e-12)
         lo, hi = np.nanpercentile(amp, [2, 98])
-        _png(out / f"amp_{d}.png", amp, "gray", lo, hi)
+        save(out / f"amp_{d}.png", amp, "gray", lo, hi)
         row = {"date": d, "days": int((np.datetime64(d, "D") - t0).astype(int)), "reference": k == ref,
                "bperp_m": round(float(bp[k]), 1)}
         if k != ref:
             valid = (ref_pow > 0) & (pw > 0)                 # cells with no data (zero padding) are not 0 coherence
+            ref_box, pw_box = _box(ref_pow, wy, wx), _box(pw, wy, wx)
             with np.errstate(invalid="ignore", divide="ignore"):
-                norm = np.where(valid, np.sqrt(ref_pow * pw), np.nan)
-            coh = np.abs(cross) / norm
-            _png(out / f"ifg_{d}.png", smooth_phase(cross, ifg_sigma), "twilight", -np.pi, np.pi)
-            _png(out / f"coh_{d}.png", coh, "magma", 0.0, 1.0)
+                norm = np.where(valid, np.sqrt(ref_box * pw_box), np.nan)
+            coh = np.minimum(np.abs(_box(cross, wy, wx)) / norm, 1.0)
+            save(out / f"ifg_{d}.png", smooth_phase(cross, ifg_sigma), "twilight", -np.pi, np.pi)
+            save(out / f"coh_{d}.png", coh, "magma", 0.0, 1.0)
             if linked:
-                coh_l = np.abs(cross_l) / norm               # slc_linked keeps the amplitudes of slc
-                _png(out / f"ifgL_{d}.png", smooth_phase(cross_l, ifg_sigma), "twilight", -np.pi, np.pi)
-                _png(out / f"cohL_{d}.png", coh_l, "magma", 0.0, 1.0)
+                coh_l = np.minimum(np.abs(_box(cross_l, wy, wx)) / norm, 1.0)   # slc_linked keeps |slc|
+                save(out / f"ifgL_{d}.png", smooth_phase(cross_l, ifg_sigma), "twilight", -np.pi, np.pi)
+                save(out / f"cohL_{d}.png", coh_l, "magma", 0.0, 1.0)
                 row["coherence_linked_mean"] = round(float(np.nanmean(coh_l)), 3)
             sec_crop = ds["slc"].isel(date=k, y=slice(cy - h, cy + h), x=slice(cx - h, cx + h)).values
             dl, dsm, _n_win = coarse_offset(ref_crop, sec_crop, win=min(1024, 2 * h))
@@ -208,10 +272,11 @@ def stack_qc(store: Path, out: Path | None = None, *, size: int = 1200, crop: in
         rows.append(row)
     summary = {"schema": "geoeyes.stack_qc/1", "stack": Path(store).parent.name,
                "created": datetime.now(UTC).isoformat(timespec="seconds"), "reference_date": dates[ref],
-               "shape": [int(ny), int(nx)], "looks": [ly, lx], "min_looks": MIN_LOOKS,
+               "shape": [int(ny), int(nx)], "looks": [ly, lx], "coherence_window": [wy, wx], "min_looks": MIN_LOOKS,
                "image_shape": [int(ny_ml), int(nx_ml)],
                "ifg_smoothing_sigma_px": ifg_sigma,
                "crop": [int(cy - h), int(cy + h), int(cx - h), int(cx + h)], "dates": rows, "linked": linked,
-               "orientation": "radar geometry: rows = lines (azimuth), columns = samples (range)"}
+               "image_flips": {"rows": flip_rows, "columns": flip_cols},
+               "orientation": orientation_text(flip_rows, flip_cols)}
     (out / "qc.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return summary
