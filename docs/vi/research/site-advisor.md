@@ -65,8 +65,31 @@ thực sự đã dùng. Luật được sửa tay từ báo cáo đó; không t�
   thường dùng, liên quan; en + vi), đọc bởi `advisor/catalog.py`, form ("vì sao?" dưới mỗi trường, tìm trong nội
   dung) và `geoeyes params`; test `tests/unit/advisor/test_param_catalog.py`. Ban đầu: viết `params.yaml` cho mọi trường trong form (từ `FIELDS`, tài liệu StaMPS và các ADR), sinh
   help của form từ đó. Không đổi hành vi.
-- [ ] **V1** Hồ sơ khu vực: `advisor/profile.py`, dùng lại các bộ đọc địa hình, địa chất, lớp phủ; cache trong
-  `cache/advisor/`. Kiểm thử trên các AOI đã biết (HCM, Hà Nội, Quảng Nam, Mexico City).
+- [x] **V1** (xong 2026-11-07) Hồ sơ khu vực: `advisor/profile.py`, `geoeyes site <project> | --bbox=W,S,E,N
+  [--lang vi] [--json]`; test `tests/unit/advisor/test_site_profile.py`.
+  - địa hình: `ml.layers.terrain` trên ô 30 m (thô hơn khi quá 2,5 triệu ô); chênh cao p5–p95 như `[sbas]
+    troposphere = auto`; độ dốc trung vị / p90, tỉ lệ > 20° và > 35°;
+  - lớp phủ: tỉ lệ từ `ml.layers.worldcover`; địa chất: tỉ lệ GLiM (`landslide.predictors.lithology`), bở rời =
+    "su";
+  - khí hậu: một yêu cầu Open-Meteo ERA5 tại tâm (10 năm trọn vẹn mưa, nhiệt độ, độ ẩm theo ngày); lớp
+    Köppen-Geiger tính từ khí hậu theo tháng (Peel và cs. 2007; khi cả hai tiêu chí mùa hè khô và mùa đông khô cùng
+    đúng thì nửa năm mưa nhiều hơn quyết định), nên không phải tải bản đồ khí hậu;
+  - dữ liệu: theo quỹ đạo từ stack QC (`stacks/*/qc/qc.json`: số ảnh, khoảng thời gian, chu kỳ, khoảng trống lớn
+    nhất, B⊥ p5–p95, độ nhất quán trung vị, độ cao mơ hồ; băng từ bước sóng); chưa có stack thì lấy ngày trong cấu
+    hình. Độ nhất quán QC bằng 1,0 ở mọi ngày được cảnh báo (gặp ở hp_maychai). Đếm số ngày trên ASF trước khi có
+    stack để lại cho V2 nếu luật cần.
+  - Cache: địa hình, lớp phủ, địa chất theo AOI + DEM trong `cache/advisor/site_*.json`; khí hậu ở dạng yêu cầu
+    thô (các lớp tính lại); dữ liệu không cache. Phần nào lỗi thì được liệt kê trong `errors`.
+
+  Các hồ sơ đầu tiên (2026-11-07):
+
+  | AOI | chênh cao | dốc > 20° | lớp phủ | trầm tích bở rời | Köppen, mưa |
+  |---|---|---|---|---|---|
+  | hcm_d18 (TP.HCM tây nam) | 11,7 m | 0 % | đô thị 58 %, cây 17 % | 100 % | Aw, 1887 mm |
+  | hp_maychai (Hải Phòng) | 10,2 m | 0 % | đô thị 44 %, nước 18 % | 100 % | Cwa, 1841 mm |
+  | hanoi_s1_desc | 10,7 m | 0 % | đô thị 30 %, cây 29 %, ruộng 28 % | 100 % | Cwa, 1852 mm |
+  | Nam Trà My (Quảng Nam) | 1162 m | 62 % | cây 90 % | 0 % | Af, 4328 mm |
+  | Mexico City | 92 m | 1 % | đô thị 72 % | 86 % | Cwb, 789 mm |
 - [ ] **V2** Luật: `rules.toml` + bộ đánh giá nhỏ (`advisor/rules.py`), và `geoeyes advise`. Bộ luật đầu tiên lấy từ
   cài đặt hiện tại của chủ dự án; kiểm tra tái tạo được hcm_d18 và hp_maychai.
 - [ ] **V3** Web app: bảng Tư vấn trong wizard và form cài đặt, áp dụng từng trường / tất cả, en + vi.

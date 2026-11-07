@@ -67,8 +67,31 @@ automatic fitting (too few projects).
   typical, related; en + vi), read by `advisor/catalog.py`, the form ("why?" under each field, search over the
   texts) and `geoeyes params`; tests `tests/unit/advisor/test_param_catalog.py`. Was: write `params.yaml` for every field in the form (from `FIELDS`, the StaMPS docs and the
   ADRs), generate the form help from it. No behaviour change.
-- [ ] **V1** Site profile: `advisor/profile.py`, reusing the existing terrain, geology and land-cover readers;
-  cache in `cache/advisor/`. Tests on the known AOIs (HCMC, Hanoi, Quang Nam, Mexico City).
+- [x] **V1** (done 2026-11-07) Site profile: `advisor/profile.py`, `geoeyes site <project> | --bbox=W,S,E,N
+  [--lang vi] [--json]`; tests `tests/unit/advisor/test_site_profile.py`.
+  - terrain: `ml.layers.terrain` on 30 m cells (coarser above 2.5 M cells); relief p5–p95 as `[sbas]
+    troposphere = auto`; slope median / p90, share > 20° and > 35°;
+  - land cover: `ml.layers.worldcover` shares; geology: GLiM shares (`landslide.predictors.lithology`), soft =
+    "su";
+  - climate: one Open-Meteo ERA5 request at the centre (10 complete years of daily rain, temperature, humidity);
+    the Köppen-Geiger class is computed from the monthly climatology (Peel et al. 2007; where both the dry-summer
+    and the dry-winter tests hold, the wetter half decides), so no climate map is downloaded;
+  - data: per track from the stack QC (`stacks/*/qc/qc.json`: dates, span, revisit, largest gap, B⊥ p5–p95,
+    median coherence, height of ambiguity; band from the wavelength); without a stack, the configured dates. A QC
+    coherence of 1.0 on every date is flagged (seen on hp_maychai). Counting the ASF dates before a stack exists
+    is left for V2 if a rule needs it.
+  - Cache: terrain, land cover, geology per AOI + DEM in `cache/advisor/site_*.json`; the climate as its raw
+    request (classes recomputed); data never cached. A part that fails is listed in `errors`.
+
+  First profiles (2026-11-07):
+
+  | AOI | relief | slope > 20° | land cover | soft sediments | Köppen, rain |
+  |---|---|---|---|---|---|
+  | hcm_d18 (HCMC SW) | 11.7 m | 0 % | built 58 %, tree 17 % | 100 % | Aw, 1887 mm |
+  | hp_maychai (Hai Phong) | 10.2 m | 0 % | built 44 %, water 18 % | 100 % | Cwa, 1841 mm |
+  | hanoi_s1_desc | 10.7 m | 0 % | built 30 %, tree 29 %, crop 28 % | 100 % | Cwa, 1852 mm |
+  | Nam Tra My (Quang Nam) | 1162 m | 62 % | tree 90 % | 0 % | Af, 4328 mm |
+  | Mexico City | 92 m | 1 % | built 72 % | 86 % | Cwb, 789 mm |
 - [ ] **V2** Rules: `rules.toml` + a small evaluator (`advisor/rules.py`), and `geoeyes advise`. First rule set
   from the owner's current settings; check it reproduces hcm_d18 and hp_maychai.
 - [ ] **V3** Web app: Advisor panel in the wizard and the settings form, apply-one / apply-all, en + vi.

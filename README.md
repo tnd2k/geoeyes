@@ -43,6 +43,7 @@ geoeyes hazard <project>        # hazard zoning with rainfall of the latest prod
 geoeyes gnss   <project>        # compare with the NGL GNSS stations; GNSS calibration (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # products of every project over an area
 geoeyes params unwrap_grid_size          # what a parameter is for, its risk, usual values (--lang vi)
+geoeyes site   <project>                 # site profile: relief, slopes, land cover, geology, climate, data
 geoeyes serve --open            # web app on http://localhost:8765
 ```
 

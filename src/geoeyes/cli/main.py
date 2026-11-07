@@ -350,6 +350,32 @@ def cmd_params(args) -> int:
     return 0
 
 
+def cmd_site(args) -> int:
+    """Site profile of a project or a bbox: terrain, land cover, geology, climate, data (site advisor V1)."""
+    import json
+
+    from geoeyes.advisor.profile import profile, summary
+    from geoeyes.config.settings import load_settings
+    from geoeyes.workspace import WorkspaceLayout
+    project = cfg = None
+    if args.project:
+        cfg, project, ws = _open(args)
+        bbox = list(cfg.aoi.bbox) if cfg.aoi and cfg.aoi.bbox else None
+        dem = args.dem or cfg.stack.dem or "srtm-1"
+    else:
+        ws = WorkspaceLayout.at(args.workspace) if args.workspace else load_settings().workspace_layout()
+        bbox, dem = None, args.dem or "copernicus-30"
+    if args.bbox:
+        bbox = [float(v) for v in args.bbox.split(",")]
+    if not bbox or len(bbox) != 4:
+        print("error: give a project with [aoi] bbox, or --bbox W,S,E,N", file=sys.stderr)
+        return 2
+    p = profile(bbox, cache_root=ws.cache, dem=str(dem), project=project, cfg=cfg, refresh=args.refresh,
+                progress=lambda m: print(m, file=sys.stderr))
+    print(json.dumps(p, ensure_ascii=False, indent=1) if args.json else summary(p, args.lang))
+    return 0
+
+
 def cmd_catalog(args) -> int:
     """Workspace catalog: ``build`` (STAC + DuckDB index) or ``search``."""
     from geoeyes.catalog import build_catalog, search
@@ -895,6 +921,15 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--lang", choices=["en", "vi"], default="en")
     pa.add_argument("--list", action="store_true", help="one line per match")
     pa.set_defaults(func=cmd_params)
+    si = sub.add_parser("site", help="site profile of a project or an area: terrain, land cover, geology, climate, "
+                                     "data (cached per AOI)")
+    si.add_argument("project", nargs="?")
+    si.add_argument("--bbox", help="west,south,east,north (instead of the project's [aoi] bbox)")
+    si.add_argument("--dem", help="DEM for the terrain part (default: the project's [stack] dem, else copernicus-30)")
+    si.add_argument("--lang", choices=["en", "vi"], default="en")
+    si.add_argument("--json", action="store_true", help="the whole profile as JSON")
+    si.add_argument("--refresh", action="store_true", help="read the site parts again (ignore the cache)")
+    si.set_defaults(func=cmd_site)
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")
