@@ -51,6 +51,10 @@ DEFAULTS: dict[str, Any] = {
     # mm/yr). "auto": only with >= unwrap_ps_rate_min_ifg interferograms and >= half the arcs above chance (CSK
     # Hanoi, 17 ifgs, moved far from its golden with it). Off with legacy_quirks
     "unwrap_ps_rate": "auto", "unwrap_ps_rate_max_arc": 500.0, "unwrap_ps_rate_min_ifg": 40,
+    # StaMPS unwrap_patch_phase: "n" (StaMPS default) grids the step-5 phase of the PS (ph_rc) and each PS adds its
+    # wrapped residual to its cell; "y" grids the smoother step-4 patch phase and adds ph_rc − patch (the legacy
+    # engine; a PS that moves unlike its ~160 m neighbourhood loses cycles). legacy_quirks = "y" keeps "y"
+    "unwrap_patch_phase": "n",
     # scla_deramp: "n" | "y" (plane / quadratic of every interferogram removed) | "auto" (the part of the ramp that
     # changes between acquisitions always, its steady trend only where a stable background anchors one plane over
     # the whole frame; docs/en/research/ramp-selection.md). deramp_non_defo: lon/lat polygon of a user's stable
@@ -225,6 +229,7 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
             legacy=_yes(pm["legacy_quirks"]),
             edge_rate_max=(float(pm["unwrap_max_edge_velocity"])
                            if _yes(pm["unwrap_edge_velocity"]) and not _yes(pm["legacy_quirks"]) else 0.0),
+            patch_phase=_yes(pm["unwrap_patch_phase"]) or _yes(pm["legacy_quirks"]),
             ps_rate=("n" if _yes(pm["legacy_quirks"]) else
                      "auto" if str(pm["unwrap_ps_rate"]).strip().lower() == "auto" else
                      "y" if _yes(pm["unwrap_ps_rate"]) else "n"),
