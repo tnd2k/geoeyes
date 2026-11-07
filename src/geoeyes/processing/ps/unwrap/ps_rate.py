@@ -14,8 +14,10 @@ Rates come from the PS network itself (as the arc-based PSI of SARPROZ / DePSI):
    pendant PS or two PS joined by a single arc have no check, and one wrong arc there became a fake rate (two PS
    at ±r/2 from one noise arc of rate r; up to rate_max in a simulated stable scene, 2026-11-08);
 4. rates of the PS from the arc rates by an L1 (iteratively reweighted) least-squares integration, so a few
-   wrong arcs do not spread. PS without a checked arc, or in a part of fewer than ``min_part`` PS, get 0; each
-   remaining connected part is defined up to a constant, which the grid unwrapping then carries as now.
+   wrong arcs do not spread. PS without a checked arc, or in a part of fewer than ``min_part`` PS, get 0;
+5. every other part is tied to the largest one by the median difference to its nearest PS there (within
+   2 × ``max_arc``), else set to 0. The largest part is defined up to a constant, which the grid unwrapping
+   carries as now.
 
 A PS whose own noise happens to fit a trend gives agreeing arcs to all its neighbours; no network check can see
 it, and it stays a noisy PS for coherence / weeding.
@@ -95,14 +97,63 @@ def integrate_l1(arcs: np.ndarray, rate: np.ndarray, n: int, iters: int = 5, del
     return x
 
 
+def _parts(arcs: np.ndarray, n: int) -> np.ndarray:
+    """Connected-part label of every node (a node without an arc is its own part)."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    return connected_components(coo_matrix((np.ones(arcs.shape[0]), (arcs[:, 0], arcs[:, 1])), shape=(n, n)),
+                                directed=False)[1]
+
+
+def anchor_parts(x: np.ndarray, arcs: np.ndarray, xy: np.ndarray, max_dist: float,
+                 min_pairs: int = 3) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """Each part of the network other than the largest is shifted so that its PS agree, in the median, with their
+    nearest PS of the largest part within ``max_dist`` m (the rate is assumed continuous across the gap: a river,
+    a field without PS). Parts with fewer than ``min_pairs`` such PS cannot be tied and are set to 0 (left to the
+    grid). Returns (x, PS kept, parts anchored, parts dropped)."""
+    from scipy.spatial import cKDTree
+    n = x.shape[0]
+    x = x.copy()
+    keep = np.zeros(n, bool)
+    if arcs.shape[0] == 0:
+        return np.zeros(n), keep, 0, 0
+    keep[arcs.ravel()] = True
+    lab = _parts(arcs, n)
+    size = np.bincount(lab[keep], minlength=lab.max() + 1)
+    main = int(np.argmax(size))
+    is_main = keep & (lab == main)
+    other = np.flatnonzero(keep & ~is_main)
+    if other.size == 0:
+        return np.where(keep, x, 0.0), keep, 0, 0
+    main_ix = np.flatnonzero(is_main)
+    d, j = cKDTree(xy[main_ix]).query(xy[other], distance_upper_bound=max_dist)
+    near = np.isfinite(d)
+    diff = np.where(near, x[main_ix[np.minimum(j, main_ix.size - 1)]] - x[other], np.nan)
+    order = np.argsort(lab[other], kind="stable")
+    labs, start = np.unique(lab[other][order], return_index=True)
+    n_anch = n_drop = 0
+    for k, idx in zip(labs, np.split(order, start[1:])):
+        dk = diff[idx][near[idx]]
+        members = other[idx]
+        if dk.size >= min_pairs:
+            x[members] += float(np.median(dk))
+            n_anch += 1
+        else:
+            keep[members] = False
+            n_drop += 1
+    return np.where(keep, x, 0.0), keep, n_anch, n_drop
+
+
 def ps_rate_model(ph: np.ndarray, xy: np.ndarray, t: np.ndarray, rate_max: float, max_arc: float = 500.0,
                   chunk: int = 100_000, iters: int = 5, min_reliable: float = 0.0,
-                  min_part: int = 30) -> np.ndarray | None:
+                  min_part: int = 30, anchor_dist: float | None = None) -> np.ndarray | None:
     """Linear phase rate (rad per unit of ``t``) of every PS. ``ph`` (n, n_ifg) complex phasors of the PS (0 = no
     data), ``xy`` (n, 2) m, ``t`` (n_ifg,) time from the master, ``rate_max`` the largest rate searched (same unit).
     None when fewer than ``min_reliable`` of the arcs have a rate above chance (the network cannot carry a model).
     PS in a connected part of fewer than ``min_part`` PS get 0 (zero mean of a few PS: offsets of 5-16 mm/yr on
-    stable PS in simulation, enough for cycle errors over a few years)."""
+    stable PS in simulation, enough for cycle errors over a few years). The other parts are tied to the largest by
+    ``anchor_parts`` within ``anchor_dist`` m (default 2 × ``max_arc``), not left at their own zero mean (two banks
+    of a river would differ by an arbitrary rate, and the grid unwrapping sees that step grow with time)."""
     n = ph.shape[0]
     t = np.asarray(t, np.float64)
     arcs, tri = delaunay_network(xy, max_arc)
@@ -124,19 +175,19 @@ def ps_rate_model(ph: np.ndarray, xy: np.ndarray, t: np.ndarray, rate_max: float
     reached[arcs[ok].ravel()] = True
     checked = np.zeros(n, bool)
     checked[arcs[use].ravel()] = True
-    if use.any():                                          # small parts: their zero-mean constant is arbitrary
-        from scipy.sparse import coo_matrix
-        from scipy.sparse.csgraph import connected_components
-        a = arcs[use]
-        _, lab = connected_components(coo_matrix((np.ones(a.shape[0]), (a[:, 0], a[:, 1])), shape=(n, n)),
-                                      directed=False)
+    if use.any():                                          # small parts: too few PS to trust
+        lab = _parts(arcs[use], n)
         big = np.bincount(lab)[lab] >= min_part
         use &= big[arcs[:, 0]]
     x = integrate_l1(arcs[use], rates[use], n, iters=iters)
-    touched = np.zeros(n, bool)
-    touched[arcs[use].ravel()] = True
-    log.info("PS rate model: %d of %d arcs (%.1f %%) with a rate, %d in a closed triangle; %d of %d PS reached "
-             "(left at 0: %d only by unchecked arcs, %d in parts < %d PS; arcs <= %.0f m)", int(ok.sum()),
-             arcs.shape[0], 100.0 * ok.mean() if ok.size else 0.0, int(use.sum()), int(touched.sum()), n,
-             int((reached & ~checked).sum()), int((checked & ~touched).sum()), min_part, max_arc)
-    return np.where(touched, x, 0.0)
+    in_parts = np.zeros(n, bool)
+    in_parts[arcs[use].ravel()] = True
+    x, touched, n_anch, n_drop = anchor_parts(x, arcs[use], np.asarray(xy, np.float64),
+                                              2 * max_arc if anchor_dist is None else anchor_dist)
+    log.info("PS rate model: %d of %d arcs (%.1f %%) with a rate, %d in a closed triangle; %d of %d PS reached, "
+             "%d parts tied to the largest (left at 0: %d PS only by unchecked arcs, %d in parts < %d PS, %d in %d "
+             "parts too far to tie; arcs <= %.0f m)", int(ok.sum()), arcs.shape[0],
+             100.0 * ok.mean() if ok.size else 0.0, int(use.sum()), int(touched.sum()), n, n_anch,
+             int((reached & ~checked).sum()), int((checked & ~in_parts).sum()), min_part,
+             int((in_parts & ~touched).sum()), n_drop, max_arc)
+    return x

@@ -2,7 +2,7 @@
 phase of the PS network, and arcs / integration behave."""
 import numpy as np
 
-from geoeyes.processing.ps.unwrap.ps_rate import closed_arcs, delaunay_arcs, delaunay_network, integrate_l1, ps_rate_model
+from geoeyes.processing.ps.unwrap.ps_rate import anchor_parts, closed_arcs, delaunay_arcs, delaunay_network, integrate_l1, ps_rate_model
 
 LAM = 0.0555
 
@@ -67,6 +67,35 @@ def test_closed_arcs_rejects_inconsistent_triangle():
     rate[lone] = 5.0
     out = closed_arcs(tri, rate, ok, 0.1)
     assert not out[lone] and not out[tri[0]].all() and out[tri[1]].all()
+
+
+def test_part_across_a_river_is_tied_to_the_main_part():
+    # left bank (large part) stable; a 600 m river (> max_arc, no arcs); right bank: half stable, half -20 mm/yr.
+    # A zero-mean right bank would put its stable PS at +10 mm/yr; tied to the left bank they stay at 0
+    rng = np.random.default_rng(3)
+    left = np.c_[rng.uniform(0, 1000, 6000), rng.uniform(0, 1000, 6000)]
+    right = np.c_[rng.uniform(1600, 2000, 2400), rng.uniform(0, 1000, 2400)]
+    xy = np.vstack([left, right])
+    sub = np.r_[np.zeros(len(left), bool), right[:, 1] > 500]
+    t = (np.arange(98) - 49) * 12 / 365.25
+    v = np.where(sub, -20.0, 0.0)
+    ph = np.exp(1j * (-4 * np.pi / LAM * 1e-3 * np.outer(v, t) + rng.normal(0, 0.6, (len(xy), 98))))
+    r = ps_rate_model(ph, xy, t, 4 * np.pi / LAM * 0.1)
+    v_hat = -r * LAM / (4 * np.pi) * 1e3
+    v_hat -= np.median(v_hat[: len(left)])
+    right_stable = np.r_[np.zeros(len(left), bool), right[:, 1] <= 500]
+    assert abs(np.median(v_hat[right_stable])) < 1.5
+    assert abs(np.median(v_hat[sub]) - (-20.0)) < 1.5
+
+
+def test_anchor_drops_far_parts():
+    arcs = np.array([[0, 1], [1, 2], [0, 2], [3, 4], [4, 5], [3, 5]])
+    xy = np.array([[0, 0], [10, 0], [0, 10], [5000, 0], [5010, 0], [5000, 10]], float)
+    x = np.array([1.0, 1.0, 1.0, 7.0, 7.0, 7.0])
+    out, keep, n_anch, n_drop = anchor_parts(x, arcs[:3], xy, 100.0)
+    assert keep[:3].all() and not keep[3:].any() and n_drop == 0
+    out, keep, n_anch, n_drop = anchor_parts(x, arcs, xy, 100.0)
+    assert n_drop == 1 and np.all(out[3:] == 0) and np.all(out[:3] == 1.0)
 
 
 def test_l1_ignores_one_bad_arc():
