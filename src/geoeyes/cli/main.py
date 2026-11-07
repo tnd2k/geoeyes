@@ -334,6 +334,22 @@ def _overrides(pairs) -> dict:
     return out
 
 
+def cmd_params(args) -> int:
+    """What a processing parameter is for (the parameter catalogue, geoeyes/advisor/params.toml)."""
+    from geoeyes.advisor import catalog
+    words = " ".join(args.words)
+    found = catalog.search(words)
+    if not found:
+        print(f"no parameter matches {words!r}", file=sys.stderr)
+        return 1
+    if args.list or (len(found) > 5 and not words):
+        for p in found:
+            print(f"{p.path:<40} {p.text[args.lang]['help']}")
+        return 0
+    print("\n\n".join(catalog.explain(p, args.lang) for p in found))
+    return 0
+
+
 def cmd_catalog(args) -> int:
     """Workspace catalog: ``build`` (STAC + DuckDB index) or ``search``."""
     from geoeyes.catalog import build_catalog, search
@@ -873,6 +889,12 @@ def build_parser() -> argparse.ArgumentParser:
     go = add("gacos-order", cmd_gacos_order, selection=False,
              help_="what to enter in the GACOS order form (troposphere products, no API)")
     go.add_argument("--track", action="append", help="track id (repeatable)")
+    pa = sub.add_parser("params", help="what a processing parameter is for: geoeyes params unwrap_grid_size | "
+                                       "geoeyes params atmosphere | geoeyes params (all, one line each)")
+    pa.add_argument("words", nargs="*", help="section.key, a key, or words to look for (English or Vietnamese)")
+    pa.add_argument("--lang", choices=["en", "vi"], default="en")
+    pa.add_argument("--list", action="store_true", help="one line per match")
+    pa.set_defaults(func=cmd_params)
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")

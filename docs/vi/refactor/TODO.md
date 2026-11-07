@@ -165,6 +165,12 @@ danh mục, ứng dụng web; đã xoá mã cũ; đã `git init`. Việc còn l�
     (nối vào engine, `y`/`n` khớp từng bit) → D3 (G3.2 Mexico + Quảng Nam) → D4 (giá trị mặc định); duyệt sau mỗi bước.
     Trạng thái 2026-11-05: xong D0–D2 (`steps/ramp.py`, `scla_deramp = "auto"` trong engine, chạy `mexico_g3`); tiếp
     theo là D3.
+14. **Bộ tư vấn khu vực, ĐÃ LÊN KẾ HOẠCH 2026-11-07** ([ghi chú nghiên cứu](../research/site-advisor.md)). Chọn
+    khu vực → công thức tham số kèm lý do từng lựa chọn, từ danh mục tham số, hồ sơ khu vực đo được (chênh cao, lớp
+    phủ, khí hậu, địa chất, dữ liệu) và bộ luật viết tay; không LLM, không tốn token. CLI `geoeyes advise`, bảng
+    trong web app, MCP cục bộ tuỳ chọn. Các bước V0 (danh mục) → V1 (hồ sơ) → V2 (luật) → V3 (web) → V4 (học) → V5
+    (MCP); duyệt sau mỗi bước. Trạng thái 2026-11-07: xong V0 (`advisor/params.toml`, "vì sao?" trong form,
+    `geoeyes params`).
 
 Các mục dưới đây là nhật ký theo từng giai đoạn.
 

@@ -2,11 +2,47 @@
 // are marked; "reset" removes them so the preset / default applies again), and the raw project.toml.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, type FieldSpec, type SettingsSpec } from "../api";
-import { t, ts } from "../i18n";
+import { api, type FieldSpec, type ParamInfo, type SettingsSpec } from "../api";
+import { lang, t, ts } from "../i18n";
 import { Button, Panel } from "../ui";
 
 type Draft = Record<string, unknown>; // "section.key" -> new value (null = back to default)
+
+/** Every catalogue text of a field (both languages), for the search box. */
+function infoText(info?: ParamInfo | null): string {
+  if (!info) return "";
+  return [...Object.values(info.en), ...Object.values(info.vi), ...info.related].join(" ");
+}
+
+/** The help line of a field, and on demand what it is for, its risk and the usual values (parameter catalogue). */
+function ParamDetails({ info }: { info: ParamInfo }) {
+  const [open, setOpen] = useState(false);
+  const x = lang() === "vi" ? info.vi : info.en;
+  const row = (label: string, text: string) => (
+    <div>
+      <span className="font-medium text-muted">{label}: </span>
+      {text}
+    </div>
+  );
+  return (
+    <div className="mt-1 text-[11.5px] leading-snug text-faint">
+      <div>
+        {x.help}{" "}
+        <button type="button" className="text-accent-ink hover:underline" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? t("hide details") : t("why?")}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 space-y-0.5 rounded-md border border-line-2 bg-sunken px-2 py-1.5 text-ink/80">
+          {row(t("What it does"), x.use)}
+          {row(t("Risk"), x.risk)}
+          {row(t("Typical values"), x.typical)}
+          {info.related.length > 0 && row(t("Related"), info.related.join(", "))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const input =
   "h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
@@ -181,7 +217,7 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
       .map((sec) => ({
         ...sec,
         id: sec.id ?? sec.name,
-        fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help} ${ts(f.help)} ${ts(sec.title)}`.toLowerCase().includes(s)),
+        fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help} ${ts(f.help)} ${ts(sec.title)} ${infoText(f.info)}`.toLowerCase().includes(s)),
       }))
       .filter((sec) => sec.fields.length);
   }, [q.data, filter]);
@@ -302,7 +338,11 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                             })
                           }
                         />
-                        {f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>}
+                        {f.info ? (
+                          <ParamDetails info={f.info} />
+                        ) : (
+                          f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>
+                        )}
                         {f.used?.map((u) => (
                           <div key={u.track} className="mt-1 text-[11.5px] leading-snug text-warn">
                             {u.auto

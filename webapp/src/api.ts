@@ -1053,6 +1053,20 @@ export interface FieldSpec {
   default: unknown;
   own: boolean;
   used?: { track: string; value: unknown; auto: boolean }[] | null;   // [ps]: what the last run of a track used
+  info?: ParamInfo | null;   // the parameter catalogue (geoeyes/advisor/params.toml)
+}
+
+export interface ParamText {
+  help: string;
+  use: string;
+  risk: string;
+  typical: string;
+}
+
+export interface ParamInfo {
+  en: ParamText;
+  vi: ParamText;
+  related: string[];   // "section.key"
 }
 
 export interface SettingsSpec {

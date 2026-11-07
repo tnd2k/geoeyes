@@ -43,6 +43,7 @@ geoeyes cr-report <project>     # nhận dạng gương phản xạ góc (Sentin
 geoeyes hazard <project>        # phân vùng nguy cơ có xét lượng mưa cho sản phẩm mới nhất (--set cell_m=50 ...)
 geoeyes gnss   <project>        # so sánh với trạm GNSS của NGL; hiệu chỉnh theo GNSS (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # tìm sản phẩm của mọi dự án trong một khu vực
+geoeyes params unwrap_grid_size          # tham số dùng để làm gì, rủi ro, giá trị thường dùng (--lang vi)
 geoeyes serve --open            # mở ứng dụng web tại http://localhost:8765
 ```
 

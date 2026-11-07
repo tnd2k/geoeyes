@@ -163,6 +163,11 @@ catalog, web app; legacy code removed; `git init`. What remains, by priority:
     "undetermined" otherwise. Steps D0 (offline study on 4 PS states) → D1 (pure functions + synthetic tests) → D2
     (engine wiring, `y`/`n` bit-identical) → D3 (G3.2 Mexico + Quang Nam) → D4 (defaults); a review gate after each.
     Status 2026-11-05: D0–D2 done (`steps/ramp.py`, `scla_deramp = "auto"` in the engine, `mexico_g3` run); D3 next.
+14. **Site advisor, PLANNED 2026-11-07** ([research note](../research/site-advisor.md)). Pick an area → a recipe
+    of parameters with the reason for each, from a parameter catalogue, a measured site profile (relief, land
+    cover, climate, geology, data) and hand-written rules; no LLM, no tokens. CLI `geoeyes advise`, web app panel,
+    optional local MCP. Steps V0 (catalogue) → V1 (profile) → V2 (rules) → V3 (web) → V4 (learn) → V5 (MCP); a
+    review gate after each. Status 2026-11-07: V0 done (`advisor/params.toml`, form "why?", `geoeyes params`).
 
 The sections below are the historical log, phase by phase.
 

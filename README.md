@@ -42,6 +42,7 @@ geoeyes cr-report <project>     # corner reflector identification (Sentinel-1)
 geoeyes hazard <project>        # hazard zoning with rainfall of the latest product (--set cell_m=50 ...)
 geoeyes gnss   <project>        # compare with the NGL GNSS stations; GNSS calibration (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # products of every project over an area
+geoeyes params unwrap_grid_size          # what a parameter is for, its risk, usual values (--lang vi)
 geoeyes serve --open            # web app on http://localhost:8765
 ```
 

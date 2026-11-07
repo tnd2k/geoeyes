@@ -14,59 +14,58 @@ from typing import Any
 
 import tomlkit
 
+from geoeyes.advisor import catalog
 from geoeyes.config.loader import load, load_dict
 from geoeyes.config.schema import ProjectConfig
 from geoeyes.core.errors import ConfigError
 from geoeyes.workspace import ProjectLayout, WorkspaceLayout
 
-# (section, key, help) shown in the form, in this order; ps.* (StaMPS parameters) are appended from the engine
-# defaults
-FIELDS: list[tuple[str, str, str]] = [
-    ("project", "description", "Free text shown in the tree, the overview and the report"),
-    ("project", "method", "psi: persistent scatterers; psds: PS + distributed scatterers (phase linking)"),
-    ("aoi", "bbox", "West, south, east, north (WGS84 degrees)"),
-    ("acquire", "date_range", "Sentinel-1 acquisitions between these dates are downloaded from ASF"),
-    ("acquire", "max_per_month", "Keep the first N acquisitions of each month (0 = all)"),
-    ("acquire", "archive", "Folder of raw scenes shared by projects ('' = workspace archive)"),
-    ("network", "reference", "Reference date of the stack ('auto' = the most central acquisition)"),
-    ("network", "max_perp_m", "Largest perpendicular baseline kept (m)"),
-    ("network", "max_temporal_days", "Largest temporal baseline kept (days, 0 = no limit)"),
-    ("stack", "dem", "srtm-1 or copernicus-30 (downloaded when missing), a folder of .hgt or a GeoTIFF"),
-    ("stack", "esd", "Enhanced spectral diversity (Sentinel-1 azimuth fine coregistration)"),
-    ("stack", "multilook", "Range, azimuth looks (1, 1 = full resolution)"),
-    ("stack", "incremental", "Keep coregistered dates when the stack is extended (same reference)"),
-    ("selection", "da_threshold", "Amplitude dispersion threshold of the PS candidates"),
-    ("selection", "robust_da", "Robust amplitude dispersion (median / MAD)"),
-    ("selection", "ds_coherence_min", "Minimum coherence of a distributed scatterer"),
-    ("selection", "water_mask", "Mask water before the selection"),
-    ("phase_linking", "enabled", "Phase linking of distributed scatterers before the point engine"),
-    ("phase_linking", "estimator", "Phase linking estimator"),
-    ("phase_linking", "shp_test", "Statistically homogeneous pixels: ad = Anderson-Darling, ks = Kolmogorov-Smirnov"),
-    ("phase_linking", "half_window", "Half window of the SHP search (rows, columns)"),
-    ("phase_linking", "shp_alpha", "Significance level of the SHP test"),
-    ("phase_linking", "min_shp", "Minimum number of SHP for a distributed scatterer"),
-    ("phase_linking", "ps_da_max", "PS below this amplitude dispersion keep their own SLC (0 = link all)"),
-    ("phase_linking", "gaussian_sigma", "Gaussian post-filter of the linked phase (0 = off)"),
-    ("sbas", "looks_az", "Azimuth looks of the SBAS grid (Sentinel-1: 1 look ≈ 14 m)"),
-    ("sbas", "looks_rg", "Range looks of the SBAS grid (Sentinel-1: 1 look ≈ 2.3 m slant, ≈ 3.7 m ground)"),
-    ("sbas", "reference", "Stable reference point (lon, lat); empty = the most coherent 10 % of pixels"),
-    ("sbas", "source", "auto: phase-linked SLC when phase linking is on; slc or linked to force one"),
-    ("sbas", "n_nearest", "Pairs per date with the next N dates (when max_temporal_days = 0)"),
-    ("sbas", "min_pair_coherence", "A pixel of a pair below this coherence has no value in that pair"),
-    ("sbas", "min_pair_fraction", "A pixel needs a value in this share of the pairs"),
-    ("sbas", "min_mean_coherence", "Output mask: mean coherence of the pairs"),
-    ("sbas", "min_temporal_coherence", "Output mask: temporal coherence of the inversion"),
-    ("sbas", "troposphere", "Stratified troposphere (phase linear in height, per pair): auto = off on flat terrain, "
-                            "else removed without its steady trend; true = as fitted; false = off"),
-    ("sbas", "troposphere_min_relief_m", "auto: terrain relief (m, p5-p95) below which the troposphere is not "
-                                         "removed"),
-    ("sbas", "dem_error", "Estimate the DEM error of each pixel from the series and remove it (c + v·t + K·B⊥)"),
-    ("sbas", "goldstein_alpha", "Goldstein filter strength before unwrapping (0 = off)"),
-    ("atmosphere", "method", "Weather-model APS for step 7: none, era5 (needs ~/.cdsapirc), cerra or gacos"),
-    ("atmosphere", "select", "auto: weather correction kept only where it reduces the phase; all: everywhere"),
-    ("export", "formats", "GIS formats written for each product"),
-    ("report", "copy_to", "Folder the PDF report is also copied to ('' = none)"),
-]
+# (section, key) shown in the form, in this order; ps.* (StaMPS parameters) are appended from the engine
+# defaults. The help line of each field comes from the parameter catalogue (geoeyes/advisor/params.toml).
+FIELDS: list[tuple[str, str, str]] = [(s, k, catalog.help_of(s, k)) for s, k in [
+    ("project", "description"),
+    ("project", "method"),
+    ("aoi", "bbox"),
+    ("acquire", "date_range"),
+    ("acquire", "max_per_month"),
+    ("acquire", "archive"),
+    ("network", "reference"),
+    ("network", "max_perp_m"),
+    ("network", "max_temporal_days"),
+    ("stack", "dem"),
+    ("stack", "esd"),
+    ("stack", "multilook"),
+    ("stack", "incremental"),
+    ("selection", "da_threshold"),
+    ("selection", "robust_da"),
+    ("selection", "ds_coherence_min"),
+    ("selection", "water_mask"),
+    ("phase_linking", "enabled"),
+    ("phase_linking", "estimator"),
+    ("phase_linking", "shp_test"),
+    ("phase_linking", "half_window"),
+    ("phase_linking", "shp_alpha"),
+    ("phase_linking", "min_shp"),
+    ("phase_linking", "ps_da_max"),
+    ("phase_linking", "gaussian_sigma"),
+    ("sbas", "looks_az"),
+    ("sbas", "looks_rg"),
+    ("sbas", "reference"),
+    ("sbas", "source"),
+    ("sbas", "n_nearest"),
+    ("sbas", "min_pair_coherence"),
+    ("sbas", "min_pair_fraction"),
+    ("sbas", "min_mean_coherence"),
+    ("sbas", "min_temporal_coherence"),
+    ("sbas", "troposphere"),
+    ("sbas", "troposphere_min_relief_m"),
+    ("sbas", "dem_error"),
+    ("sbas", "goldstein_alpha"),
+    ("atmosphere", "method"),
+    ("atmosphere", "select"),
+    ("export", "formats"),
+    ("report", "copy_to"),
+]]
 # titles of the TOML sections, numbered by the pipeline phase that reads them (the form shows them in that order)
 SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "1 · Acquisition",
                   "network": "2 · Stack: interferogram network", "stack": "2 · Stack: coregistration",
@@ -120,81 +119,6 @@ PS_OPTIONS = {"scla_deramp": ["n", "y", "auto"], "unwrap_ps_rate": ["auto", "y",
               "unwrap_grid_filter": ["gaussian", "goldstein", "none"], "select_method": ["PERCENT", "DENSITY"],
               "scn_time_fit": ["linear", "mean"], "select_nr_scaling": ["low_coherence", "population"],
               "filter_weighting": ["P-square", "SNR"]}
-PS_HELP = {
-    "max_topo_err": "Largest DEM error searched (m); auto = median height of ambiguity / 4 (baselines about their "
-                    "median); auto_master = the same about the master (legacy CSK / ICEYE)",
-    "filter_grid_size": "Grid cell (m) of the adaptive phase filter that estimates the neighbourhood phase",
-    "filter_weighting": "Weighting of the PS in that filter: P-square (coherence) or SNR",
-    "clap_win": "Window (grid cells) of the CLAP adaptive filter",
-    "clap_low_pass_wavelength": "Low-pass wavelength (m) of the CLAP filter",
-    "clap_alpha": "CLAP: weight of the adaptive (spectral) part",
-    "clap_beta": "CLAP: exponent of the spectral weighting",
-    "gamma_change_convergence": "Stop iterating when the mean temporal coherence changes less than this",
-    "gamma_max_iterations": "Most iterations of the coherence estimation",
-    "dem_error_ambiguity": "y: score the DEM-error fit for ambiguity and regularise it spatially (legacy CSK)",
-    "dem_error_amb_auto_threshold": "Ambiguity thresholds from the data (with dem_error_ambiguity)",
-    "dem_error_amb_q_reject": "Ambiguity score below which the DEM error is rejected",
-    "dem_error_amb_q_ok": "Ambiguity score above which the DEM error is trusted",
-    "dem_error_spatial_lambda": "Weight of the spatial regularisation of the DEM error",
-    "dem_error_spatial_iters": "Iterations of the spatial regularisation",
-    "select_method": "PERCENT: share of random phase allowed; DENSITY: random points per km²",
-    "percent_rand": "PERCENT: % of the selected points allowed to be random phase",
-    "density_rand": "DENSITY: random-phase points per km² allowed",
-    "gamma_min_threshold": "Lowest coherence threshold, whatever the amplitude dispersion",
-    "gamma_stdev_reject": "Drop points whose coherence varies more than this between iterations (0 = off)",
-    "select_nr_scaling": "How the random-phase histogram is scaled: low_coherence or population (legacy CSK)",
-    "slc_osf": "SLC oversampling factor (1 = none)",
-    "reest_smoothing_flag": "Re-estimate the coherence of the selected points with their neighbourhood phase",
-    "weed_time_win": "Time window (days) of the smoothing used to judge the phase noise of a point",
-    "weed_standard_dev": "Drop points whose phase noise (rad) against their neighbours is above this",
-    "weed_zero_elevation": "Drop points at zero height (sea, DEM voids)",
-    "weed_neighbours": "Of adjacent pixels keep only the best one",
-    "weed_adjacent_keep_per_group": "Points kept per group of adjacent pixels",
-    "weed_noisy_check": "Drop points that are noisy against their neighbours",
-    "ref_centre_lonlat": "Centre (lon, lat) of the reference area; 0, 0 = no area (all points, or ref_auto)",
-    "ref_radius": "Radius (m) of the reference area around that centre; inf = all points",
-    "ref_auto": "y: reference = the stable periphery of the scene (when no centre is given)",
-    "unwrap_patch_phase": "n: the grid unwraps the phase of each point (StaMPS default); y: the smoother patch "
-                          "phase, then each point's residual (legacy)",
-    "unwrap_grid_size": "Cell (m) of the unwrapping grid (10 m usual; 50 m HCMC)",
-    "unwrap_prefilter_flag": "Filter the grid phase before unwrapping",
-    "unwrap_grid_filter": "Grid prefilter: gaussian, goldstein (coherence-adaptive) or none",
-    "unwrap_grid_filter_sigma": "σ of the Gaussian prefilter (m); auto = (unwrap_gold_n_win / 8) × 10 m, the same "
-                                "at any grid size; cells = the legacy σ in cells (grows with the grid)",
-    "unwrap_grid_filter_unit": "y: filter the unit phasor of each cell (a cell of many points no longer outweighs "
-                               "its neighbours)",
-    "unwrap_gold_n_win": "Window (cells) of the Goldstein filter; also sets the Gaussian σ in auto",
-    "unwrap_gold_alpha": "Strength of the Goldstein filter (0-1)",
-    "unwrap_gold_coh_floor": "Coherence below which the Goldstein filter acts at full strength",
-    "unwrap_time_win": "Time window (days) of the space-time unwrapping; auto = a quarter of the data span "
-                       "(at least 4 sampling intervals, 60-730)",
-    "unwrap_la_error_flag": "Estimate the look-angle (DEM) error in the space-time unwrapping",
-    "unwrap_edge_velocity": "Unwrap each grid edge in time by its linear rate first (keeps fast motion)",
-    "unwrap_max_edge_velocity": "Largest rate searched for an edge (mm/yr, line of sight)",
-    "unwrap_model_cycles": "The IRLS takes the cycle count of each grid step from the edge model",
-    "unwrap_ps_rate": "Linear rate of every point from the point network, removed before the grid and added back "
-                      "(a road faster than its cell keeps its cycles); auto = with >= unwrap_ps_rate_min_ifg "
-                      "interferograms and a reliable network",
-    "unwrap_ps_rate_max_arc": "Longest arc (m) between two points of that network",
-    "unwrap_ps_rate_min_ifg": "Fewest interferograms for unwrap_ps_rate = auto",
-    "unwrap_irls_iter": "Most iterations of the IRLS spatial unwrapping",
-    "unwrap_irls_target_rms": "IRLS stops below this residual (rad)",
-    "unwrap_irls_epsilon": "IRLS weight floor",
-    "unwrap_align_constant": "Align the IRLS constant before snapping to the wrapped phase (avoids one-cycle region "
-                             "slips near ±π)",
-    "subtr_tropo": "Remove the atmosphere (APS) from the velocity: linear in height, or the weather model of "
-                   "[atmosphere]; n on flat deltas, where it can absorb subsidence (v-do)",
-    "scla_deramp": "Orbit ramps: n = keep, y = remove a plane per interferogram, auto = remove the part that changes "
-                   "between dates",
-    "ramp_auto_allow_planar": "auto may also remove a steady planar trend without a stable area",
-    "scn_time_win": "Time window (days) of the SCN temporal filter (step 8)",
-    "scn_wavelength": "Spatial wavelength (m) of the SCN filter",
-    "scn_time_fit": "SCN temporal low-pass: linear (keeps the trend) or mean (StaMPS)",
-    "topofit_chunk_pixels": "Points per block in step 2 (memory)",
-    "ps_select_smooth_chunk_pixels": "Points per block in step 3 (memory)",
-    "weed_noise_ifg_chunk": "Interferograms per block in step 4 (memory)",
-    "legacy_quirks": "y: reproduce the legacy engine with its bugs (parity tests only)",
-}
 
 
 def _schema() -> dict:
@@ -323,7 +247,7 @@ def describe(project: ProjectLayout) -> dict:
     cfg = load(project.config)
     base = _base(raw)
     schema = _schema()
-    rows = list(FIELDS) + [("ps", k, PS_HELP.get(k, "")) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
+    rows = list(FIELDS) + [("ps", k, catalog.help_of("ps", k)) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
     used = _used(project)
     sections: dict[str, list] = {}
     for section, key, help_ in rows:
@@ -344,8 +268,10 @@ def describe(project: ProjectLayout) -> dict:
         default = _json(_safe(_get(base, section, key)))
         if (section, key) in WORD_BOOL:                          # true / false as the option text
             value, default = (str(x).lower() for x in (value, default))
+        entry = catalog.get(section, key)
         sections.setdefault(section, []).append({
-            "key": key, "help": help_, **kind, "suggest": SUGGESTIONS.get((section, key)),
+            "key": key, "help": help_, "info": entry.info() if entry else None,
+            **kind, "suggest": SUGGESTIONS.get((section, key)),
             "value": value, "default": default,
             "own": key in (raw.get(section) or {}), "used": runs or None})
     return {"sections": _ordered(sections), "toml": text, "tracks": raw.get("tracks", [])}

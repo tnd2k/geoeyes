@@ -1,0 +1,82 @@
+# Site advisor: from an area to a processing recipe
+
+Asked by the owner on 2026-11-07. There are about 120 processing parameters, and it is easy to forget what each
+one is for. The goal: pick an area, and see at once what that area needs (which corrections and which method)
+and how to set the parameters, with the reason for each choice. It must run **without an LLM**, so it costs no
+tokens: deterministic rules on measured site properties.
+
+## 1. What exists already
+
+- A one-line help for every form field (`api/settings.py` `FIELDS`, `PS_GROUPS`, Vietnamese titles).
+- Data-driven `auto` modes that already act as site rules inside the engine: `scla_deramp = "auto"` (ramp
+  selection), `subtr_tropo` / `[atmosphere] select = "auto"` (APS selection), `[sbas] troposphere = "auto"`
+  (relief < 100 m → off), `max_topo_err = "auto"`, `unwrap_time_win = "auto"`.
+- Site layers: terrain (`landslide/terrain.py`), geology (`ancillary/geology.py`), land cover and predictors
+  (`landslide/predictors.py`, `ml/layers.py`), water mask, DEM download.
+- The owner's settings recorded in memory and in the project files: unwrap grid 10 m (HCMC 50 m), PL `ad` +
+  `adaptive`, IRLS unwrapping, CSK chain without wavelet / FAMM.
+
+What is missing: one place that ties a site property to a parameter, and says why.
+
+## 2. Design
+
+Three parts, all plain Python and data files.
+
+1. **Parameter catalogue** `advisor/params.toml` (TOML like the rest of the project), one entry per parameter: section, key, phase, purpose,
+   benefit, cost / risk, typical values, related parameters, en + vi. The form help is generated from it (one
+   source instead of two).
+2. **Site profile** `geoeyes.advisor.profile(bbox, sensor)` → a small dict of measured properties, cached per AOI:
+   - terrain: relief p5–p95, median slope, share of slopes > 20°;
+   - land cover: urban / vegetation / cropland / water shares (ESA WorldCover);
+   - climate: Köppen class, mean humidity and rain season (ERA5 climatology);
+   - geology: soft sediments share (existing geology layer);
+   - data: sensor, wavelength, number of dates, revisit, baseline spread (from the ASF search or the stack).
+3. **Rules** `advisor/rules.toml`: `if` (conditions on the profile) → `set` (parameter values) + `why`
+   (en + vi) + `source` (paper, ADR, or the project where it was learned). Examples:
+   - urban share > 0.5 → `method = psi`, `da_threshold = 0.4`, `unwrap_grid_size = 10`;
+   - vegetation share > 0.5 and C-band → `psds`, phase linking on (`ad`, `adaptive`), or `sbas`;
+   - relief > 500 m → `[atmosphere] method = era5`, `subtr_tropo = auto`; relief < 100 m → troposphere off;
+   - soft sediments > 0.3 and urban (HCMC, Hanoi) → fast subsidence: `unwrap_ps_rate`, `unwrap_grid_size = 50`
+     for HCMC, `scn_time_fit = linear`;
+   - slope > 20° on a large share → landslide mode: `hazard` downslope projection, ascending + descending;
+   - fewer than about 20 dates → warn (SHP test and point rates unreliable; `ps_lite` is for Capella / Umbra only,
+     the schema refuses it for Sentinel-1).
+   Rules are ordered; a later, more specific rule overrides an earlier one; conflicts are listed, not hidden.
+
+Output: a **recipe** — the parameter values, each with its reason and the rule that set it, plus a diff against
+the current `project.toml`. The owner applies it in one click or field by field.
+
+### Where it is shown, with no tokens
+
+- Web app: the wizard (new project) and the settings form, a panel "Advisor" beside each section; each field
+  shows "suggested: X, because …".
+- CLI: `geoeyes advise <project>` or `geoeyes advise --bbox W S E N`, text or TOML.
+- MCP (optional, step V5): a tiny local MCP server wrapping the same functions, so Claude can query the catalogue
+  and the recipe in a session. The rules engine never calls an LLM; the MCP only lets an LLM read it when wanted.
+
+### Learning from finished projects
+
+Each project already has its `project.toml` and QC results. A command `geoeyes advise --learn` collects the
+settings the owner kept after review (hcm_d18, hp_maychai, mexico_s1, hanoi_s1…) together with the site profile,
+and shows where the rules disagree with what was actually used. Rules are edited by hand from that report; no
+automatic fitting (too few projects).
+
+## 3. Steps (a review gate after each)
+
+- [x] **V0** (done 2026-11-07) Catalogue: `src/geoeyes/advisor/params.toml`, 105 entries (help, use, risk,
+  typical, related; en + vi), read by `advisor/catalog.py`, the form ("why?" under each field, search over the
+  texts) and `geoeyes params`; tests `tests/unit/advisor/test_param_catalog.py`. Was: write `params.yaml` for every field in the form (from `FIELDS`, the StaMPS docs and the
+  ADRs), generate the form help from it. No behaviour change.
+- [ ] **V1** Site profile: `advisor/profile.py`, reusing the existing terrain, geology and land-cover readers;
+  cache in `cache/advisor/`. Tests on the known AOIs (HCMC, Hanoi, Quang Nam, Mexico City).
+- [ ] **V2** Rules: `rules.toml` + a small evaluator (`advisor/rules.py`), and `geoeyes advise`. First rule set
+  from the owner's current settings; check it reproduces hcm_d18 and hp_maychai.
+- [ ] **V3** Web app: Advisor panel in the wizard and the settings form, apply-one / apply-all, en + vi.
+- [ ] **V4** `--learn` report comparing rules with finished projects.
+- [ ] **V5** (optional) local MCP server `geoeyes-advisor` with tools `explain_param`, `site_profile`, `recipe`.
+
+## 4. Difficulty
+
+Moderate. V0 is mostly writing; V1 reuses existing readers (WorldCover and the ERA5 climatology are the only new
+downloads); V2 is a few hundred lines. The hard part is not the code but the rules themselves: they must state
+the owner's experience correctly, so V2 is reviewed rule by rule.
