@@ -168,7 +168,8 @@ def describe(cfg, ps_manifest, params: dict, stack_attrs: dict) -> dict[str, Any
         t = effective_ps(params)
         resolved = dict(params.get("resolved") or {})
         # runs written before "resolved" existed: "auto" from the project
-        if "max_topo_err" not in resolved and cfg is not None and str(dict(cfg.ps).get("max_topo_err", "")) == "auto":
+        if "max_topo_err" not in resolved and cfg is not None and str(dict(cfg.ps).get("max_topo_err", "")) in (
+                "auto", "auto_master"):
             resolved["max_topo_err"] = {"from": "auto", "rule": "median height of ambiguity / 4"}
         density = str(t.get("select_method", "DENSITY")).upper() != "PERCENT"
         rand = (f"at most {_num(t.get('density_rand'))} random-phase pixels per km² are expected among the "

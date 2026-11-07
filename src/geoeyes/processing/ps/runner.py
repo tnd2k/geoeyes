@@ -113,12 +113,17 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
     args = {"da_max": da_max, "amp_floor": amp_floor, "smooth_sigma": smooth_sigma, "edge_margin": edge_margin,
             "slc_var": slc_var, "ds_tcoh_min": ds_tcoh_min, "ds_cell": ds_cell, "stack": str(store.path)}
     resolved: dict[str, dict] = {}                   # parameters set from the data ("auto"): rule and value
-    if str((table or {}).get("max_topo_err", "")).lower() == "auto":
+    mte_mode = str((table or {}).get("max_topo_err", "")).lower()
+    if mte_mode in ("auto", "auto_master"):
+        about_master = mte_mode == "auto_master"
         mte = hoa_max_topo_err(ds["bperp"].values, wl, float(np.nanmedian(ds["geometry_slant_range"].values)),
-                               np.radians(float(np.nanmedian(ds["geometry_incidence"].values))), hoa_max_perp)
+                               np.radians(float(np.nanmedian(ds["geometry_incidence"].values))), hoa_max_perp,
+                               about_master=about_master)
+        rule = ("median height of ambiguity / 4 (B⊥ about the master)" if about_master
+                else "median height of ambiguity / 4 (B⊥ about the stack median)")
         table = {**table, "max_topo_err": mte}
-        resolved["max_topo_err"] = {"from": "auto", "rule": "median height of ambiguity / 4", "value": round(mte, 3)}
-        log.info("max_topo_err = median height of ambiguity / 4 = %.2f m", mte)
+        resolved["max_topo_err"] = {"from": mte_mode, "rule": rule, "value": round(mte, 3)}
+        log.info("max_topo_err = %s = %.2f m", rule, mte)
     if str((table or {}).get("unwrap_time_win", "")).lower() == "auto":
         tw = auto_time_win([d.toordinal() for d in dates])
         table = {**table, "unwrap_time_win": tw}

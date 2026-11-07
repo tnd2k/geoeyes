@@ -88,10 +88,16 @@ DEFAULTS: dict[str, Any] = {
 
 
 def hoa_max_topo_err(bperp, wavelength: float, slant_range: float, incidence: float,
-                     max_perp: float | None = None) -> float:
-    """``max_topo_err = "auto"`` of the legacy CSK/TSX prep: median height of ambiguity λ·R·sinθ / (2|B⊥|) of the
-    reference-secondary pairs, / 4. ``max_perp``: pairs with |B⊥| >= max_perp left out of the median."""
-    b = np.abs(np.asarray(bperp, np.float64))
+                     max_perp: float | None = None, about_master: bool = False) -> float:
+    """``max_topo_err = "auto"``: median height of ambiguity λ·R·sinθ / (2|B⊥|), / 4, with B⊥ taken about the
+    median B⊥ of the stack, not about the master: the look-angle term K·B⊥ only resolves the DEM error through
+    the spread of the baselines (a constant added to every B⊥ goes into the constant C), so a master at the edge of
+    the baseline distribution (hp_maychai: B⊥ −303..0 m) gave a search four times narrower (20 m vs 89 m) for the
+    same data. ``about_master``: the master-relative B⊥ of the legacy CSK/TSX prep (``max_topo_err =
+    "auto_master"``, kept by the CSK / ICEYE presets). ``max_perp``: baselines with |B⊥| >= max_perp left out."""
+    b = np.asarray(bperp, np.float64).ravel()
+    b = b[np.isfinite(b)]
+    b = np.abs(b if about_master else b - np.median(b))
     b = b[b > 0]
     if max_perp is not None and np.any(b < max_perp):
         b = b[b < max_perp]

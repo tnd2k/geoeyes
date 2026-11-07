@@ -139,6 +139,19 @@ Engine runs (steps 6–8 again on the same steps 1–5, SARPROZ points within 20
 Without the APS in both passes the engine itself gives the v-do agreement, without an orbit plane: the APS was the
 whole offset and tilt.
 
+### 5.2 A0 — `hp_maychai` (Hai Phong, S1 desc 91 frame 522, 36 dates 2025-07..2026-10)
+
+| Check | Value | Verdict |
+|---|---|---|
+| 1 relief | terrain p5–p95 **9.7 m**; PS height p5–p95 25.2 m | off |
+| 2 leakage | v_aps p5..p95 −0.6..+0.5 mm/yr (spread **1.2**); corr(v_aps, v_def) **+0.07**; trend = 2 % of the APS variance | borderline, no real leak |
+| 3 benefit | median reduction **+4.9 %**; > 5 % in 49 % of the ifgs; worse in **0 %** | borderline |
+
+v-dao − v-do: median −0.01, p5..p95 −0.40..+0.46 mm/yr (corr 0.999): here the APS hardly matters. Unlike
+`hcm_d18`, the deformation is not correlated with height (corr(v_def, h) −0.06), so the a·h fit has nothing to
+absorb. Two flat deltas, two behaviours: check 1 alone would switch it off in both; checks 2–3 say it is harmful
+in HCMC and harmless (slightly useful for the series) in Hai Phong.
+
 Pending: a mountainous case and CSK Hanoi.
 
 ## 6. Limitations
