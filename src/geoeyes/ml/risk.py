@@ -2,11 +2,14 @@
 behaviour-and-risk.md §3). Step R6 of the hazard research plan ("from hazard to risk").
 
 * **Hazard H** (0–4, the levels of the zoning). From the building's own persistent scatterers when it has at least
-  ``min_points_own`` of them (geoeyes buildings): intensity from its vertical rate, damage potential from its own
-  significant tilt β, else from the angular distortion of its cell; otherwise the hazard level of the analysis
-  cell that holds it. ``source`` says which.
+  ``min_points_own`` of them (geoeyes buildings): intensity from its vertical rate, damage potential S = the
+  larger of the class of its own significant angular distortion β (``distortion_breaks`` of the zoning: 1/500,
+  1/300, 1/150) and the class of its own significant rigid tilt ω (``tilt_breaks``), else the S of its cell;
+  otherwise the hazard level of the analysis cell that holds it. ``source`` says which.
 * **Exposure E** (1–3): gross floor area = footprint × floors, floors from the height (3 m a floor) or, without a
-  height, the median of the buildings of the area that have one. A proxy of the people and value inside.
+  height, the median of the buildings of the area that have one. A proxy of the people and value inside. Overture
+  gives few heights outside Europe and North America (1-2 % in Hanoi): the others are taken from the
+  GlobalBuildingAtlas footprint holding the building's centroid (Source Cooperative, ``gba_heights``).
 * **Vulnerability V** (1–3): what the structure tolerates. Without the structural type (not in open data) the
   proxies are size and slenderness: long buildings span more differential settlement, tall ones turn a small tilt
   into a large lateral offset (Burland & Wroth 1974; Peduto et al. 2017 fragility curves rise with both).
@@ -48,6 +51,10 @@ class RiskParams:
     tall_m: float = 21.0                             # ≥ 7 floors: V3
     long_m: float = 30.0                             # footprint length (√area) ≥ 30 m: V3
     small_m2: float = 60.0                           # small low buildings: V1
+    gba_heights: bool = True                         # heights missing in Overture from GlobalBuildingAtlas
+    # rigid tilt in 10 years -> S1, S2, S3. Burland (1995): a tilt beyond ~1/250 is noticeable, ~1/100 serious
+    # (functional, not cracking: uniform tilt does not distort the frame); 1/500 the onset of S1
+    tilt_breaks: tuple[float, float, float] = (1 / 500, 1 / 250, 1 / 100)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> RiskParams:
@@ -59,7 +66,8 @@ class RiskParams:
         out = {}
         for k, v in d.items():
             default = getattr(cls, k)
-            out[k] = tuple(float(x) for x in v) if isinstance(default, tuple) else type(default)(v)
+            out[k] = tuple(float(x) for x in v) if isinstance(default, tuple) else \
+            (str(v).lower() in ("1", "true", "yes") if isinstance(default, bool) else type(default)(v))
         return cls(**out)
 
 
@@ -82,8 +90,18 @@ def combine(h: np.ndarray, e: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np
     return c, np.where(h >= 0, r, -1).astype(np.int8)
 
 
+def own_secondary(beta: np.ndarray, tilt: np.ndarray, distortion_breaks, tilt_breaks,
+                  fallback: np.ndarray) -> np.ndarray:
+    """Secondary class S of a building from its own InSAR: the larger of the class of its angular distortion β
+    (``distortion_breaks``) and of its rigid tilt (``tilt_breaks``), each where significant (finite); ``fallback``
+    (the cell's S) where neither is."""
+    from geoeyes.hazard import zoning
+    s = np.maximum(zoning.classify(beta, distortion_breaks), zoning.classify(tilt, tilt_breaks))
+    return np.where(s >= 0, s, fallback).astype(np.int8)
+
+
 def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, buildings_dir: Path, overture_cache: Path,
-        progress=None) -> dict:
+        coop_cache: Path | None = None, progress=None) -> dict:
     """Risk of every building over ``product`` into ``out``."""
     from geoeyes.hazard import zoning
     from geoeyes.hazard.assess import read_cells
@@ -119,10 +137,16 @@ def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, build
     t["cell"] = cell_of.reindex(key(t["lon"], t["lat"])).to_numpy()
     own = None
     if (buildings_dir / "buildings.parquet").exists():
-        own = pd.read_parquet(buildings_dir / "buildings.parquet", columns=["id", "n", "v_vert", "beta_10yr"])
+        import pyarrow.parquet as pq
+        have = set(pq.read_schema(buildings_dir / "buildings.parquet").names)
+        cols = ["id", "n", "v_vert", "beta_10yr"] + (["tilt_10yr"] if "tilt_10yr" in have else [])
+        own = pd.read_parquet(buildings_dir / "buildings.parquet", columns=cols)
+        if "tilt_10yr" not in have:        # geoeyes.buildings/1: its beta_10yr was the rigid tilt
+            own["tilt_10yr"], own["beta_10yr"] = own["beta_10yr"], np.nan
+            say("building analysis of the old format (beta_10yr = tilt): rerun geoeyes buildings for the distortion")
         t = t.merge(own, on="id", how="left")
     else:
-        t["n"], t["v_vert"], t["beta_10yr"] = np.nan, np.nan, np.nan
+        t["n"], t["v_vert"], t["beta_10yr"], t["tilt_10yr"] = np.nan, np.nan, np.nan, np.nan
         say("no building analysis (geoeyes buildings): every hazard comes from the cells")
 
     # ---- hazard: own InSAR where the building carries enough points, else its cell
@@ -138,10 +162,9 @@ def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, build
         sinking = -t["v_vert"].to_numpy()                          # GeoEyes sign: sinking is negative
         stable = np.maximum(2.0, np.nan_to_num(col["stable_mm_yr"], nan=2.0))
         i_own = zoning.intensity_class(sinking, stable, hp.get("subsidence_breaks", (10.0, 30.0)))
-        beta = t["beta_10yr"].to_numpy()
-        breaks = hp.get("distortion_breaks", (1 / 500, 1 / 300, 1 / 150))
-        s_own = np.where(np.isfinite(beta), zoning.classify(beta, breaks),
-                         np.nan_to_num(col["secondary"], nan=0)).astype(np.int8)
+        s_own = own_secondary(t["beta_10yr"].to_numpy(np.float64), t["tilt_10yr"].to_numpy(np.float64),
+                              hp.get("distortion_breaks", (1 / 500, 1 / 300, 1 / 150)), params.tilt_breaks,
+                              np.nan_to_num(col["secondary"], nan=0))
         lvl = zoning.hazard_level(i_own, s_own, hp.get("matrix", zoning.DEFAULT_MATRIX))
         h = np.where(use_own & (lvl >= 0), lvl, h).astype(np.int8)
         source = np.where(use_own & (lvl >= 0), "building", source)
@@ -149,6 +172,12 @@ def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, build
     # ---- exposure and vulnerability
     area = t["area_m2"].to_numpy(np.float64)
     height = t["height_m"].to_numpy(np.float64)
+    from_gba = np.zeros(len(t), bool)
+    if params.gba_heights and coop_cache is not None:
+        from geoeyes.opendata import coop
+        height, from_gba = coop.fill_heights(coop_cache, t["lon"].to_numpy(), t["lat"].to_numpy(), height,
+                                             [w - pad, s - pad, e + pad, n + pad], progress=say)
+        say(f"heights from GlobalBuildingAtlas for {int(from_gba.sum())} building(s)")
     known = np.isfinite(height) & (height > 0)
     floors_known = np.maximum(1, np.round(height / params.floor_height_m))
     median_floors = float(np.median(floors_known[known])) if known.any() else 2.0
@@ -160,8 +189,10 @@ def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, build
     table = pd.DataFrame({
         "id": t["id"], "lon": t["lon"], "lat": t["lat"], "area_m2": area.astype(np.float32),
         "height_m": height.astype(np.float32), "floors": floors.astype(np.float32), "height_known": known,
+        "height_source": np.where(from_gba, "gba", np.where(known, "overture", "assumed")),
         "source": source, "points": np.nan_to_num(t["n"].to_numpy(), nan=0).astype(np.int32),
         "v_vert_mm_yr": t["v_vert"].astype(np.float32), "beta_10yr": t["beta_10yr"].astype(np.float32),
+        "tilt_10yr": t["tilt_10yr"].astype(np.float32),
         "hazard": h, "exposure": e_cls, "vulnerability": v_cls, "consequence": c_cls, "risk": r_cls,
     })
     out.mkdir(parents=True, exist_ok=True)
@@ -176,6 +207,8 @@ def run(product: Path, out: Path, params: RiskParams, *, hazard_dir: Path, build
         "by_risk": {LEVELS[k]: int((r_cls == k).sum()) for k in range(5)},
         "footprint_km2_by_risk": {LEVELS[k]: round(float(area[r_cls == k].sum()) / 1e6, 3) for k in range(5)},
         "height_known_share": round(float(known.mean()), 3), "median_floors_assumed": median_floors,
+        "height_from_gba": int(from_gba.sum()),
+        "credits": ([coop.LAYERS["gba-buildings"].credit] if from_gba.any() else []),
         "warnings": ([] if own is not None else ["no building analysis: hazards from the cells only"])
         + ([f"heights known for {known.mean():.0%} of the buildings: the others count {median_floors:g} floors"]
            if known.mean() < 0.5 else []),

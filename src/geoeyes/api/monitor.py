@@ -7,7 +7,11 @@ Alert rules live in ``project.toml``::
     rules = [
       { name = "subsidence > 20 mm/yr", kind = "velocity_below", threshold = -20.0, min_points = 20 },
       { name = "airport uplift", kind = "velocity_above", threshold = 10.0, bbox = [105.80, 21.20, 105.82, 21.22] },
+      { name = "sudden sinking", kind = "deviation_below", threshold = -10.0, min_points = 30 },
     ]
+
+``deviation_below`` / ``deviation_above`` (mm): the displacement of the latest date against the linear trend of the
+earlier dates, per point (early warning: what a new acquisition shows before it moves the velocity).
 """
 from __future__ import annotations
 
@@ -147,7 +151,17 @@ def set_schedule(ws: WorkspaceLayout, name: str, frequency: str, at: str = "02:0
 
 
 # ---------------------------------------------------------------- alerts
-KINDS = ("velocity_below", "velocity_above")
+KINDS = ("velocity_below", "velocity_above", "deviation_below", "deviation_above")
+MIN_DATES_DEVIATION = 6          # earlier dates needed for a trend
+
+
+def last_deviation(ts: np.ndarray, dates: list[str]) -> np.ndarray:
+    """(n,) mm: displacement of the last date minus the least-squares line through the earlier dates."""
+    t = np.array([(date.fromisoformat(d) - date.fromisoformat(dates[0])).days / 365.25 for d in dates])
+    a = np.asarray(ts, np.float64)
+    g = np.column_stack([t[:-1], np.ones(t.size - 1)])
+    coef = np.linalg.pinv(g) @ np.nan_to_num(a[:, :-1]).T                       # (2, n)
+    return a[:, -1] - (coef[0] * t[-1] + coef[1])
 
 
 def rules(project: ProjectLayout) -> list[dict]:
@@ -203,19 +217,35 @@ def evaluate(project: ProjectLayout, product: Path, cache_root: Path,
     rule_list = rules(project) if rule_list is None else rule_list
     if not rule_list:
         return []
-    attrs = points._arrays(str(points.ensure(product, cache_root)))[0]
+    folder = points.ensure(product, cache_root)
+    attrs, ts, _ = points._arrays(str(folder))
     lon, lat, vel = attrs["lon"], attrs["lat"], attrs["vel"].astype(np.float64)
+    dates = points.meta(folder)["dates"] if any(r["kind"].startswith("deviation") for r in rule_list) else []
+    dev = None
     out = []
     for r in rule_list:
-        m = np.isfinite(vel)
+        below = r["kind"].endswith("_below")
+        if r["kind"].startswith("deviation"):
+            if len(dates) <= MIN_DATES_DEVIATION:
+                out.append({**r, "product": product.name, "n": 0, "of": 0, "triggered": False,
+                            "note": f"fewer than {MIN_DATES_DEVIATION + 1} dates"})
+                continue
+            if dev is None:
+                dev = last_deviation(np.asarray(ts), dates)
+            val = dev
+        else:
+            val = vel
+        m = np.isfinite(val)
         if r.get("bbox"):
             w, s, e, n = r["bbox"]
             m &= (lon >= w) & (lon <= e) & (lat >= s) & (lat <= n)
-        hit = m & ((vel <= r["threshold"]) if r["kind"] == "velocity_below" else (vel >= r["threshold"]))
+        hit = m & ((val <= r["threshold"]) if below else (val >= r["threshold"]))
         k = int(hit.sum())
         res = {**r, "product": product.name, "n": k, "of": int(m.sum()), "triggered": k >= r["min_points"]}
+        if r["kind"].startswith("deviation"):
+            res["date"] = dates[-1]
         if k:
-            res.update({"worst": round(float(vel[hit].min() if r["kind"] == "velocity_below" else vel[hit].max()), 2),
+            res.update({"worst": round(float(val[hit].min() if below else val[hit].max()), 2),
                         "lon": round(float(np.mean(lon[hit])), 5), "lat": round(float(np.mean(lat[hit])), 5)})
         out.append(res)
     return out

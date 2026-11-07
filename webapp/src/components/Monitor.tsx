@@ -6,7 +6,7 @@ import { t, ts } from "../i18n";
 import { useApp } from "../state";
 import { Button, Chip, fmt, Panel } from "../ui";
 
-const field = "h-8 rounded-md border border-line-2 bg-[#0a1322] px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
+const field = "h-8 rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
 export function Monitor({ name }: { name: string }) {
@@ -64,7 +64,7 @@ export function Monitor({ name }: { name: string }) {
                     key={n.date + n.platform}
                     title={n.status === "planned" ? t("ESA plan: {mode} {pol} at {time}", { mode: n.mode ?? "", pol: n.polarisation ?? "", time: n.time ?? "" }) : n.status === "not planned" ? t("Not in ESA's plan: the satellite passes but does not acquire") : t("Beyond the published plan: repeat-cycle forecast")}
                     className={`rounded-md border px-2.5 py-1 text-[12.5px] ${
-                      n.status === "planned" ? "border-[#1f5c45] bg-[#0f2a1f]" : n.status === "not planned" ? "border-line bg-panel-2 text-faint line-through" : "border-line bg-panel-2"
+                      n.status === "planned" ? "border-good-line bg-good-bg" : n.status === "not planned" ? "border-line bg-panel-2 text-faint line-through" : "border-line bg-panel-2"
                     }`}
                   >
                     <span className="font-mono">{n.date}</span> <span className="text-muted">{n.platform}</span>
@@ -153,8 +153,8 @@ export function Monitor({ name }: { name: string }) {
             <table className="w-full min-w-[820px] text-[12.5px]">
               <thead>
                 <tr className="text-left text-muted">
-                  {["Name", "Condition", "mm/yr", "Min. points", "Area (W, S, E, N; empty = all)", "Latest product", ""].map((h) => (
-                    <th key={h} className="px-2 py-1.5 font-medium">{h && h !== "mm/yr" ? t(h) : h}</th>
+                  {["Name", "Condition", "mm/yr · mm", "Min. points", "Area (W, S, E, N; empty = all)", "Latest product", ""].map((h) => (
+                    <th key={h} className="px-2 py-1.5 font-medium">{h && h !== "mm/yr · mm" ? t(h) : h}</th>
                   ))}
                 </tr>
               </thead>
@@ -168,6 +168,8 @@ export function Monitor({ name }: { name: string }) {
                         <select className={field} value={r.kind} onChange={(e) => upd(i, { kind: e.target.value as AlertRule["kind"] })} aria-label={t("Condition")}>
                           <option value="velocity_below">{t("velocity ≤ (away)")}</option>
                           <option value="velocity_above">{t("velocity ≥ (toward)")}</option>
+                          <option value="deviation_below">{t("latest date vs trend ≤ (mm, away)")}</option>
+                          <option value="deviation_above">{t("latest date vs trend ≥ (mm, toward)")}</option>
                         </select>
                       </td>
                       <td className="px-2 py-2"><input type="number" step="any" className={`${field} w-20`} value={r.threshold} onChange={(e) => upd(i, { threshold: Number(e.target.value) })} aria-label={t("Threshold")} /></td>

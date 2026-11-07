@@ -32,13 +32,15 @@ from geoeyes.processing.atmosphere.weather import weather_aps
 from geoeyes.processing.phase_linking.runner import provenance as pl_provenance
 from geoeyes.processing.ps import candidates as cd
 from geoeyes.processing.ps.aps import centre_weather, choose_aps, inside_polygon, linear_aps
+from geoeyes.processing.ps.checkpoints import Checkpoints, pack_gamma, unpack_gamma
 from geoeyes.processing.ps.geometry import geolocate
-from geoeyes.processing.ps.params import engine_params, hoa_max_topo_err
+from geoeyes.processing.ps.params import DEFAULTS, auto_time_win, engine_params, hoa_max_topo_err
 from geoeyes.processing.ps.steps.correct_phase import correct_phase
 from geoeyes.processing.ps.steps.est_gamma import est_gamma
 from geoeyes.processing.ps.steps.load import load_initial
+from geoeyes.processing.ps.steps.ramp import RAMP_AUTO_VERSION, RampAutoParams, ramp_figure
 from geoeyes.processing.ps.steps.reference import reference_ps
-from geoeyes.processing.ps.steps.scla import calc_scla, smooth_scla
+from geoeyes.processing.ps.steps.scla import DerampAuto, calc_scla, smooth_scla
 from geoeyes.processing.ps.steps.scn_filt import scn_filt
 from geoeyes.processing.ps.steps.select import select
 from geoeyes.processing.ps.steps.unwrap import Scla, unwrap
@@ -86,15 +88,17 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
         amp_floor: str = "otsu", smooth_sigma: float = 28.0, edge_margin: int = 28, run_id: str = "",
         track_id: str = "", psrun_id: str = "", slc_var: str = "slc", ds_tcoh_min: float | None = None,
         ds_cell: int = 3, hoa_max_perp: float | None = None, weather=None,
-        resume_from: str | Path | None = None) -> dict:
+        resume_from: str | Path | None = None, from_step: int | None = None,
+        stop_after: int | None = None) -> dict:
     """``table``: StaMPS-named parameters (project ``[ps]``); missing keys take the legacy defaults;
     ``max_topo_err = "auto"``: median height of ambiguity / 4 (pairs with |B⊥| >= ``hoa_max_perp`` left out).
     ``weather`` (``atmosphere.weather.WeatherParams``): ERA5/GACOS APS removed in pass 2 instead of the linear one.
     ``slc_var``: ``slc_linked`` to run on the phase-linked stack; ``ds_tcoh_min`` then also takes distributed
     scatterers (best phase-linking temporal coherence per ``ds_cell``² block) as candidates.
-    Every run keeps its steps 1-5 in ``checkpoint_step5.pkl``; ``resume_from`` (a previous run folder) reuses
-    them and unwraps again (steps 6-8: unwrap, SCLA, APS, reference, velocity, SCN parameters may change; the
-    candidate / gamma / select / weed parameters and the stack must be the same)."""
+    Every step keeps a checkpoint (``checkpoints/``, see ``checkpoints.py``): a new run in the same folder resumes
+    from the last step whose parameters and stack are unchanged; ``from_step`` computes that step and the
+    following ones again, ``stop_after`` stops after that step (``PhasePaused``). ``resume_from`` (a previous run
+    folder) reuses its steps 1-5, which must exist with the same candidate / gamma / select / weed parameters."""
     t0 = time.time()
     out = Path(out_dir)
     (out / "figures").mkdir(parents=True, exist_ok=True)
@@ -108,7 +112,33 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
     wl = float(attrs["wavelength_m"])
     args = {"da_max": da_max, "amp_floor": amp_floor, "smooth_sigma": smooth_sigma, "edge_margin": edge_margin,
             "slc_var": slc_var, "ds_tcoh_min": ds_tcoh_min, "ds_cell": ds_cell, "stack": str(store.path)}
-    if resume_from is None:
+    resolved: dict[str, dict] = {}                   # parameters set from the data ("auto"): rule and value
+    mte_mode = str((table or {}).get("max_topo_err", "")).lower()
+    if mte_mode in ("auto", "auto_master"):
+        about_master = mte_mode == "auto_master"
+        mte = hoa_max_topo_err(ds["bperp"].values, wl, float(np.nanmedian(ds["geometry_slant_range"].values)),
+                               np.radians(float(np.nanmedian(ds["geometry_incidence"].values))), hoa_max_perp,
+                               about_master=about_master)
+        rule = ("median height of ambiguity / 4 (B⊥ about the master)" if about_master
+                else "median height of ambiguity / 4 (B⊥ about the stack median)")
+        table = {**table, "max_topo_err": mte}
+        resolved["max_topo_err"] = {"from": mte_mode, "rule": rule, "value": round(mte, 3)}
+        log.info("max_topo_err = %s = %.2f m", rule, mte)
+    if str((table or {}).get("unwrap_time_win", "")).lower() == "auto":
+        tw = auto_time_win([d.toordinal() for d in dates])
+        table = {**table, "unwrap_time_win": tw}
+        resolved["unwrap_time_win"] = {"from": "auto", "rule": "span / 4, at least 4 sampling intervals, 60-730 days",
+                                       "value": tw}
+        log.info("unwrap_time_win = span / 4 (at least 4 sampling intervals, 60-730) = %.0f days", tw)
+
+    # one checkpoint per step (checkpoints/): a run stopped or killed resumes from its last finished step
+    import dataclasses
+    lean = str((table or {}).get("checkpoints", "all")).lower() == "lean"
+    ck = Checkpoints(out, read_from=resume_from, from_step=from_step, stop_after=stop_after, lean=lean)
+    ck.key(1, args=args, stack=stack_identity(attrs, slc_var))
+    L = C = None
+
+    def step1():
         C = _candidates(ds, dates, mi, sec_ix, wl, args, log)
         L = load_initial(ij=np.column_stack([np.arange(C["n"]), C["r"], C["c"]]), lonlat=C["lonlat"], ph=C["ph"],
                          master=master, secondaries=secs, bperp_mat=C["bperp_mat"], inc=C["inc"],
@@ -116,26 +146,46 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                          da=C["da"], coh=C["coh"], log=log)
         for k in ("r", "c", "lonlat", "ph", "bperp_mat", "hgt", "da", "coh"):
             del C[k]                                 # kept in L
-        event(log, "progress", "step 1", stage="ps", done=2, total=9)
+        ck.save(1, {"L": L, "cand": C}, mean_range=C["mean_range"])
+        ck.reached(1)
+        return L, C
+
+    # the step-1 values the later keys need: from its .json (its data may be gone in a lean run)
+    rho = ck.meta(1).get("mean_range") if ck.known(1) else None
+    if rho is None:
+        L, C = step1()
+        rho = C["mean_range"]
+    prm = engine_params(table, wavelength=wl, rho=rho)
+    ck.key(2, est_gamma=prm.est_gamma)
+    ck.key(3, select=prm.select)
+    ck.key(4, weed=prm.weed)
+    ck.key(5)
+    # "auto" adds its own parts, so the keys of the "y" / "n" runs (and their checkpoints) are unchanged
+    ck.key(6, unwrap=prm.unwrap, reference=prm.reference, aps_non_defo=prm.aps_non_defo,
+           scla_deramp=prm.scla_deramp, legacy=prm.legacy, weather=weather,
+           **({"deramp_auto": RAMP_AUTO_VERSION, "deramp_non_defo": prm.deramp_non_defo,
+               "deramp_allow_planar": prm.deramp_allow_planar} if prm.deramp_auto else {}))
+    ck.key(7, two_pass=prm.two_pass)
+    if resume_from is not None and not ck.valid(5):
+        raise DataError(f"{resume_from}: no steps 1-5 checkpoint with these candidate / gamma / select / weed "
+                        "parameters on this stack; run without resume_from")
+    if ck.valid(5):
+        d = ck.load(5)
+        est = d["est"]
+        if L is None:
+            L, C = d["L"], d["cand"]
+            for n in range(1, 6):
+                ck.reached(n)
     else:
-        ck = load_checkpoint(Path(resume_from))
-        L, C = ck["L"], ck["cand"]
-        log.info("resumed from %s: steps 1-5 reused, unwrapping again", resume_from)
+        if L is None and ck.valid(1):
+            d = ck.load(1)
+            L, C = d["L"], d["cand"]
+            ck.reached(1)
+        elif L is None:                              # lean run: step 1 deleted, step 5 not reusable
+            L, C = step1()
+        ck.extra = {"L": dataclasses.replace(L, ph=np.zeros((0, 0), np.complex64)), "cand": C}
+        est = estimate(L, prm, ck)
     inc, rng, is_ds = C["inc"], C["rng"], C["is_ds"]
-    if str((table or {}).get("max_topo_err", "")).lower() == "auto":
-        mte = hoa_max_topo_err(ds["bperp"].values, wl, float(np.nanmedian(ds["geometry_slant_range"].values)),
-                               np.radians(float(np.nanmedian(ds["geometry_incidence"].values))), hoa_max_perp)
-        table = {**table, "max_topo_err": mte}
-        log.info("max_topo_err = median height of ambiguity / 4 = %.2f m", mte)
-    prm = engine_params(table, wavelength=wl, rho=C["mean_range"])
-    fingerprint = sha256_params({"args": args, "est_gamma": repr(prm.est_gamma), "select": repr(prm.select),
-                                 "weed": repr(prm.weed)})
-    est = None
-    if resume_from is not None:
-        if ck["fingerprint"] != fingerprint:
-            raise DataError(f"{resume_from}: steps 1-5 were run with other candidate / gamma / select / weed "
-                            "parameters or another stack; run without resume_from")
-        est = ck["est"]
     aps_model = None
     if weather is not None:
         times = acquisition_times(dict(attrs), dates, weather.fallback_utc)
@@ -144,18 +194,21 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
             return weather_aps(weather, lon=L.lonlat[ix, 0], lat=L.lonlat[ix, 1], hgt=L.hgt[ix],
                                incidence=inc[L.cand_ix[ix]], times=times, master_ix=L.master_ix, wavelength=wl)
     P = process(L, prm, wl, aps_model=aps_model, aps_select=weather.select if weather is not None else "auto",
-                est=est)
-    if resume_from is None:
-        import dataclasses
-        e = P.estimated
-        none = np.zeros((0, 0), np.complex64)        # arrays only steps 2-5 read
-        save_checkpoint(out, {"L": dataclasses.replace(L, ph=none), "cand": C, "fingerprint": fingerprint,
-                              "est": Estimated(None, dataclasses.replace(e.select, ph_patch2=none, ph_res2=none),
-                                               dataclasses.replace(e.weed, ph_res=none),
-                                               dataclasses.replace(e.correct, ph_reref=none))})
+                est=est, ck=ck)
     s, w, ix, u, aps, sc, sm, vel, scn = P.select, P.weed, P.ix, P.unwrapped, P.aps, P.scla, P.scla_smooth, \
         P.velocity, P.scn
     bp_ix, hgt_ix = L.bperp_mat[ix], L.hgt[ix]
+    try:                                            # the wrapped phase the last pass unwrapped (Stack tab)
+        from geoeyes.processing.stack.qc import unwrap_grid_qc
+        drop = {d - 1 for d in prm.unwrap.drop_ifg_index}
+        uw_idx = [k for k in range(len(dates)) if k not in drop]
+        q = unwrap_grid_qc(u.grid, [d.isoformat() for d in dates], L.master_ix, uw_idx, out / "qc",
+                           label=f"pass {'2' if prm.two_pass else '1'}, grid {prm.unwrap.grid_size:g} m, "
+                                 f"prefilter {prm.unwrap.prefilter}")
+        log.info("unwrapping input: %d cells; phase jumps > pi/2 between neighbours %s", q["cells"],
+                 " ".join(f"{r['jump_frac']:.2f}" for r in q["dates"] if r["jump_frac"] is not None))
+    except Exception as exc:                        # the images never fail the run
+        log.warning("unwrapping input images not written: %s", exc)
 
     # ---------------------------------------------------------------- outputs
     line, sample = L.ij[ix, 1], L.ij[ix, 2]
@@ -191,6 +244,7 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
         "type": np.where(is_ds[orig][sel], "DS", "PS"),
         "vel_los_mm_yr": vel.v[sel].astype(np.float32), "vel_linear_mm_yr": vel.v_linear[sel].astype(np.float32),
         "vel_los_scn_mm_yr": P.velocity_scn.v[sel].astype(np.float32),
+        **{f"vel_{k}_mm_yr": v[sel].astype(np.float32) for k, v in (P.velocity_kinds or {}).items()},
         "acc_mm_yr2": vel.acc[sel].astype(np.float32), "temporal_coherence": w.coh[sel].astype(np.float32),
         "amp_dispersion": L.da[ix][sel].astype(np.float32), "fit_rmse_mm": vel.rmse[sel].astype(np.float32),
         "incidence_deg": np.degrees(inc_ps[sel]).astype(np.float32)},
@@ -206,6 +260,15 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                     ref=is_ref[sel] if P.ref_ps is not None else None, title=f"{track_id} {len(sel)} PS",
                     ifg_dates=secs, aps=np.delete(aps, L.master_ix, 1), aps_linear=np.delete(P.aps_linear,
                     L.master_ix, 1), aps_choice=P.aps_choice, epoch_dates=dates, ifg_std=P.ifg_std)
+    ramp = None
+    if sc.ramp_auto is not None:
+        ramp = sc.ramp_auto.summary()
+        log.info("ramp (scla_deramp auto): rest removed; trend %s (%s)",
+                 "removed" if ramp["trend_removed"] else "kept", ramp["reason"])
+        try:
+            figs.append(ramp_figure(sc.ramp_auto, secs, out / "figures" / "ramp.png", title=track_id))
+        except Exception as exc:                    # the images never fail the run
+            log.warning("ramp figure not written: %s", exc)
     v = vel.v[sel]
     summary = {"engine": ENGINE, "reference_date": master.isoformat(), "epochs": len(dates),
                "ps": {"candidates": C["n"], "ds_candidates": int(is_ds.sum()), "selected": int(s.keep_ix.sum()),
@@ -217,11 +280,15 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
                         if P.aps_choice is not None else "all"}),
                "reference": ({"n_ps": int(P.ref_ps.size), "lat": float(np.mean(lat_ps[P.ref_ps])),
                               "lon": float(np.mean(lon_ps[P.ref_ps]))} if P.ref_ps is not None else "scene mean"),
+               **({"ramp": ramp} if ramp is not None else {}),
                "velocity_mm_yr": {"min": float(np.nanmin(v)), "max": float(np.nanmax(v)),
                                   "p02": float(np.nanpercentile(v, 2)), "median": float(np.nanmedian(v)),
                                   "p98": float(np.nanpercentile(v, 98))},
                "runtime_s": round(time.time() - t0, 1)}
-    params_snapshot = {"table": table or {}, "da_max": da_max, "amp_floor": amp_floor, "smooth_sigma": smooth_sigma,
+    # "table": the [ps] keys of the project (data-set values in place of "auto"); "effective": every parameter the
+    # engine used (defaults included), what the report and the settings page show
+    params_snapshot = {"table": table or {}, "effective": {**DEFAULTS, **(table or {})}, "resolved": resolved,
+                       "da_max": da_max, "amp_floor": amp_floor, "smooth_sigma": smooth_sigma,
                        "edge_margin": edge_margin, "slc_var": slc_var, "ds_tcoh_min": ds_tcoh_min, "ds_cell": ds_cell}
     atomic_write_json(out / "params.json", params_snapshot)
     m = Manifest(kind="ps_run", id=psrun_id or out.name, run_id=run_id, engine=ENGINE,
@@ -236,35 +303,23 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
     return summary
 
 
-CHECKPOINT = "checkpoint_step5.pkl"
-
-
-def save_checkpoint(out: Path, data: dict) -> Path:
-    """Steps 1-5 state of a run (to unwrap again with other parameters: ``run(..., resume_from=out)``)."""
-    import pickle
-    p = Path(out) / CHECKPOINT
-    tmp = p.with_suffix(".part")
-    with open(tmp, "wb") as f:
-        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    tmp.replace(p)
-    return p
-
-
-def load_checkpoint(run_dir: Path) -> dict:
-    """The checkpoint a previous run wrote in ``run_dir`` (written by this engine; not for untrusted files)."""
-    import pickle
-    p = Path(run_dir) / CHECKPOINT
-    if not p.exists():
-        raise DataError(f"{run_dir}: no {CHECKPOINT} (run the full engine first)")
-    with open(p, "rb") as f:
-        return pickle.load(f)
+def stack_identity(attrs, slc_var: str) -> dict:
+    """What makes step 1 differ on the same stack path: a rebuilt stack, phase linking run again."""
+    from geoeyes.processing.phase_linking.runner import DONE_ATTR
+    return {"build": attrs.get("build_fingerprint"), "scenes": attrs.get("scene_signatures"),
+            "phase_linking": attrs.get(DONE_ATTR) if slc_var == "slc_linked" else None}
 
 
 def _candidates(ds, dates, mi, sec_ix, wl, args, log) -> dict:
     """D_A (+ DS) candidates of the stack with their phase, geometry and prior coherence."""
-    slc = ds[args["slc_var"]].values
+    # one date at a time (the stack is chunked per date): the whole (n_date, rows, cols) stack is not held in memory
+    var = ds[args["slc_var"]]
+
+    def slc(k: int) -> np.ndarray:
+        return np.asarray(var[k].values)
+
     da_max, ds_tcoh_min, ds_cell = args["da_max"], args["ds_tcoh_min"], args["ds_cell"]
-    disp = cd.amplitude_dispersion(lambda k, a=slc: np.abs(a[k]), len(dates), smooth_sigma=args["smooth_sigma"],
+    disp = cd.amplitude_dispersion(lambda k: np.abs(slc(k)), len(dates), smooth_sigma=args["smooth_sigma"],
                                    edge_margin=args["edge_margin"])
     floor = cd.otsu_amplitude_floor(disp.raw_mean_amp) if args["amp_floor"] == "otsu" else None
     r, c, da = cd.select(disp, da_max, floor)
@@ -286,15 +341,21 @@ def _candidates(ds, dates, mi, sec_ix, wl, args, log) -> dict:
     from geoeyes.geometry.dem import Geoid
     h_ell = ds["geometry_hgt"].values[r, c].astype(np.float64)
     hgt = (h_ell - Geoid().undulation(lonlat[:, 1], lonlat[:, 0])).astype(np.float32)
-    ph = np.stack([slc[mi][r, c] * np.conj(slc[k][r, c]) for k in sec_ix], axis=1).astype(np.complex64)
-    coh_ifg = np.stack([cd.pair_coherence(slc[mi], slc[k], r, c) for k in sec_ix], axis=1)
+    m = slc(mi)
+    ph = np.empty((r.size, len(sec_ix)), np.complex64)
+    coh_cols = []
+    for j, k in enumerate(sec_ix):
+        s = slc(k)
+        ph[:, j] = m[r, c] * np.conj(s[r, c])
+        coh_cols.append(cd.pair_coherence(m, s, r, c))
+    del m, s
+    coh_ifg = np.stack(coh_cols, axis=1)
     coh = cd.prior_coherence(coh_ifg, ph)
     rng = ds["geometry_slant_range"].values[r, c].astype(np.float64)
     inc = np.radians(ds["geometry_incidence"].values[r, c].astype(np.float64))
-    kh = ds["kh"].values[:, r, c].astype(np.float64)
+    kh = np.stack([np.asarray(ds["kh"][k].values)[r, c] for k in range(len(dates))]).astype(np.float64)
     # topographic phase kh·dh = K·B⊥  with  kh = -4π B⊥ / (λ R sinθ)
     bperp_mat = -(kh[sec_ix] - kh[mi]).T * wl * (rng * np.sin(inc))[:, None] / (4 * np.pi)
-    del slc
     log.info("candidates: %d (D_A <= %s, amplitude floor %s)", r.size, da_max,
              "none" if floor is None else f"{floor:.3f}")
     event(log, "progress", "candidates", stage="ps", done=1, total=9)
@@ -318,6 +379,7 @@ class Processed:
     aps_linear: np.ndarray | None = None
     aps_choice: np.ndarray | None = None   # (n_sec,) weather APS used (aps_select "auto")
     velocity_scn: Any = None                # velocity with the SCN removed as well (StaMPS v-dso)
+    velocity_kinds: dict | None = None      # {"do", "dao", "dso"}: the StaMPS velocity kinds (mm/yr per PS)
     ifg_std: np.ndarray | None = None       # (n_ifg,) step-5 phase noise per epoch, degrees
     estimated: Any = None                   # Estimated (steps 2-5), what a checkpoint keeps
 
@@ -331,31 +393,68 @@ class Estimated:
     correct: Any
 
 
-def estimate(L, prm) -> Estimated:
-    """Steps 2-5 on the step-1 state ``L``: estimate gamma, select, weed, correct phase."""
-    g = est_gamma(ph=L.ph, bperp=L.bperp, bperp_mat=L.bperp_mat, master_ix=L.master_ix, xy=L.xy, la=L.la, da=L.da,
-                  coh_prior=L.coh, params=prm.est_gamma)
-    event(log, "progress", "step 2", stage="ps", done=3, total=9)
-    s = select(ph=L.ph, bperp=L.bperp, bperp_mat=L.bperp_mat, master_ix=L.master_ix, xy=L.xy, forced=L.forced,
-               da=L.da, gamma=g, params=prm.select)
-    event(log, "progress", "step 3", stage="ps", done=4, total=9)
-    w = weed(ph=L.ph, bperp=L.bperp, day=L.day, master_ix=L.master_ix, xy=L.xy, ij=L.ij, forced=L.forced,
-             hgt=L.hgt, ph_patch=g.ph_patch, sel=s, params=prm.weed)
+def _reached(ck, n: int) -> None:
+    if ck is None:
+        event(log, "progress", f"step {n}", stage="ps", done=n + 1, total=9)
+    else:
+        ck.reached(n)
+
+
+def estimate(L, prm, ck: Checkpoints | None = None) -> Estimated:
+    """Steps 2-5 on the step-1 state ``L``: estimate gamma, select, weed, correct phase; ``ck``: resumed from the
+    latest valid checkpoint of steps 2-4, each step computed here saved."""
+    import dataclasses
+    h = max((n for n in (2, 3, 4) if ck is not None and ck.valid(n)), default=1)
+    g = s = w = ph_patch = None
+    if h == 4:
+        d = ck.load(4)
+        s, w = d["s"], d["w"]
+    elif h == 3:
+        d = ck.load(3)
+        s, ph_patch = d["s"], d["ph_patch"]
+    elif h == 2:
+        g = unpack_gamma(ck.load(2))
+    for n in range(2, h + 1):
+        _reached(ck, n)
+    if h < 2:
+        g = est_gamma(ph=L.ph, bperp=L.bperp, bperp_mat=L.bperp_mat, master_ix=L.master_ix, xy=L.xy, la=L.la,
+                      da=L.da, coh_prior=L.coh, params=prm.est_gamma)
+        if ck is not None:
+            ck.save(2, pack_gamma(g))
+        _reached(ck, 2)
+    if h < 3:
+        s = select(ph=L.ph, bperp=L.bperp, bperp_mat=L.bperp_mat, master_ix=L.master_ix, xy=L.xy, forced=L.forced,
+                   da=L.da, gamma=g, params=prm.select)
+        ph_patch = g.ph_patch
+        if ck is not None:
+            ck.save(3, {"s": s, "ph_patch": ph_patch})
+        _reached(ck, 3)
+    if h < 4:
+        w = weed(ph=L.ph, bperp=L.bperp, day=L.day, master_ix=L.master_ix, xy=L.xy, ij=L.ij, forced=L.forced,
+                 hgt=L.hgt, ph_patch=ph_patch, sel=s, params=prm.weed)
+        if ck is not None:
+            ck.save(4, {"s": s, "w": w})
+        _reached(ck, 4)
     log.info("PS: %d candidates -> %d selected -> %d after weeding", L.n_ps, int(s.keep_ix.sum()), w.ix.size)
     cp = correct_phase(ph=L.ph[w.ix], bperp_mat=L.bperp_mat[w.ix], K=w.K, C=w.C, ph_patch=w.ph_patch,
                        master_ix=L.master_ix)
-    event(log, "progress", "steps 4-5", stage="ps", done=5, total=9)
+    if ck is not None:
+        none = np.zeros((0, 0), np.complex64)        # arrays only steps 2-5 read
+        ck.save(5, {"est": Estimated(None, dataclasses.replace(s, ph_patch2=none, ph_res2=none),
+                                     dataclasses.replace(w, ph_res=none), dataclasses.replace(cp, ph_reref=none))})
+    _reached(ck, 5)
     return Estimated(g, s, w, cp)
 
 
 def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = None, scn_method: str = "grid",
-            aps_model=None, aps_select: str = "auto", est: Estimated | None = None) -> Processed:
+            aps_model=None, aps_select: str = "auto", est: Estimated | None = None,
+            ck: Checkpoints | None = None) -> Processed:
     """Steps 2-8 on the step-1 state ``L`` (``est``: steps 2-5 already done, e.g. from a checkpoint): estimate
     gamma, select, weed, correct phase, unwrap (pass 1, linear APS, SCLA; pass 2 with SCLA + APS removed when
     ``prm.two_pass``), SCLA, velocity, SCN. ``aps_model(ix)``: weather-model APS (len(ix), n_ifg) of the weeded
     PS; ``aps_select`` "auto": used for the interferograms where it explains the pass-1 residual phase better than
     the linear APS, "all": for every interferogram (the linear APS where it has no data)."""
-    est = est or estimate(L, prm)
+    est = est or estimate(L, prm, ck)
     g, s, w, cp = est.gamma, est.select, est.weed, est.correct
     ix = w.ix
 
@@ -372,44 +471,93 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
         if aps_mask.sum() < 10:
             log.warning("fewer than 10 PS in the non-deforming area: linear APS fitted on all PS")
             aps_mask = None
-    u = unwrap(**common)
-    aps_lin = aps = linear_aps(u.ph_uw, hgt_ix, L.master_ix, fit_mask=aps_mask)
-    aps_choice = None
-    if aps_model is not None:
-        wm = centre_weather(u.ph_uw, np.asarray(aps_model(ix), np.float64), L.master_ix, fit_mask=aps_mask)
-        if aps_select == "auto":
-            aps, aps_choice, var = choose_aps(u.ph_uw, wm, aps_lin, np.delete(day_rel, L.master_ix), bp_ix,
-                                              L.master_ix)
-            ifgs = np.delete(L.day, L.master_ix)
-            for k, d in enumerate(ifgs):
-                log.info("APS %s: %s (residual %.2f, - weather %.2f, - linear %.2f rad2)",
-                         date.fromordinal(int(d)), "weather" if aps_choice[k] else "linear", *var[:, k])
-            log.info("weather APS chosen for %d of %d interferograms", int(aps_choice.sum()), aps_choice.size)
-        else:
-            filled = ~np.isfinite(wm)
-            aps = np.where(filled, aps_lin, wm)
-            log.info("weather APS used for %.1f %% of the values (linear APS elsewhere)",
-                     100.0 * (1.0 - filled[:, np.arange(wm.shape[1]) != L.master_ix].mean()))
-    sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix,
-                   deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref)
-    event(log, "progress", "pass 1", stage="ps", done=6, total=9)
-    if prm.two_pass:
-        sm = smooth_scla(sc, xy_ix, bp_ix)
-        u = unwrap(**common, scla=Scla(sm.K_uw, sm.C_uw, sm.ph_ramp if sm.ph_ramp.size else None), aps=aps)
-        sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix, aps=aps,
-                       deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref)
+    auto = None
+    if prm.deramp_auto:
+        stable = None
+        if prm.deramp_non_defo is not None:
+            stable = inside_polygon(L.lonlat[ix], prm.deramp_non_defo)
+            log.info("ramp auto: %d PS inside deramp_non_defo", int(stable.sum()))
+        wts = None
+        if not prm.legacy and cp.ifg_std is not None:
+            std = np.delete(np.asarray(cp.ifg_std, np.float64).ravel(), L.master_ix)
+            wts = 1.0 / np.maximum(std * np.pi / 180.0, 1e-6) ** 2      # as the velocity fit
+        auto = DerampAuto(t=np.delete(day_rel, L.master_ix) / 365.25, mm_per_rad=-wavelength / (4 * np.pi) * 1000.0,
+                          weights=wts, stable_mask=stable,
+                          params=RampAutoParams(allow_planar=prm.deramp_allow_planar))
+    # steps 6 and 7 (the unwrapping passes): resumed from their checkpoints when valid
+    h = max((n for n in (6, 7) if ck is not None and ck.valid(n)), default=5)
+    if h >= 6:
+        d = ck.load(h)
+        u, sc, aps_lin, aps, aps_choice = d["u"], d["sc"], d["aps_lin"], d["aps"], d["aps_choice"]
+        del d
+        for n in range(6, h + 1):
+            _reached(ck, n)
+    else:
+        u = unwrap(**common)
+        aps_lin = aps = linear_aps(u.ph_uw, hgt_ix, L.master_ix, fit_mask=aps_mask)
+        aps_choice = None
+        if aps_model is not None:
+            wm = centre_weather(u.ph_uw, np.asarray(aps_model(ix), np.float64), L.master_ix, fit_mask=aps_mask)
+            if aps_select == "auto":
+                aps, aps_choice, var = choose_aps(u.ph_uw, wm, aps_lin, np.delete(day_rel, L.master_ix), bp_ix,
+                                                  L.master_ix)
+                ifgs = np.delete(L.day, L.master_ix)
+                for k, d in enumerate(ifgs):
+                    log.info("APS %s: %s (residual %.2f, - weather %.2f, - linear %.2f rad2)",
+                             date.fromordinal(int(d)), "weather" if aps_choice[k] else "linear", *var[:, k])
+                log.info("weather APS chosen for %d of %d interferograms", int(aps_choice.sum()), aps_choice.size)
+            else:
+                filled = ~np.isfinite(wm)
+                aps = np.where(filled, aps_lin, wm)
+                log.info("weather APS used for %.1f %% of the values (linear APS elsewhere)",
+                         100.0 * (1.0 - filled[:, np.arange(wm.shape[1]) != L.master_ix].mean()))
+        sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix,
+                       deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref, auto=auto)
+        if ck is not None:
+            ck.save(6, {"u": u, "sc": sc, "aps_lin": aps_lin, "aps": aps, "aps_choice": aps_choice})
+        _reached(ck, 6)
+    if h < 7:
+        if prm.two_pass:
+            sm = smooth_scla(sc, xy_ix, bp_ix)
+            # "auto": the ramp is removed after the unwrapping only (velocity, SCN). Taken out of the wrapped phase
+            # it flipped the cycle of weakly connected areas (ramp-selection.md §5.3). "y" keeps StaMPS' order.
+            keep_ramp = sm.ph_ramp.size and auto is None
+            scla1 = Scla(sm.K_uw, sm.C_uw, sm.ph_ramp if keep_ramp else None)
+            del u, sc, sm                            # pass 1 is in its checkpoint: its arrays are not kept for pass 2
+            u = unwrap(**common, scla=scla1, aps=aps)
+            # "auto": the pass-1 SCLA is taken out of the phase the ramp is estimated on (ramp-selection.md §5.3)
+            sc = calc_scla(ph_uw=u.ph_uw, bperp_mat=bp_ix, ifgday=L.ifgday, master_ix=L.master_ix, xy=xy_ix,
+                           aps=aps, deramp_scla=prm.scla_deramp, legacy=prm.legacy, ref_ps=ref, auto=auto,
+                           scla_k_prior=scla1.K_uw if auto is not None else None)
+        if ck is not None:
+            ck.save(7, {"u": u, "sc": sc, "aps_lin": aps_lin, "aps": aps, "aps_choice": aps_choice})
+        _reached(ck, 7)
+    # the unwrapping is done: the arrays only it read are dropped (GBs on millions of PS) before step 8
+    import dataclasses
+    none = np.zeros((0, 0), np.complex64)
+    del common
+    w = est.weed = dataclasses.replace(w, ph_patch=none)
+    cp = est.correct = dataclasses.replace(cp, ph_rc=none, ph_reref=none)
     sm = smooth_scla(sc, xy_ix, bp_ix)
-    event(log, "progress", "pass 2", stage="ps", done=7, total=9)
-    vel = velocity(ph_uw=u.ph_uw, scla=sc, aps=aps if prm.two_pass else None, ifgday=L.ifgday, day=L.day,
-                   master_ix=L.master_ix, xy=xy_ix, lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength,
-                   deramp=prm.scla_deramp, ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy,
-                   demean=ref is None and not prm.legacy)
-    if ref is not None:
-        # velocity and time series are linear in the phase: referencing the phase to the reference PS (StaMPS
-        # ps_setref) shifts them by the reference mean; the high-pass correction removes a plane, so it stays
-        off = float(np.nanmean(vel.v_linear[ref]))
-        vel.v, vel.v_linear = vel.v - off, vel.v_linear - off
-        vel.ts_mm = (vel.ts_mm - np.nanmean(vel.ts_mm[ref], axis=0)).astype(np.float32)
+    def _vel(ph, with_aps: bool):
+        v = velocity(ph_uw=ph, scla=sc, aps=aps if with_aps else None, ifgday=L.ifgday, day=L.day,
+                     master_ix=L.master_ix, xy=xy_ix, lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength,
+                     deramp=prm.scla_deramp, ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy,
+                     demean=ref is None and not prm.legacy)
+        if ref is not None:
+            # velocity and time series are linear in the phase: referencing the phase to the reference PS (StaMPS
+            # ps_setref) shifts them by the reference mean; the high-pass correction removes a plane, so it stays
+            off = float(np.nanmean(v.v_linear[ref]))
+            v.v, v.v_linear = v.v - off, v.v_linear - off
+            v.ts_mm = (v.ts_mm - np.nanmean(v.ts_mm[ref], axis=0)).astype(np.float32)
+        return v
+
+    vel = _vel(u.ph_uw, prm.two_pass)
+    # the StaMPS velocity kinds, for the user to choose on the map: v-do (DEM error and orbit ramps removed),
+    # v-dao (+ the APS), v-dso (+ the SCN, no APS); the product velocity is v-dao with the APS ("subtr_tropo"),
+    # else v-do
+    other = _vel(u.ph_uw, not prm.two_pass).v
+    kinds = {"do": other if prm.two_pass else vel.v, "dao": vel.v if prm.two_pass else other}
     scn = scn_filt(ph_uw=u.ph_uw, ph_scla=sc.ph_scla, C_uw=sc.C_uw, ph_ramp=sc.ph_ramp, day=L.day,
                    master_ix=L.master_ix, xy=xy_ix, filter_xy=None if scn_filter_xy is None else scn_filter_xy[ix],
                    time_win=prm.scn_time_win, wavelength=prm.scn_wavelength, method=scn_method,
@@ -417,7 +565,9 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
     # StaMPS "v-dso": SCN removed too (referenced to the reference PS / the scene mean instead of PS 0); no
     # high-pass correction, the SCN is that noise
     scn_ref = np.nanmean(scn.ph_scn[ref if ref is not None else slice(None)], axis=0)
-    vel_scn = velocity(ph_uw=u.ph_uw - (scn.ph_scn - scn_ref), scla=sc, aps=aps if prm.two_pass else None,
+    ph_dso = scn.ph_scn - scn_ref
+    np.subtract(u.ph_uw, ph_dso, out=ph_dso)                      # φ - (SCN - ref) in one buffer
+    vel_scn = velocity(ph_uw=ph_dso, scla=sc, aps=aps if prm.two_pass else None,
                        ifgday=L.ifgday, day=L.day, master_ix=L.master_ix, xy=xy_ix, lonlat=L.lonlat[ix], hgt=hgt_ix,
                        wavelength=wavelength, deramp=prm.scla_deramp,
                        ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy, highpass=False,
@@ -425,10 +575,19 @@ def process(L, prm, wavelength: float, *, scn_filter_xy: np.ndarray | None = Non
     if ref is not None:
         vel_scn.v = vel_scn.v - float(np.nanmean(vel_scn.v[ref]))
         vel_scn.ts_mm = (vel_scn.ts_mm - np.nanmean(vel_scn.ts_mm[ref], axis=0)).astype(np.float32)
-    event(log, "progress", "steps 7-8", stage="ps", done=8, total=9)
+    if prm.two_pass:
+        # StaMPS v-dso keeps the APS in: the SCN estimate holds the atmosphere already
+        dso = velocity(ph_uw=ph_dso, scla=sc, aps=None, ifgday=L.ifgday, day=L.day, master_ix=L.master_ix, xy=xy_ix,
+                       lonlat=L.lonlat[ix], hgt=hgt_ix, wavelength=wavelength, deramp=prm.scla_deramp,
+                       ifg_std_deg=None if prm.legacy else cp.ifg_std, legacy=prm.legacy, highpass=False,
+                       demean=ref is None and not prm.legacy).v
+        kinds["dso"] = dso - float(np.nanmean(dso[ref])) if ref is not None else dso
+    else:
+        kinds["dso"] = vel_scn.v
+    del ph_dso
     return Processed(gamma=g, select=s, weed=w, ix=ix, unwrapped=u, aps=aps, scla=sc, scla_smooth=sm, velocity=vel,
                      scn=scn, ref_ps=ref, aps_linear=aps_lin, aps_choice=aps_choice, velocity_scn=vel_scn,
-                     ifg_std=cp.ifg_std, estimated=est)
+                     ifg_std=cp.ifg_std, estimated=est, velocity_kinds=kinds)
 
 
 def _velocity_map(path: Path, lat, lon, v, title: str, ref=None, lim=None) -> Path:

@@ -24,7 +24,8 @@ def test_monthly_grid_caches_complete_months(monkeypatch, tmp_path):
         ny, nx = round((box[3] - box[1]) / gw.RES), round((box[2] - box[0]) / gw.RES)
         return _daily(first, min(last, date(2024, 3, 10)), (ny, nx))     # March 2024 not complete yet
 
-    monkeypatch.setattr(gw, "_harmony_daily", fake)
+    monkeypatch.setattr(gw, "_opendap_daily", fake)
+    monkeypatch.setattr(gw, "_harmony_daily", lambda *a, **k: (_ for _ in ()).throw(AssertionError("Harmony is the fallback only")))
     g = gw.monthly_grid(tmp_path, [105.7, 20.9, 105.95, 21.15], date(2024, 1, 1), date(2024, 3, 1), "tok")
     assert g.mm.shape == (3, 2, 2) and g.west == 105.5 and g.north == 21.25
     assert np.isfinite(g.mm[:2]).all() and np.isnan(g.mm[2]).all()

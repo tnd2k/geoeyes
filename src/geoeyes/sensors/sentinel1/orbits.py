@@ -18,6 +18,7 @@ from pathlib import Path
 
 import requests
 
+from geoeyes.core import netrate
 from geoeyes.core.errors import DataError
 from geoeyes.geometry.orbit import StateVectors
 
@@ -79,6 +80,7 @@ class PoeorbProvider:
             r.raise_for_status()
             tmp = p.with_suffix(".part")
             tmp.write_bytes(r.content)
+            netrate.add(len(r.content))
             tmp.replace(p)
             log.info("downloaded orbit %s", name)
         return p

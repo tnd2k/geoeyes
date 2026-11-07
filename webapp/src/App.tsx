@@ -1,27 +1,70 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./api";
 import { ProjectTree } from "./components/ProjectTree";
-import { Explorer } from "./pages/Explorer";
-import { Compose } from "./pages/Compose";
-import { Ai } from "./pages/Ai";
-import { Hazard } from "./pages/Hazard";
-import { Learn } from "./pages/Learn";
-import { NewProject } from "./pages/NewProject";
-import { Overview } from "./pages/Overview";
-import { Project } from "./pages/Project";
 import { LangSwitch, t, ts } from "./i18n";
 import { ActivityWatcher, Bell } from "./notify";
+import { useWorkspaceLive, useWorkspaceStream } from "./live";
 import { href, useApp } from "./state";
+import { ThemeSwitch } from "./theme";
+import { AskHost, PageSkeleton } from "./ui";
+import { PageTabs } from "./components/PageTabs";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import type { Route } from "./state";
+
+// each page in its own chunk: the first load no longer parses the map engine, the charts and every Learn chapter
+const Explorer = lazy(() => import("./pages/Explorer").then((m) => ({ default: m.Explorer })));
+const Compose = lazy(() => import("./pages/Compose").then((m) => ({ default: m.Compose })));
+const Ai = lazy(() => import("./pages/Ai").then((m) => ({ default: m.Ai })));
+const Hazard = lazy(() => import("./pages/Hazard").then((m) => ({ default: m.Hazard })));
+const Learn = lazy(() => import("./pages/Learn").then((m) => ({ default: m.Learn })));
+const NewProject = lazy(() => import("./pages/NewProject").then((m) => ({ default: m.NewProject })));
+const Coop = lazy(() => import("./pages/Coop").then((m) => ({ default: m.Coop })));
+const OpenData = lazy(() => import("./pages/OpenData").then((m) => ({ default: m.OpenData })));
+const Overview = lazy(() => import("./pages/Overview").then((m) => ({ default: m.Overview })));
+const Project = lazy(() => import("./pages/Project").then((m) => ({ default: m.Project })));
+
+// the tabs of the Projects page and of the In-depth analysis page
+const PROJECT_TABS: [Route["page"], string][] = [
+  ["overview", "My projects"],
+  ["opendata", "Open data"],
+  ["coop", "Source Cooperative"],
+];
+const INSIGHT_TABS: [Route["page"], string][] = [
+  ["hazard", "Thematic analysis"],
+  ["ai", "Machine learning research"],
+  ["learn", "Principles"],
+];
 
 function Logo() {
   return (
-    <svg width="24" height="24" viewBox="0 0 26 26" fill="none" stroke="#4cc2ff" strokeWidth="1.8" aria-hidden>
+    <svg width="24" height="24" viewBox="0 0 26 26" fill="none" stroke="var(--c-accent)" strokeWidth="1.8" aria-hidden>
       <circle cx="13" cy="13" r="11" />
       <ellipse cx="13" cy="13" rx="5" ry="11" />
       <path d="M2 13h22" />
     </svg>
   );
+}
+
+const LAST_PROJECT = "geoeyes.lastProject";
+function rememberProject(name: string) {
+  try {
+    if (localStorage.getItem(LAST_PROJECT) !== name) localStorage.setItem(LAST_PROJECT, name);
+  } catch {
+    /* storage blocked: the item then only shows while a project is open or running */
+  }
+}
+function recalledProject(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT);
+  } catch {
+    return null;
+  }
+}
+
+// a page's code chunk loading: its skeleton, the same as while its data loads
+function PageLoading() {
+  return <PageSkeleton />;
 }
 
 function Login({ onDone }: { onDone: () => void }) {
@@ -50,10 +93,10 @@ function Login({ onDone }: { onDone: () => void }) {
           value={token}
           onChange={(e) => setToken(e.target.value)}
           aria-label={t("Login token")}
-          className="mt-4 h-10 w-full rounded-md border border-line-2 bg-[#0a1322] px-3 font-mono text-[13px] focus:border-accent focus:outline-none"
+          className="mt-4 h-10 w-full rounded-md border border-line-2 bg-sunken px-3 font-mono text-[13px] focus:border-accent focus:outline-none"
         />
         {error && <div className="mt-2 text-[12.5px] text-bad">{error}</div>}
-        <button type="submit" className="mt-4 h-10 w-full rounded-lg bg-accent-2 text-[14px] font-semibold text-white hover:bg-[#4b9dff]">
+        <button type="submit" className="mt-4 h-10 w-full rounded-lg bg-accent-2 text-[14px] font-semibold text-white hover:brightness-110">
           {t("Sign in")}
         </button>
       </form>
@@ -77,24 +120,40 @@ export function App() {
 
 function Shell() {
   const { route } = useApp();
-  const [treeOpen, setTreeOpen] = useState(true);
+  // a narrow window opens without the tree (it covers the page there); below md it also closes after each navigation
+  const [treeOpen, setTreeOpen] = useState(() => window.innerWidth >= 1024);
+  useEffect(() => {
+    if (window.innerWidth < 768) setTreeOpen(false);
+  }, [route]);
+  // pushed by the server while its event stream is up; polled otherwise
+  useWorkspaceStream();
+  const live = useWorkspaceLive();
   const ws = useQuery({
     queryKey: ["workspace"],
     queryFn: api.workspace,
-    refetchInterval: (q) => (Object.values(q.state.data?.projects ?? {}).some((p) => p.running) ? 4000 : 20000),
+    refetchInterval: (q) => (live ? false : Object.values(q.state.data?.projects ?? {}).some((p) => p.running) ? 4000 : 20000),
   });
+  // "Processing" stays in the bar: the open project, else a running one, else the last one opened (remembered)
+  const projects = ws.data?.projects ?? {};
+  if (route.page === "project") rememberProject(route.name);
+  const remembered = recalledProject();
   const lastProject =
-    route.page === "project" ? route.name : Object.values(ws.data?.projects ?? {}).find((p) => p.status === "running")?.name;
-  const nav: { label: string; to: string; on: boolean; title?: string }[] = [
-    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" },
-    ...(lastProject
-      ? [{ label: t("Processing"), to: href({ page: "project", name: lastProject }), on: route.page === "project", title: lastProject }]
-      : []),
+    route.page === "project"
+      ? route.name
+      : (Object.values(projects).find((p) => p.status === "running")?.name ?? (remembered && projects[remembered] ? remembered : undefined));
+  const nav: { label: string; to: string | null; on: boolean; title?: string }[] = [
+    // the open data (stacks to start a project from) is a tab of the Projects page
+    { label: t("Projects"), to: href({ page: "overview" }), on: route.page === "overview" || route.page === "opendata" || route.page === "coop" },
+    {
+      label: t("Processing"),
+      to: lastProject ? href({ page: "project", name: lastProject }) : null,
+      on: route.page === "project",
+      title: lastProject ?? t("Open a project from the tree first"),
+    },
     { label: t("Results"), to: href({ page: "explorer" }), on: route.page === "explorer" },
-    { label: t("Thematic analysis"), to: href({ page: "hazard" }), on: route.page === "hazard" },
-    { label: t("Machine learning research"), to: href({ page: "ai" }), on: route.page === "ai" },
+    // thematic analysis, machine learning and principles are the tabs of one page
+    { label: t("In-depth analysis"), to: href({ page: "hazard" }), on: INSIGHT_TABS.some(([p]) => p === route.page) },
     { label: t("Map export"), to: href({ page: "compose" }), on: route.page === "compose" },
-    { label: t("Principles"), to: href({ page: "learn" }), on: route.page === "learn" },
   ];
 
   return (
@@ -117,22 +176,29 @@ function Shell() {
           <span className="text-[16px] font-bold tracking-tight">GeoEyes</span>
         </a>
         <nav className="flex gap-1" aria-label={t("Main")}>
-          {nav.map((n) => (
-            <a
-              key={n.label}
-              href={n.to}
-              title={n.title}
-              className={`rounded-lg px-3.5 py-1.5 text-[13.5px] no-underline ${n.on ? "bg-raised font-semibold text-ink" : "text-muted hover:text-ink"}`}
-            >
-              {n.label}
-            </a>
-          ))}
+          {nav.map((n) =>
+            n.to === null ? (
+              <span key={n.label} title={n.title} aria-disabled className="cursor-default rounded-lg px-3.5 py-1.5 text-[13.5px] text-faint">
+                {n.label}
+              </span>
+            ) : (
+              <a
+                key={n.label}
+                href={n.to}
+                title={n.title}
+                className={`rounded-lg px-3.5 py-1.5 text-[13.5px] no-underline ${n.on ? "bg-raised font-semibold text-ink" : "text-muted hover:text-ink"}`}
+              >
+                {n.label}
+              </a>
+            ),
+          )}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-[12px] text-faint">
           {ws.error ? <span className="text-bad">{t("API unreachable: {msg}", { msg: (ws.error as Error).message })}</span> : <span className="hidden xl:inline">{ws.data?.root}</span>}
           <a href="/api/docs" target="_blank" rel="noopener" className="text-muted hover:text-ink">
             API
           </a>
+          <ThemeSwitch />
           <LangSwitch />
           <Bell />
           <ActivityWatcher ws={ws.data} />
@@ -145,16 +211,29 @@ function Shell() {
           </aside>
         )}
         <main className="min-w-0 flex-1">
-          {route.page === "overview" && <Overview ws={ws.data} />}
-          {route.page === "explorer" && <Explorer ws={ws.data} />}
-          {route.page === "project" && <Project name={route.name} tab={route.tab} />}
-          {route.page === "new" && <NewProject ws={ws.data} />}
-          {route.page === "compose" && <Compose ws={ws.data} />}
-          {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
-          {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
-          {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} layer={route.view} />}
+          <ErrorBoundary resetKey={location.hash}>
+            <Suspense fallback={<PageLoading />}>
+              {PROJECT_TABS.some(([p]) => p === route.page) && (
+                <PageTabs tabs={PROJECT_TABS} route={route}>
+                  {route.page === "overview" ? <Overview ws={ws.data} /> : route.page === "coop" ? <Coop /> : <OpenData ws={ws.data} />}
+                </PageTabs>
+              )}
+              {route.page === "explorer" && <Explorer ws={ws.data} />}
+              {route.page === "project" && <Project name={route.name} tab={route.tab} />}
+              {route.page === "new" && <NewProject ws={ws.data} />}
+              {route.page === "compose" && <Compose ws={ws.data} />}
+              {INSIGHT_TABS.some(([p]) => p === route.page) && (
+                <PageTabs tabs={INSIGHT_TABS} route={route}>
+                  {route.page === "hazard" && <Hazard ws={ws.data} project={route.name} product={route.product} cell={route.cell} layer={route.view} />}
+                  {route.page === "ai" && <Ai ws={ws.data} project={route.name} product={route.product} tab={route.tab} />}
+                  {route.page === "learn" && <Learn ws={ws.data} project={route.name} stack={route.stack} step={route.step} chapter={route.chapter} />}
+                </PageTabs>
+              )}
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
+      <AskHost />
     </div>
   );
 }

@@ -1,0 +1,211 @@
+# GeoEyes site rules (site advisor, step V2). Read top to bottom: a later rule that sets the same parameter wins,
+# and the advisor shows which earlier value it replaced. No language model: conditions are plain comparisons on the
+# site profile (`geoeyes site`).
+#
+#   id        short name, shown with every suggestion
+#   when      conditions that must all hold: "<metric> <op> <value>", op one of < <= > >= == != in contains;
+#             a metric the profile could not measure makes the rule "not evaluated" (listed, never guessed)
+#   set       parameters to set ("section.key" = value, as in project.toml); optional
+#   note      advice that sets nothing; optional
+#   why       the reason, in plain words (why_vi / note_vi: Vietnamese)
+#   source    where the rule comes from: a project, a test, an ADR, a paper
+#
+# Metrics (see geoeyes/advisor/rules.py `metrics`):
+#   terrain.relief_m, terrain.slope_median_deg, terrain.steep_share, terrain.very_steep_share
+#   land_cover.built | tree | crop | grass | bare | water | wetland, land_cover.vegetation (tree + crop + grass +
+#   wetland), land_cover.dominant
+#   geology.soft_share, geology.dominant
+#   climate.koppen, climate.zone (first letter), climate.rain_annual_mm, climate.rh_mean_pct
+#   data.sensor, data.band, data.dates, data.span_years, data.revisit_median_days, data.max_gap_days,
+#   data.coherence_median, data.bperp_spread_m   (the track with the most dates)
+#   site.area_km2, site.regions (names of the [[region]] boxes below that contain the AOI centre)
+
+# ---------------------------------------------------------------- named regions
+[[region]]
+name = "HCMC"
+bbox = [106.30, 10.35, 107.05, 11.20]
+
+[[region]]
+name = "Hanoi"
+bbox = [105.40, 20.55, 106.10, 21.40]
+
+[[region]]
+name = "Hai Phong"
+bbox = [106.40, 20.60, 106.95, 21.05]
+
+# ---------------------------------------------------------------- atmosphere and relief
+[[rule]]
+id = "flat-no-height-aps"
+when = ["terrain.relief_m < 100"]
+set = { "ps.subtr_tropo" = "n", "atmosphere.method" = "none" }
+why = """Flat ground (relief below 100 m): there is no height range to fit a height-correlated delay on, and the \
+fit takes subsidence instead (lower ground often subsides more)."""
+why_vi = """Địa hình phẳng (chênh cao dưới 100 m): không có dải độ cao để khớp trễ theo độ cao, và phép khớp nuốt \
+mất lún (nền thấp thường lún nhiều hơn)."""
+source = "hcm_d18 2026-11-07: linear APS took height-correlated subsidence (±5 mm/yr tilt); every A0 APS check off"
+
+[[rule]]
+id = "relief-weather-model"
+when = ["terrain.relief_m >= 500"]
+set = { "ps.subtr_tropo" = "y", "atmosphere.method" = "era5", "atmosphere.select" = "auto", "sbas.troposphere" = "auto" }
+why = """Strong relief (500 m or more): the stratified delay changes by tens of mm between valley and ridge and \
+looks like motion that follows the topography. ERA5 predicts it per date; 'auto' keeps it only where it lowers the \
+phase."""
+why_vi = """Địa hình mạnh (từ 500 m): trễ phân tầng chênh hàng chục mm giữa thung lũng và đỉnh, giả làm chuyển \
+động đi theo địa hình. ERA5 dự báo nó cho từng ngày; 'auto' chỉ giữ ở nơi nó làm giảm pha."""
+source = "standard practice (Doin et al. 2009; Bekaert et al. 2015); needs ~/.cdsapirc"
+
+[[rule]]
+id = "tropical-convection"
+when = ["climate.zone == 'A'", "terrain.relief_m >= 500"]
+note = """Tropical climate: short convective cells are missed by weather models. Keep atmosphere.select = auto and \
+expect some dates with residual atmosphere; the SCN filter (step 8) takes part of it."""
+note_vi = """Khí hậu nhiệt đới: mô hình thời tiết bỏ sót các ổ đối lưu ngắn. Giữ atmosphere.select = auto và chấp \
+nhận một số ngày còn khí quyển; bộ lọc SCN (bước 8) xử lý một phần."""
+why = "ERA5 resolution (31 km, hourly) against convective cells of a few km."
+why_vi = "Độ phân giải ERA5 (31 km, theo giờ) so với các ổ đối lưu vài km."
+source = "aps-selection A0 notes; general"
+
+# ---------------------------------------------------------------- land cover and method
+[[rule]]
+id = "urban-psi"
+when = ["land_cover.built >= 0.4"]
+set = { "project.method" = "psi", "phase_linking.enabled" = false }
+why = """Mostly built-up: buildings and roads are stable point targets. Persistent scatterers keep the full \
+resolution of single structures; phase linking would smear them and cost hours."""
+why_vi = """Phần lớn là đô thị: nhà và đường là điểm tán xạ ổn định. PS giữ được độ phân giải của từng công trình; \
+liên kết pha sẽ làm nhoè chúng và tốn hàng giờ."""
+source = "hcm_d18, hp_maychai, hanoi_s1_desc (all psi)"
+
+[[rule]]
+id = "vegetated-ds"
+when = ["land_cover.built < 0.2", "land_cover.vegetation >= 0.6"]
+set = { "project.method" = "psds", "phase_linking.enabled" = true, "phase_linking.shp_test" = "ad", "phase_linking.estimator" = "adaptive", "selection.da_threshold" = 0.6 }
+why = """Few buildings and mostly vegetation or fields: too few persistent scatterers. Phase linking of the \
+distributed scatterers gives usable points; with it the candidate threshold can be relaxed to DA 0.6."""
+why_vi = """Ít nhà, chủ yếu thực vật hoặc ruộng: quá ít PS. Liên kết pha các điểm phân tán cho điểm dùng được; khi \
+đó có thể nới ngưỡng ứng viên lên DA 0.6."""
+source = "landslide pilot (track 120): PL + DA 0.6; owner's PL defaults ad + adaptive"
+
+[[rule]]
+id = "mixed-cover"
+when = ["land_cover.built >= 0.2", "land_cover.built < 0.4", "land_cover.vegetation >= 0.4"]
+note = """Mixed town and fields: psi covers the built part only. Try psds (phase linking) on a test area if the \
+fields matter; it costs several times the time of psi."""
+note_vi = """Đô thị xen ruộng: psi chỉ phủ phần đô thị. Thử psds (liên kết pha) trên một vùng thử nếu cần đồng \
+ruộng; nó tốn thời gian gấp nhiều lần psi."""
+why = "Neither rule above fits cleanly."
+why_vi = "Không luật nào ở trên khớp hẳn."
+source = "hanoi_s1_desc profile (built 30 %, tree 29 %, crop 28 %)"
+
+[[rule]]
+id = "much-water"
+when = ["land_cover.water >= 0.15"]
+note = """A large share of water (rivers, ponds, sea): it gives no points and can break the unwrapping across \
+banks. Consider selection.water_mask, but keep quays, dykes and bridges (often the best PS)."""
+note_vi = """Tỉ lệ nước lớn (sông, ao, biển): không cho điểm và có thể làm đứt giải chập giữa hai bờ. Cân nhắc \
+selection.water_mask, nhưng giữ bến, đê và cầu (thường là PS tốt nhất)."""
+why = "Water decorrelates within a day."
+why_vi = "Mặt nước mất tương quan trong vòng một ngày."
+source = "hp_maychai (water 18 %, Cam river)"
+
+# ---------------------------------------------------------------- slopes and landslides
+[[rule]]
+id = "steep-terrain"
+when = ["terrain.steep_share >= 0.2"]
+set = { "stack.dem" = "copernicus-30" }
+note = """Steep terrain: process ascending and descending (layover and shadow differ), project the motion \
+downslope (geoeyes hazard), and expect gaps on slopes facing the radar."""
+note_vi = """Địa hình dốc: xử lý cả quỹ đạo lên và xuống (chồng ảnh và bóng khác nhau), chiếu chuyển động theo \
+hướng dốc (geoeyes hazard), và chấp nhận có lỗ trên sườn quay về phía radar."""
+why = "Copernicus GLO-30 (2011-2015) is better than SRTM (2000) in steep terrain."
+why_vi = "Copernicus GLO-30 (2011-2015) tốt hơn SRTM (2000) ở địa hình dốc."
+source = "landslide study (Quang Nam): copernicus-30 in the predictors"
+
+# ---------------------------------------------------------------- soft ground and subsidence
+[[rule]]
+id = "soft-urban-subsidence"
+when = ["geology.soft_share >= 0.5", "land_cover.built >= 0.3"]
+set = { "acquire.max_per_month" = 0 }
+note = """City on soft sediments: expect subsidence everywhere, so the scene mean is not zero. Put the reference \
+on a known stable point (GNSS station, old building on piles) with ps.ref_centre_lonlat and ps.ref_radius."""
+note_vi = """Đô thị trên trầm tích mềm: lún ở khắp nơi nên trung bình cả cảnh không bằng 0. Đặt tham chiếu tại một \
+điểm ổn định đã biết (trạm GNSS, công trình cũ trên cọc) bằng ps.ref_centre_lonlat và ps.ref_radius."""
+why = """Every date: fast subsidence (several cm/yr) needs the short revisit to keep its cycles."""
+why_vi = """Mọi ngày ảnh: lún nhanh (vài cm/năm) cần chu kỳ chụp ngắn để giữ được chu kỳ pha."""
+source = "hcm_d18, hp_maychai (max_per_month = 0)"
+
+[[rule]]
+id = "soft-urban-ps-rate"
+when = ["geology.soft_share >= 0.5", "land_cover.built >= 0.3", "data.dates >= 40"]
+set = { "ps.unwrap_ps_rate" = "y", "ps.unwrap_grid_filter_unit" = "y" }
+why = """Long series on a subsiding city: roads, canal banks and fills subside faster than their unwrapping cell. \
+The per-point rate keeps their cycles; unit phasors stop dense stable cells from outweighing sparse subsiding \
+ones."""
+why_vi = """Chuỗi dài trên thành phố đang lún: đường, bờ kênh và nền đắp lún nhanh hơn ô giải chập của chúng. Tốc \
+độ theo từng điểm giữ được chu kỳ của chúng; phasor đơn vị không để ô ổn định dày đặc lấn át ô lún thưa."""
+source = "hcm_d18 vs SARPROZ 2026-11-07: v < -25 mm/yr bias +3.9 -> +1.4 mm/yr"
+
+[[rule]]
+id = "hcmc-grid"
+when = ["site.regions contains 'HCMC'"]
+set = { "ps.unwrap_grid_size" = 50 }
+why = "HCMC: unwrapping grid of 50 m, the owner's exception to the usual 10 m."
+why_vi = "TP.HCM: lưới giải chập 50 m, ngoại lệ của chủ dự án so với 10 m thường dùng."
+source = "owner's habit (unwrap grid memory); hcm_d18"
+
+# ---------------------------------------------------------------- the data
+[[rule]]
+id = "short-series"
+when = ["data.dates < 20"]
+note = """Fewer than 20 dates: the SHP test of phase linking has little power and the point rates are unreliable; \
+velocities will be noisy. Wait for more dates if possible. (ps_lite is for Capella / Umbra only.)"""
+note_vi = """Dưới 20 ảnh: phép thử SHP của liên kết pha yếu và tốc độ điểm kém tin cậy; vận tốc sẽ nhiễu. Nên chờ \
+thêm ảnh nếu được. (ps_lite chỉ dành cho Capella / Umbra.)"""
+why = "Statistics of the amplitude and of the phase need enough samples."
+why_vi = "Thống kê biên độ và pha cần đủ số mẫu."
+source = "general; schema refuses ps_lite for Sentinel-1"
+
+[[rule]]
+id = "few-ifg-ps-rate"
+when = ["data.dates < 40"]
+note = """Fewer than 40 dates: unwrap_ps_rate = auto stays off (unwrap_ps_rate_min_ifg = 40). Lowering that limit \
+is possible but test it against the default first."""
+note_vi = """Dưới 40 ảnh: unwrap_ps_rate = auto sẽ tắt (unwrap_ps_rate_min_ifg = 40). Có thể hạ ngưỡng nhưng cần \
+thử so với mặc định trước."""
+why = "The point rates need a long enough series."
+why_vi = "Tốc độ điểm cần chuỗi đủ dài."
+source = "hp_maychai (35 interferograms, auto off); hanoi_s1_desc tries unwrap_ps_rate_min_ifg = 20"
+
+[[rule]]
+id = "short-span"
+when = ["data.span_years < 2"]
+note = """Less than 2 years: the linear velocity is still uncertain and seasonal motion can bias it; GNSS ties need \
+at least 2 years."""
+note_vi = """Dưới 2 năm: vận tốc tuyến tính còn bất định và chuyển động mùa có thể làm lệch nó; đối chiếu GNSS cần \
+ít nhất 2 năm."""
+why = "Velocity error falls roughly as 1 / span^1.5."
+why_vi = "Sai số vận tốc giảm khoảng 1 / khoảng^1,5."
+source = "Hanoi GNSS tie (G3)"
+
+[[rule]]
+id = "long-gap"
+when = ["data.max_gap_days > 48"]
+note = """A gap of more than 48 days in the series: fast motion can lose a cycle across it. Check the dates around \
+the gap in the stack QC and the time series."""
+note_vi = """Có khoảng trống quá 48 ngày trong chuỗi: chuyển động nhanh có thể mất một chu kỳ qua khoảng đó. Kiểm \
+tra các ngày quanh khoảng trống trong stack QC và chuỗi thời gian."""
+why = "Phase ambiguity: λ/4 (14 mm in C band) per interval."
+why_vi = "Độ mơ hồ pha: λ/4 (14 mm ở băng C) cho mỗi khoảng."
+source = "hcm_d18 (96-day gap)"
+
+[[rule]]
+id = "low-coherence"
+when = ["data.coherence_median < 0.3"]
+note = """Low coherence against the reference in the stack QC: point targets are few. Consider psds or sbas, and \
+check the stack QC images for decorrelated dates."""
+note_vi = """Độ nhất quán so với ảnh chủ thấp trong stack QC: ít điểm tán xạ. Cân nhắc psds hoặc sbas, và xem ảnh \
+stack QC để tìm các ngày mất tương quan."""
+why = "Stack QC coherence on 16-look cells; 0.22 is the noise floor."
+why_vi = "Độ nhất quán stack QC trên ô 16 look; 0,22 là mức nền của nhiễu."
+source = "stack QC (fee323c)"

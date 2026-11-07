@@ -89,7 +89,7 @@ def test_link_tile_keeps_reference_and_amplitude():
     slc = (rng.rayleigh(1.0, (n, H, W)) * np.exp(1j * (theta[:, None, None]
            + 0.8 * rng.standard_normal((n, H, W))))).astype(np.complex64)
     p = PhaseLinkingParams(estimator="evd", half_window=(3, 3), min_shp=10)
-    out, count, tcoh = link_tile(slc, (slice(3, 21), slice(3, 21)), ref, p)
+    out, count, tcoh, _ = link_tile(slc, (slice(3, 21), slice(3, 21)), ref, p)
     inner = slc[:, 3:21, 3:21]
     np.testing.assert_allclose(np.abs(out), np.abs(inner), rtol=1e-5)
     np.testing.assert_allclose(out[ref], inner[ref], rtol=1e-5, atol=1e-6)
@@ -121,11 +121,51 @@ def test_gaussian_postfilter_leaves_ps(tmp_path):
     np.testing.assert_allclose(np.abs(out), np.abs(slc), rtol=1e-5)             # amplitudes kept
 
 
+def test_pair_coherence_over_shp_sees_a_change_between_two_dates(tmp_path):
+    """Dates 0–2 share one scattering field (coherent), date 3 is a new one in the left half (a scar): the SHP
+    coherence of (1, 2) stays high everywhere, that of (2, 3) drops in the left half only."""
+    from geoeyes.io.stack import StackStore
+    from geoeyes.processing.phase_linking.runner import pair_coherence
+    rng = np.random.default_rng(5)
+    n, H, W = 4, 24, 32
+    dates = np.array(["2020-01-01", "2020-01-13", "2020-01-25", "2020-02-06"], "datetime64[D]")
+    st = StackStore.create(tmp_path / "s.zarr", coords={"date": dates, "y": np.arange(H), "x": np.arange(W)},
+                           attrs={"reference_date": "2020-01-13"})
+    base = rng.rayleigh(1.0, (H, W)) * np.exp(1j * rng.uniform(-np.pi, np.pi, (H, W)))
+    slc = np.stack([base + 0.2 * (rng.normal(size=(H, W)) + 1j * rng.normal(size=(H, W))) for _ in range(n)])
+    new = rng.rayleigh(1.0, (H, W // 2)) * np.exp(1j * rng.uniform(-np.pi, np.pi, (H, W // 2)))
+    slc[3, :, :W // 2] = new
+    st.write("slc", slc.astype(np.complex64), ("date", "y", "x"))
+    p = PhaseLinkingParams(half_window=(3, 3), min_shp=5, tile_size=16, ps_da_max=0.0)
+    coh = pair_coherence(st, [(1, 2), (2, 3)], p)
+    assert coh.shape == (2, H, W)
+    inner = (slice(4, H - 4))
+    assert np.nanmedian(coh[0, inner]) > 0.9
+    assert np.nanmedian(coh[1, inner, :W // 2 - 4]) < 0.4 < 0.9 < np.nanmedian(coh[1, inner, W // 2 + 4:])
+    # kept by phase linking itself: the same values where the pixel is linked, no second SHP pass needed
+    from geoeyes.processing.phase_linking.runner import PAIRS_VAR, run, stored_pairs
+    run(st, PhaseLinkingParams(half_window=(3, 3), min_shp=5, tile_size=16, ps_da_max=0.0,
+                               store_pairs=(("2020-01-13", "2020-01-25"), ("2020-01-25", "2020-02-06"))))
+    assert stored_pairs(st) == {"2020-01-13/2020-01-25": 0, "2020-01-25/2020-02-06": 1}
+    kept = st.read(PAIRS_VAR)
+    both = np.isfinite(kept) & np.isfinite(coh)
+    assert both.mean() > 0.5
+    np.testing.assert_allclose(kept[both], coh[both], rtol=1e-5)
+
+
+def test_store_pairs_leaves_the_fingerprint_of_older_stacks():
+    from geoeyes.processing.phase_linking.runner import fingerprint
+    assert "store_pairs" not in fingerprint(PhaseLinkingParams())
+    assert fingerprint(PhaseLinkingParams(store_pairs=(("2020-01-01", "2020-01-13"),)))["store_pairs"] == \
+        [["2020-01-01", "2020-01-13"]]
+
+
 def test_link_tile_keeps_ps():
     rng = np.random.default_rng(3)
     n, H, W = 10, 16, 16
     slc = (rng.rayleigh(1.0, (n, H, W)) * np.exp(1j * rng.uniform(-np.pi, np.pi, (n, H, W)))).astype(np.complex64)
     slc[:, 8, 8] = 1.0 * np.exp(1j * rng.uniform(-np.pi, np.pi, n))             # constant amplitude: D_A = 0
-    out, _, tcoh = link_tile(slc, (slice(3, 13), slice(3, 13)), 0, PhaseLinkingParams(half_window=(3, 3), min_shp=0))
+    out, _, tcoh, _ = link_tile(slc, (slice(3, 13), slice(3, 13)), 0,
+                                PhaseLinkingParams(half_window=(3, 3), min_shp=0))
     np.testing.assert_array_equal(out[:, 5, 5], slc[:, 8, 8])
     assert np.isnan(tcoh[5, 5]) and np.isfinite(tcoh).sum() > 90

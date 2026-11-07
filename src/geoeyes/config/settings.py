@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     earthdata_token: str = Field(default="", validation_alias="EARTHDATA_TOKEN", repr=False)
     # login token of `geoeyes serve` on a non-local address (random when unset)
     web_token: str = Field(default="", repr=False)
+    # Python >= 3.12 with icechunk >= 2 (IMERG half-hourly rainfall from Source Cooperative), when the GeoEyes
+    # interpreter has no icechunk 2 (it needs Python 3.12); "" = this interpreter
+    icechunk_python: str = ""
 
     def workspace_layout(self):
         from geoeyes.workspace import WorkspaceLayout

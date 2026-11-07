@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
+from geoeyes.core import netrate
+
 log = logging.getLogger(__name__)
 
 DATASET = "reanalysis-era5-pressure-levels"
@@ -52,6 +54,7 @@ def download(cache: Path, day: date, hour: int, area, levels=LEVELS) -> Path:
            "time": f"{int(hour) % 24:02d}:00", "area": [round(v, 3) for v in area]}
     tmp = out.with_suffix(".part")
     cdsapi.Client(quiet=True).retrieve(DATASET, req, str(tmp))
+    netrate.add(tmp.stat().st_size)                 # cdsapi reports nothing during the transfer: at its end
     tmp.replace(out)
     return out
 

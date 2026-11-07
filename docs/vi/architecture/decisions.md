@@ -34,8 +34,109 @@
 | 025 | So sánh và hiệu chỉnh bằng GNSS của NGL; mặc định gắn theo phương đứng; phân vùng nguy cơ có thể dùng kết quả này | Proposed |
 | 026 | Lọc thông thấp theo thời gian cho SCN: mặc định khớp tuyến tính cục bộ (khác StaMPS `ps_scn_filt`) | Accepted |
 | 027 | Tiếng Việt: web song ngữ (EN / VI), bản dịch tiếng Việt của tài liệu; trung tâm thông báo | Accepted |
+| 028 | Hub dữ liệu mở (STAC của ICEYE, Capella, Umbra) và trình đọc ICEYE SLC-COG; chồng ảnh dữ liệu mở do `acquire` tải về | Accepted |
+| 029 | Trình đọc SICD (NITF) và bộ dựng chồng ảnh trên mặt phẳng nghiêng; xử lý được Umbra (`ps_lite`) | Accepted |
+| 030 | Nghiên cứu trượt lở: gói `geoeyes.landslide`, thư mục nghiên cứu nằm ngoài dự án, nhãn lấy từ danh mục trượt lở | Proposed |
 
 ---
+
+### ADR-030 — Nghiên cứu trượt lở từ danh mục trượt lở *(Proposed 2026-11-01)*
+**Bối cảnh.** Chủ dự án bắt đầu một nghiên cứu riêng: tính nhạy cảm với trượt lở do mưa kích hoạt, kèm ngưỡng mưa và
+InSAR trước sự kiện
+([`docs/vi/research/landslide-susceptibility.md`](../research/landslide-susceptibility.md)). Nhãn lấy từ các danh
+mục trượt lở, không lấy từ các ô InSAR (`ml.susceptibility`). Nghiên cứu trải qua nhiều cơn bão và có thể nhiều sản
+phẩm InSAR, nên không thuộc về một dự án nào.
+**Quyết định.**
+- Gói `geoeyes.landslide`:
+  - `study` (cấu hình);
+  - `inventory` (các danh mục trong workspace, vùng phủ, diện tích – tần suất);
+  - `labels`;
+  - sau này thêm `terrain`, `predictors`, `model`, `thresholds`, `hindcast`, mỗi module ứng với một bước của kế
+    hoạch.
+  - Gói dùng lại `ml.layers.Grid`, mã mô hình của `ml.susceptibility`, `ancillary.rainfall` và các sản phẩm InSAR.
+- Mỗi nghiên cứu là một thư mục `<workspace>/studies/<tên>/` có file `study.toml` (schema
+  `geoeyes.landslide_study/1`):
+  - danh mục trượt lở và cách trích dẫn;
+  - vùng nghiên cứu (một dòng của một GeoPackage);
+  - các phương án vùng phủ;
+  - các sự kiện;
+  - tham số của từng bước.
+  - Mỗi bước ghi đầu ra và một `Manifest` vào một thư mục con (`audit/`, `labels/`, …).
+  - Các chồng ảnh InSAR vẫn là dự án bình thường (`projects/<tên>`).
+- Các danh mục trượt lở vẫn là dữ liệu của workspace (`inventories/landslide/`), được dựng lại bằng
+  `geoeyes landslide inventory` từ các nguồn trong cache; file CSV các sự kiện được báo cáo vẫn sửa tay được.
+- CLI: `geoeyes landslide inventory | audit | labels [--study TÊN] [--set KHÓA=GIÁ_TRỊ]`.
+- Nhãn: mẫu dương đặt ở vùng khởi trượt (ô vách trượt; các phương án một phần ba trên và tâm); mẫu âm nằm trong vùng
+  phủ, cách các polygon của sự kiện quá một vùng đệm, rút nhiều lần bằng bộ sinh số có seed. Vùng phủ là ước lượng
+  (mặc định `near`) vì vùng đã khoanh vẽ không được công bố.
+**Hệ quả.**
+- Có thể chạy từng bước một và xem xét giữa các bước.
+- Vùng thí điểm (§3.4 của kế hoạch) chỉ là `[area]` của nghiên cứu: muốn mở rộng thì đổi dòng đó, không phải sửa code.
+- Kết quả của nghiên cứu chưa hiển thị trên ứng dụng web cho tới khi một bước được chấp nhận (điểm duyệt L7).
+
+### ADR-029 — SICD: trình đọc NITF, phép chiếu ảnh, chồng ảnh trên mặt phẳng nghiêng *(Accepted 2026-10-28, bổ sung cho ADR-028)*
+**Bối cảnh.** Umbra (và các nhà cung cấp khác) giao dữ liệu phức dạng SICD (NGA Sensor Independent Complex Data):
+một file NITF 2.1 chứa ảnh phức (kênh I / Q) và XML SICD trong một segment DES. Sản phẩm của Umbra là ảnh spotlight
+tạo bằng polar format (PFA) trên mặt phẳng nghiêng (Grid `RGAZIM`), xiên vài độ: không phải lưới zero-Doppler (thời
+gian phương vị, cự ly nghiêng), nên `RadarGrid` và bộ dựng stripmap không dùng được. Mỗi sản phẩm khoảng 7 GB (pixel
+0,15 m).
+**Quyết định.**
+- `sensors/sicd/nitf.py`: tự đọc NITF 2.1 (bảng segment, header ảnh, DES), đọc cửa sổ ảnh phức từ file cục bộ
+  (memory map) hoặc từ URL (HTTP range theo từng dòng: cắt AOI mà không tải cả sản phẩm). Kiểu RE32F_IM32F và
+  RE16I_IM16I, không nén, xen kẽ theo pixel, có chia khối và nhiều segment ảnh.
+- `sensors/sicd/meta.py`: phép chiếu ảnh theo SICD Volume 3: pixel -> (t_coa, ARP, R, Ṙ) cho PFA và RMA / INCA,
+  giao đường đồng mức R / Ṙ với mặt có độ cao cho trước (lặp với DEM), mặt đất -> pixel bằng Newton. Đã đối chiếu với
+  sarpy (thư viện tham chiếu của NGA): điểm mặt đất trùng khớp, chiều ngược lệch < 0,02 pixel. Quy ước pha:
+  -2π·KCtr·ΔR, với ΔR là cự ly tới điểm trừ cự ly tới SCP tại t_coa (PFA) hoặc xrow (RMA); dữ liệu có Row.Sgn = +1
+  được lấy liên hợp khi đọc.
+- `processing/stack/native/sicd_stack.py`: lưới thô của ảnh chủ -> mặt đất (DEM) -> pixel của từng ảnh phụ, nội
+  suy ở băng cơ sở, bù offset hằng còn lại bằng tương quan biên độ, làm phẳng bằng 2π (KCtr_sec ΔR_sec - KCtr_ref
+  ΔR_ref), `kh` dọc theo ô phân giải của ảnh chủ, B⊥ từ ARP. Cùng StackStore với các bộ dựng khác (dòng = cột SICD,
+  mẫu = hàng SICD). Loại ảnh khác hướng nhìn / chiều bay, góc tới lệch > 2°, hoặc phổ không ở băng cơ sở
+  (DeltaKCOAPoly).
+- Ảnh cắt được lưu thành GeoTIFF phức + XML chip (quy ước `FirstRow / FirstCol` của SICD). Item STAC của Umbra không
+  có href: `fetch.umbra_sicd_url` liệt kê `sar-data/task-data/<umbra:task_id>/` và lấy lần chụp gần nhất về thời
+  gian. Lề cắt mặc định: 50 m (ICEYE 500 m).
+- Cảm biến mới `umbra`, preset `presets/umbra.toml`; method `ps_lite` dùng được cho Capella và Umbra (chồng ảnh
+  spotlight ngắn).
+**Hệ quả.** GeoEyes đọc được mọi SICD có hình học PFA / RGAZIM hoặc RMA / INCA (lưới khác bị từ chối). Các lần chụp
+lặp của chòm vệ tinh spotlight lệch góc nhìn vài độ trong khi khẩu độ góc chỉ khoảng 4–5°: phổ phương vị chỉ chồng
+một phần, và đường cơ sở vài km cho độ cao mơ hồ dưới 1 m; mặt nước và bãi container mất tương quan. Nên chọn AOI nhỏ
+trên công trình ổn định.
+
+### ADR-028 — Hub dữ liệu mở và ICEYE SLC-COG *(Accepted 2026-10-28)*
+**Bối cảnh.** Các chòm vệ tinh băng X thương mại công bố dữ liệu SAR mở trên AWS dưới dạng catalog STAC tĩnh
+(CC-BY 4.0): ICEYE (`iceye-open-data-catalog`, SLC-COG), Capella (`capella-open-data`, SLC GeoTIFF + extended JSON),
+Umbra (`umbra-open-data-catalog`, SICD NITF). Một phần là dữ liệu chụp lặp: ICEYE công bố một chồng ảnh 19 ngày, mỗi
+ngày một ảnh, trên Tenerife (ICEYE-X53, 11/02–01/03/2026); Capella gắn nhãn ảnh InSAR (`capella:use_case = insar`,
+vết quỹ đạo lặp `capella:rgt_id`) với những chồng ảnh dài tới khoảng 95 ngày chụp. Đây là dữ liệu ai cũng tải được
+để thử chuỗi xử lý stripmap / spotlight độ phân giải cao.
+**Quyết định.**
+- `geoeyes.opendata`: chỉ mục cục bộ cho từng nguồn (`<workspace>/cache/opendata/<source>.json`, làm mới bằng
+  `sync`, chỉ đọc các item mới); gom thành chồng ảnh ứng viên chỉ từ hình học trong item STAC (nguồn, vệ tinh hoặc
+  vết quỹ đạo của nhà cung cấp, chế độ chụp, chiều bay, hướng nhìn, góc tới ±1°, phương vị nhìn ±3°, vùng phủ
+  chồng lên nhau ≥ 50 %); id chồng ảnh ổn định (`iceye:x53-sm-ar-26-28.2n016.7w`, Capella thêm mã băm của vết quỹ
+  đạo). Đường cơ sở chỉ biết được khi đọc sản phẩm: `build_stack` ghi chúng vào log và loại các ảnh lệch hình học
+  so với ảnh chủ.
+- `[acquire] opendata = "<id chồng ảnh>"`: bước `acquire` tải các ảnh của chồng phủ AOI vào
+  `<archive>/<sensor>/<track>/YYYYMMDD/`. ICEYE SLC-COG được cắt theo AOI + `opendata_margin_m` bằng HTTP range
+  (cửa sổ tính từ RPC của sản phẩm ở độ cao DEM thấp nhất và cao nhất trong AOI; ghi `geoeyes:crop` vào metadata);
+  ảnh Capella tải nguyên cảnh.
+- `sensors/iceye/slc_cog.py`: hai kênh uint16 biên độ / pha với scale / offset của GDAL → complex64; ảnh lưu kiểu
+  `shadows-down` (hàng = cự ly, cột = phương vị) nên được chuyển vị về quy ước GeoEyes; hình học lấy từ thuộc tính
+  STAC (thời điểm zero-Doppler đầu, 1 / PRF, cự ly gần, vector trạng thái quỹ đạo chính xác, Doppler centroid); đã
+  kiểm tra với RPC của sản phẩm, sai lệch < 0,3 pixel. Cảm biến mới `iceye`, preset `presets/iceye.toml` (chuỗi CSK,
+  `max_perp_m = 1000`).
+- Umbra (SICD) được lập chỉ mục và tra cứu được nhưng chưa xử lý được (chưa có trình đọc SICD): chồng ảnh được đánh
+  dấu "chỉ tra cứu".
+- Giao diện: `geoeyes opendata sync | sources | scenes | stacks | show | fetch | project`, `/api/opendata/*`, trang
+  web *Dữ liệu mở*: server tự lập chỉ mục các catalog (lần đầu mở trang, sau đó mỗi ngày) và liệt kê mọi chồng ảnh
+  theo địa danh (reverse geocoding OpenStreetMap qua Nominatim hoặc Photon, có cache), mỗi chồng ảnh là một chấm trên
+  bản đồ; chọn một chồng ảnh thì vùng xử lý và tên dự án được đề xuất sẵn. Bản đồ nền mặc định của mọi trang bản đồ:
+  xám nhạt (light gray).
+**Hệ quả.** Archive có thể chứa ảnh dữ liệu mở cạnh ảnh thương mại (cùng cấu trúc thư mục). Catalog mở có thể chứa
+sản phẩm thử nghiệm (chính ICEYE cảnh báo): trình đọc từ chối các kiểu sắp xếp ảnh / loại sản phẩm khác thay vì
+đoán.
 
 ### ADR-027 — Giao diện và tài liệu tiếng Việt; trung tâm thông báo *(Accepted 2026-10-26, bổ sung cho ADR-015)*
 **Bối cảnh.** Chủ dự án và người dùng dự kiến đều làm việc bằng tiếng Việt, trong khi ADR-015 chọn tiếng Anh làm
@@ -52,6 +153,10 @@ ngôn ngữ của sản phẩm (mã nguồn, log, báo cáo, tài liệu).
 - Trung tâm thông báo trên web: cảnh báo từ các phân tích và các lần chạy / phân tích đã xong được đưa vào danh sách
   ở biểu tượng chuông (lưu theo trình duyệt), kèm toast và thông báo trên máy (Notification API của trình duyệt, sau
   khi người dùng cho phép); `/api/activity` trả về trạng thái các phân tích đang chạy nền.
+- Trạng thái trực tiếp qua server-sent events (2026-11-06): `/api/events` đẩy `workspace` và `activity`,
+  `/api/projects/{name}/events` đẩy `project`, `ps-steps` và, khi có `?run=&after=`, các dòng `log` mới của lần chạy;
+  mỗi loại chỉ được gửi khi JSON của nó thay đổi (`geoeyes/api/events.py`). Web app (`webapp/src/live.ts`) tắt polling
+  khi luồng đang mở và quay lại polling khi luồng không có (máy chủ cũ, mất kết nối, tab bị ẩn).
 **Hệ quả.** Mọi văn bản mới hiển thị cho người dùng đều phải đi qua `t()` và có mục tiếng Việt tương ứng; mọi thông
 điệp mới của máy chủ hiển thị trên web phải có mục hoặc mẫu trong `server.ts`.
 
@@ -164,8 +269,20 @@ ro) vẫn còn bỏ ngỏ.
 **Quyết định (2026-10-21).** Sentinel-1, COSMO-SkyMed, ALOS-PALSAR, Capella, **TerraSAR-X (giữ lại)**. TSX được tái cấu trúc như các cảm biến khác (không mang nhánh TSX cũ của `flow.py` sang; TSX dùng engine PS hợp nhất nên tự động có SBAS/bước 8).
 **Thế hệ ALOS (còn mở, không chặn tiến độ).** ALOS-1 PALSAR (2006–2011, chỉ còn dữ liệu lưu trữ), ALOS-2 PALSAR-2 (2014–, CEOS L1.1), ALOS-4 PALSAR-3 (phóng năm 2024; định dạng L1.1 cần kiểm chứng). Chủ dự án **đã có dữ liệu mẫu**; ALOS làm **sau cùng** (Phase 4b, khi S1/CSK/Capella/TSX đã ổn định) — đến lúc đó sẽ xác định thế hệ cụ thể từ dữ liệu mẫu. Bộ đọc thiết kế dạng plug-in cho từng thế hệ. ScanSAR chưa thuộc phạm vi ban đầu.
 
-### ADR-014 — GPU *(Proposed)*
-**Quyết định đề xuất.** Kernel mảng: NumPy/Numba (CPU) ↔ CuPy (GPU) qua `core.compute`. Torch chỉ dùng cho mô hình ML. Kernel nào cũng có đường chạy CPU.
+### ADR-014 — GPU *(Accepted)*
+**Quyết định (2026-11-04).** Kernel mảng: NumPy/Numba (CPU) ↔ CuPy (GPU) qua `core.compute`. Torch chỉ dùng cho mô hình ML. Kernel nào cũng có đường chạy CPU.
+- `core.compute.Backend` gồm: `xp` (numpy | cupy), `fft` (scipy.fft | cupyx.scipy.fft) kèm `fft_kw`, `asarray`/`asnumpy`, `batch()` (lô lớn hơn khi chạy GPU). Backend được chọn một lần cho mỗi lần chạy trong `pipeline.run`, theo `[compute] backend` (`auto` | `numpy` | `cupy`; biến môi trường `GEOEYES_COMPUTE_BACKEND` được ưu tiên). Lựa chọn được truyền qua context variable (`compute.use`), nên kernel không cần thêm tham số.
+  - `auto` quay về NumPy khi thiếu CuPy, không thấy thiết bị hoặc FFT thử bị lỗi.
+  - `cupy` mà không có GPU dùng được thì báo lỗi trước khi chạy phase nào.
+  - `geoeyes check` báo backend đang dùng; manifest của lần chạy ghi lại backend.
+- **Đường CPU giữ giống hệt từng bit** so với code trước khi port: trên CPU, `xp` *chính là* numpy, các bước copy không làm gì, và `workers=-1` được giữ. Mỗi kernel được kiểm bằng snapshot khi port. Kết quả GPU khớp tới mức sai số làm tròn, không giống từng bit.
+- Đã port (2026-11-04): `ps.topofit.topofit`/`topofit_full` (bước 2 và 3) và `ps.clap.clap_at_points` (bước 3).
+- Thứ tự port tiếp theo, theo lợi ích dự kiến:
+  - `clap.clap_filter` (bước 2; cần gom các cửa sổ của một hàng thành lô trước);
+  - high-pass trong `steps/velocity` và `scn_filt` (bước 8);
+  - phase linking.
+- Quy trình cho mỗi kernel: lưu snapshot đầu ra CPU, port, rồi kiểm tra đường CPU giống từng bit và test GPU giả lập (`tests/unit/core/test_compute.py`). Test GPU thật chỉ chạy trên máy có CuPy và thiết bị.
+- Cài đặt: `pip install "geoeyes[gpu]"` (cupy-cuda12x, cho card NVIDIA có driver CUDA 12). Card AMD cần bản CuPy cho ROCm trên Linux. Máy hiện tại của chủ dự án (AMD Radeon tích hợp, Windows) không có GPU dùng được, nên ở đó đường GPU mới chỉ được kiểm bằng backend giả lập.
 
 ### ADR-015 — Ngôn ngữ: tiếng Anh *(Accepted)*
 **Quyết định (2026-10-21).** Mã, chú thích, docstring, log, CLI, tài liệu, báo cáo PDF: **tiếng Anh**. Báo cáo không cần i18n (bỏ `report/i18n/`). Các tài liệu kiến trúc hiện có (viết bằng tiếng Việt) sẽ được dịch sang tiếng Anh sau khi chủ dự án rà soát xong v0.1.
@@ -191,10 +308,10 @@ ro) vẫn còn bỏ ngỏ.
 **Quyết định.** Quy trình Capella chính thức là phương pháp trong `modules/ps_stack` (GUI: `tools/ps_stack_gui.py`), **không phải** `tools/capella_ifg_gui.py`.
 
 **Phương pháp (`ps_stack.run_stack`, hiện tại):**
-1. Chồng ảnh: đọc các cặp đã đồng đăng ký `<coreg_master>_<sec>.dim` (hình học radar — `flat_earth.corner_check` từ chối dữ liệu đã hiệu chỉnh địa hình) thành các epoch trên lưới của ảnh coreg master; **epoch tham chiếu được chọn độc lập** với coreg master (`auto` = epoch có đường đáy vuông góc lớn nhất là nhỏ nhất).
+1. Chồng ảnh: đọc các cặp đã khớp `<coreg_master>_<sec>.dim` (hình học radar — `flat_earth.corner_check` từ chối dữ liệu đã hiệu chỉnh địa hình) thành các epoch trên lưới của ảnh coreg master; **epoch tham chiếu được chọn độc lập** với coreg master (`auto` = epoch có đường cơ sở vuông góc lớn nhất là nhỏ nhất).
 2. Hình học: tính các điểm địa hình của lưới pixel trên DEM (một lần) và khoảng cách từ mọi epoch tới các điểm đó; mỗi giao thoa đồ có pha tham chiếu −4π/λ·(R_ref − R_k) và độ nhạy độ cao `kh`; quy ước dấu được phát hiện tự động.
-3. Đọc dữ liệu một lượt duy nhất: D_A + **đa dạng phổ theo range** (sub-band) cho từng pixel → ứng viên PS → tối đa 1 PS mỗi ô → pha cuộn trừ pha tham chiếu.
-4. Giải chập pha từng giao thoa đồ trên lưới PS bằng **IRLS tinh chỉnh hai lượt**: lượt 1 → ước sai số độ cao của PS bằng **periodogram** theo đường đáy; lượt 2 chạy trên pha đã loại độ cao, trọng số theo độ ổn định (Goldstein, chi phí không gian–thời gian, tuỳ chọn tầng đối lưu tuyến tính, loại mặt phẳng) → tinh chỉnh độ cao, khôi phục số nguyên chu kỳ (ambiguity) của từng PS.
+3. Đọc dữ liệu một lượt duy nhất: D_A + **đa dạng phổ theo range** (sub-band) cho từng pixel → ứng viên PS → tối đa 1 PS mỗi ô → pha chập trừ pha tham chiếu.
+4. Giải chập pha từng giao thoa đồ trên lưới PS bằng **IRLS tinh chỉnh hai lượt**: lượt 1 → ước sai số độ cao của PS bằng **periodogram** theo đường cơ sở; lượt 2 chạy trên pha đã loại độ cao, trọng số theo độ ổn định (Goldstein, chi phí không gian–thời gian, tuỳ chọn tầng đối lưu tuyến tính, loại mặt phẳng) → tinh chỉnh độ cao, khôi phục số nguyên chu kỳ (ambiguity) của từng PS.
 5. Vùng tham chiếu (chọn tự động theo D_A hoặc do người dùng chỉ định); **nghịch đảo bình phương tối thiểu có trọng số** cho từng PS: vận tốc LOS, sai số độ cao, số hạng epoch tham chiếu; APS = phần dư sau khi lọc Gauss theo không gian (σ m); chất lượng từng giao thoa đồ (độ lệch chuẩn pha) → loại hoặc giảm trọng số; lọc PS theo độ ổn định pha và độ lệch chuẩn pha.
 6. Đầu ra hiện tại: `ps.gpkg`, `ps_stack.npz`, `pairs.csv`, `summary.json`, PNG.
 
@@ -203,12 +320,12 @@ ro) vẫn còn bỏ ngỏ.
 - Đầu vào lấy từ StackStore (`SLC_STACK` + `GEOMETRY`) thay vì đọc thẳng `.dim`; đầu ra là một `PointSet` → `postprocess` → `build_product` (thay cho `ps.gpkg`/`npz`/`summary.json`). Bảng chất lượng theo cặp (`pairs.csv`) → `QualityMetrics` cho báo cáo.
 - Preset `capella` trong `controller/pipelines.py`: `acquire → plan_network → build_stack (radar geometry, no TC) → select_candidates(ps_lite) → ps_lite → postprocess → build_product → report`. `phase_linking`, `atmosphere` (ERA5/GACOS) là plug-in tuỳ chọn.
 - Tham số trong `[ps_lite]` của `project.toml` giữ nguyên tên và giá trị mặc định của `run_stack` (`da_max=0.4`, `sd_max=0.45`, `ps_cell=[4,6]`, `uw_cell=[16,24]`, `unwrap_method`, `tcoh_min=0.7`, `aps_sigma_m=1000`, …).
-- **Capella không còn dùng engine StaMPS** (`processing/ps`, `flow.py`), chỉ dùng preset `capella`. Hệ quả: xoá `capella/stamps/flow.py` (phần đặc thù của nó đã có trong `csk/stamps/flow.py`, hai tệp chỉ khác nhau 71 dòng); phần chuyển giao sang StaMPS của Capella (`snap2stamps/capella/bin/_3_stamps_export.py`, `_4_stamps_prep.py`, `capella/stamps/synth_sbas_pairs.py`, `prestamps/capella_pscands_geo.py`, `capella/tomo/*`, `phasingpy.ps_export_gis_capella_2d_lon_geo`, `unwrap/irls_solver_capella.py` nếu ps_lite không dùng `unwrap_method="capella"`) bị xoá hoặc chỉ giữ phần dùng chung. Phần đồng đăng ký ảnh của `snap2stamps/capella` (chuyển TIF→DIMAP, vá Doppler, đồng đăng ký **không TC**) vẫn làm engine `snap` của `build_stack` cho tới Phase 5.
+- **Capella không còn dùng engine StaMPS** (`processing/ps`, `flow.py`), chỉ dùng preset `capella`. Hệ quả: xoá `capella/stamps/flow.py` (phần đặc thù của nó đã có trong `csk/stamps/flow.py`, hai tệp chỉ khác nhau 71 dòng); phần chuyển giao sang StaMPS của Capella (`snap2stamps/capella/bin/_3_stamps_export.py`, `_4_stamps_prep.py`, `capella/stamps/synth_sbas_pairs.py`, `prestamps/capella_pscands_geo.py`, `capella/tomo/*`, `phasingpy.ps_export_gis_capella_2d_lon_geo`, `unwrap/irls_solver_capella.py` nếu ps_lite không dùng `unwrap_method="capella"`) bị xoá hoặc chỉ giữ phần dùng chung. Phần khớp ảnh của `snap2stamps/capella` (chuyển TIF→DIMAP, vá Doppler, khớp ảnh **không TC**) vẫn làm engine `snap` của `build_stack` cho tới Phase 5.
 - ps_lite là engine độc lập, cũng dùng được cho cảm biến khác nếu muốn, nhưng mặc định chỉ dành cho Capella.
 - **Bỏ `unwrap_2d_pipeline`** (quy trình giải chập pha 2D viết riêng cho Capella, 4913 dòng) cùng `unwrap_2d_{da,gaussian,geotiff,plot,gis_export}` và mọi thứ phụ thuộc vào nó (`phuw_2d.mat`, các tham số `unwrap_2d_*`, `phase_images/`). Giữ `unwrap_2d_goldstein` → `stack/native/filters.py`, `unwrap_2d_coherence` → `stack/native/coherence.py` (mã khác vẫn dùng).
 - **Lưu trữ thống nhất.** Capella phải có cấu trúc lưu trữ giống mọi cảm biến khác: `stacks/<stack_id>/stack.zarr` → `ps_runs/<psrun_id>/` (manifest + params + `state.h5` theo schema ps_lite + `pairs.parquet`) → `products/<product_id>/` với cùng schema `points.parquet`/`timeseries.parquet`/COG/STAC/manifest/báo cáo. Giữa các engine chỉ khác nhau ở `state.h5` và trường `engine` của manifest (ARCHITECTURE §10.3).
 - `tools/ps_stack_gui.py` → `apps/gui/ps_lite_viewer.py` (chọn epoch, tham số, chạy qua bộ điều khiển, xem bản đồ và chuỗi thời gian).
-- `tools/capella_ifg_gui.py` **không** thuộc quy trình: giữ làm công cụ khám phá IFG (`apps/gui/ifg_explorer.py`); các thuật toán trong đó (đồng đăng ký bằng tương quan chéo, Lanczos, giải chập pha DCT/branch-cut…) chỉ là **tham chiếu** cho engine native (Phase 5), khi nào thực sự cần mới chuyển vào thư viện.
+- `tools/capella_ifg_gui.py` **không** thuộc quy trình: giữ làm công cụ khám phá IFG (`apps/gui/ifg_explorer.py`); các thuật toán trong đó (khớp ảnh bằng tương quan chéo, Lanczos, giải chập pha DCT/branch-cut…) chỉ là **tham chiếu** cho engine native (Phase 5), khi nào thực sự cần mới chuyển vào thư viện.
 
 ### ADR-023 — Sentinel-1 theo từng burst, native *(Accepted 2026-10-22)*
 **Bối cảnh.** Một IW SLC đầy đủ nặng ~4,5–7 GB, trong khi một AOI thường chỉ cần vài burst (~150 MB/burst). ASF cung cấp burst SLC theo yêu cầu: `https://sentinel1-burst.asf.alaska.edu/<SLC>/<IWx>/<POL>/<burstIndex>.tiff` (GeoTIFF CInt16, 1 burst) + `.xml` cùng đường dẫn (siêu dữ liệu gộp của cả SLC: product annotation của mọi dải con, calibration, noise, rfi, manifest). Tìm kiếm: ASF search API `dataset=SLC-BURST` (lọc theo `fullBurstID` `<track>_<relBurst>_<IWx>`, AOI, ngày). Tải về cần `EARTHDATA_TOKEN` (Bearer) + cookie URS.

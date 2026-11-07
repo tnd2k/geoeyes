@@ -5,7 +5,9 @@
 
 Xử lý chuỗi thời gian InSAR: từ cảnh SAR thô đến sản phẩm chuyển dịch có quản lý phiên bản và báo cáo.
 
-- **Cảm biến**: Sentinel-1 IW (lấy theo burst từ ASF), COSMO-SkyMed và Capella stripmap; tự đồng đăng ký ảnh, không cần SNAP.
+- **Cảm biến**: Sentinel-1 IW (lấy theo burst từ ASF), COSMO-SkyMed, Capella và ICEYE stripmap / spotlight; tự đồng đăng ký
+  ảnh, không cần SNAP. Hub dữ liệu mở: chồng ảnh chụp lặp trong các catalog STAC mở của ICEYE / Capella / Umbra
+  (`geoeyes opendata`, [hướng dẫn](docs/vi/guide/opendata.md)).
 - **Phương pháp**: điểm tán xạ bền vững (PS) theo kiểu StaMPS (`psi`); liên kết pha (phase linking) kết hợp điểm tán
   xạ phân bố (DS) (`psds`); `ps_lite` cho chồng ảnh Capella ngắn; hiệu chỉnh khí quyển bằng ERA5 / GACOS.
 - **Đầu ra**: sản phẩm bất biến (điểm và chuỗi thời gian dạng GeoParquet, raster COG, STAC item); xuất dữ liệu GIS
@@ -41,6 +43,11 @@ geoeyes cr-report <project>     # nhận dạng gương phản xạ góc (Sentin
 geoeyes hazard <project>        # phân vùng nguy cơ có xét lượng mưa cho sản phẩm mới nhất (--set cell_m=50 ...)
 geoeyes gnss   <project>        # so sánh với trạm GNSS của NGL; hiệu chỉnh theo GNSS (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # tìm sản phẩm của mọi dự án trong một khu vực
+geoeyes params unwrap_grid_size          # tham số dùng để làm gì, rủi ro, giá trị thường dùng (--lang vi)
+geoeyes site   <project>                 # hồ sơ khu vực: chênh cao, độ dốc, lớp phủ, địa chất, khí hậu, dữ liệu
+geoeyes advise <project>                 # tham số đề xuất cho khu vực, kèm lý do từng giá trị (--apply)
+geoeyes advise --learn                   # mọi dự án so với bộ luật: chỗ khớp, chỗ khác, ứng viên luật mới
+geoeyes mcp                              # bộ tư vấn dạng MCP server cục bộ cho Claude Code (chỉ đọc)
 geoeyes serve --open            # mở ứng dụng web tại http://localhost:8765
 ```
 

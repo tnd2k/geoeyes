@@ -136,14 +136,23 @@ def delays_at_points(path, lon, lat, h_m) -> tuple[np.ndarray, np.ndarray]:
     lon = np.where(np.asarray(lon, np.float64) >= 180.0, np.asarray(lon, np.float64) - 360.0, lon)
     lat = np.asarray(lat, np.float64)
     far = (lat < lats[0] - 1) | (lat > lats[-1] + 1) | (lon < lons[0] - 1) | (lon > lons[-1] + 1)
-    la_q, lo_q = np.clip(lat, lats[0], lats[-1]), np.clip(lon, lons[0], lons[-1])
+    lat_grid = np.broadcast_to(lats[:, None], (lats.size, lons.size))
+    return grid_delays(t, rh, z, levels, lats, lons, lat_grid, lat, lon, h_m, far)
+
+
+def grid_delays(t, rh, z, levels, ys, xs, lat_grid, py, px, h_m, far) -> tuple[np.ndarray, np.ndarray]:
+    """Zenith delays at points (``py``, ``px``) on a model grid regular in its own coordinates (``ys``, ``xs``
+    increasing: degrees for ERA5, metres of the Lambert projection for CERRA); fields (ny, nx, level) from the
+    surface up, ``lat_grid`` (ny, nx) the latitude of every column; ``far``: points set to NaN."""
+    la_q, lo_q = np.clip(py, ys[0], ys[-1]), np.clip(px, xs[0], xs[-1])
+    lats, lons = ys, xs
     ia = np.clip(np.searchsorted(lats, la_q) - 1, 0, lats.size - 2)
     io = np.clip(np.searchsorted(lons, lo_q) - 1, 0, lons.size - 2)
     r0, r1 = ia.min(), ia.max() + 2                  # the columns around the points only
     c0, c1 = io.min(), io.max() + 2
     sub = (slice(r0, r1), slice(c0, c1))
     nr, nc = r1 - r0, c1 - c0
-    lat_cols = np.repeat(lats[r0:r1], nc)
+    lat_cols = np.asarray(lat_grid[sub], np.float64).ravel()
     flat = (lambda a: a[sub].reshape(nr * nc, -1))  # noqa: E731
     p = np.broadcast_to(levels[None, :], (nr * nc, levels.size))
     ld, lw = column_profiles(flat(z), flat(t), flat(rh), p, lat_cols)

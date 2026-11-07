@@ -24,8 +24,8 @@ ds_coherence_min = 0.7
 # 4.12 -> 4.81 mm with the ambiguity score, velocity scatter of PS 60-150 m apart 1.51 -> 1.67 mm/yr with
 # Goldstein, no change with the population scaling); they remain available per project.
 # operating settings of the legacy CSK projects (in.json); max_topo_err as the legacy CSK prep:
-# median height of ambiguity / 4
-max_topo_err = "auto"
+# median height of ambiguity / 4 with the master-relative B⊥ ("auto" takes B⊥ about the stack median)
+max_topo_err = "auto_master"
 select_method = "PERCENT"
 percent_rand = 92
 density_rand = 20

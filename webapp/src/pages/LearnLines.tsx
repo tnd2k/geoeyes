@@ -4,12 +4,13 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type ConsolidationCell, type ConsolidationSummary, type LineProfile, type LinesSummary, type Workspace } from "../api";
-import { ChapterNav } from "../components/LearnKit";
+import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { CONS_RGB, ConsolidationChart, LINE_KINDS, LINE_RGB, NA_RGB, ProfileChart, rgb, type Cells, type Consolidation, type RGB } from "./Hazard";
-import { CellMap, Section } from "./LearnHazard";
+import { CONS_RGB, ConsolidationChart, LINE_KINDS, LINE_RGB, NA_RGB, ProfileChart, rgb, type Cells, type Consolidation, type RGB } from "../components/hazardKit";
+import { CellMap } from "./LearnHazard";
+import { themeColor } from "../theme";
 
 // ------------------------------------------------------------------ figures
 const KIND_RGB: Record<string, RGB> = { dyke: [76, 194, 255], railway: [245, 184, 75], embankment: [214, 51, 168], road: [147, 164, 191] };
@@ -44,7 +45,7 @@ function LinesMap({ s, by }: { s: Segments; by: "kind" | "beta" }) {
     el.width = W;
     el.height = H;
     const ctx = el.getContext("2d")!;
-    ctx.fillStyle = "#0b1220";
+    ctx.fillStyle = themeColor("bg");
     ctx.fillRect(0, 0, W, H);
     const X = (x: number) => ((x - geo.x0) / (geo.x1 - geo.x0)) * (W - 1);
     const Y = (y: number) => (1 - (y - geo.y0) / (geo.y1 - geo.y0)) * (H - 1);
@@ -86,18 +87,18 @@ function AsaokaChart({ a }: { a: ConsolidationCell["asaoka"] }) {
   const Y = (v: number) => H - 30 - ((v - lo) / (hi - lo)) * (H - 44);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[340px]">
-      <rect x={40} y={14} width={W - 52} height={H - 44} fill="none" stroke="#22324d" />
-      <line x1={X(lo)} y1={Y(lo)} x2={X(hi)} y2={Y(hi)} stroke="#93a4bf" strokeDasharray="4 3" />
+      <rect x={40} y={14} width={W - 52} height={H - 44} fill="none" stroke="var(--c-line-2)" />
+      <line x1={X(lo)} y1={Y(lo)} x2={X(hi)} y2={Y(hi)} stroke="var(--c-muted)" strokeDasharray="4 3" />
       <line x1={X(lo)} y1={Y(a.b0 + a.b1 * lo)} x2={X(hi)} y2={Y(a.b0 + a.b1 * hi)} stroke="#f46d43" strokeWidth="1.8" />
       {a.prev.map((p, i) => (
-        <circle key={i} cx={X(p)} cy={Y(a.next[i])} r={3} fill="#4cc2ff" />
+        <circle key={i} cx={X(p)} cy={Y(a.next[i])} r={3} fill="var(--c-accent)" />
       ))}
       {a.final != null && a.final <= hi && <circle cx={X(a.final)} cy={Y(a.final)} r={5} fill="none" stroke="#fde725" strokeWidth="2" />}
-      <text x={X(hi)} y={Y(hi) - 4} fill="#93a4bf" fontSize="10" textAnchor="end">sᵢ = sᵢ₋₁</text>
-      <text x={40} y={H - 8} fill="#93a4bf" fontSize="10">{lo.toFixed(0)}</text>
-      <text x={W - 12} y={H - 8} fill="#93a4bf" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
-      <text x={(W + 28) / 2} y={H - 8} fill="#93a4bf" fontSize="10" textAnchor="middle">{t("previous reading sᵢ₋₁, mm")}</text>
-      <text x={12} y={(H - 16) / 2} fill="#93a4bf" fontSize="10" textAnchor="middle" transform={`rotate(-90 12 ${(H - 16) / 2})`}>
+      <text x={X(hi)} y={Y(hi) - 4} fill="var(--c-muted)" fontSize="10" textAnchor="end">sᵢ = sᵢ₋₁</text>
+      <text x={40} y={H - 8} fill="var(--c-muted)" fontSize="10">{lo.toFixed(0)}</text>
+      <text x={W - 12} y={H - 8} fill="var(--c-muted)" fontSize="10" textAnchor="end">{hi.toFixed(0)}</text>
+      <text x={(W + 28) / 2} y={H - 8} fill="var(--c-muted)" fontSize="10" textAnchor="middle">{t("previous reading sᵢ₋₁, mm")}</text>
+      <text x={12} y={(H - 16) / 2} fill="var(--c-muted)" fontSize="10" textAnchor="middle" transform={`rotate(-90 12 ${(H - 16) / 2})`}>
         {t("reading sᵢ, mm")}
       </text>
     </svg>
@@ -481,30 +482,14 @@ export function LinesChapter({ ws, step }: { ws: Workspace | undefined; step?: n
     <div className="flex h-full min-h-0">
       <ChapterNav current="lines" steps={STEPS.map((s) => s.title)} step={k} onStep={go} />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[1180px] px-6 py-5">
-          <div className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</div>
-          <h1 className="m-0 mt-1 text-[26px] font-bold tracking-tight">{t(S.title)}</h1>
-          <p className="mt-1.5 max-w-[860px] text-[15px] leading-relaxed text-ink-2">{t(S.goal)}</p>
-          <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <Section title="Principle">
-                <div className="flex max-w-[860px] flex-col gap-3 text-[14px] leading-relaxed text-ink-2">
-                  {S.what.map((w) => (
-                    <p key={w} className="mt-0 mb-0">
-                      {t(w)}
-                    </p>
-                  ))}
-                </div>
-                {S.formula && (
-                  <div className="mt-4 max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-              {S.figures.length > 0 && (
-                <Section title="Illustrated on real data">
+        <Lesson
+          chapter={4}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          idea={S.what}
+          figures={S.figures.length > 0 ? <>
                   {!data ? (
                     <p className="text-[13px] text-muted">{t("No product of the workspace has a hazard zoning yet: run one on the Thematic analysis page, then come back.")}</p>
                   ) : missing ? (
@@ -534,39 +519,24 @@ export function LinesChapter({ ws, step }: { ws: Workspace | undefined; step?: n
                       })}
                     </div>
                   )}
-                </Section>
-              )}
-              <Section title="What to look for">
-                <div className="max-w-[860px] rounded-lg border border-[#2b4a73] bg-[#0f1d33] px-4 py-3">
-                  <ul className="m-0 list-disc space-y-1 pl-4 text-[13.5px] leading-relaxed text-ink-2">
-                    {S.look.map((w) => (
-                      <li key={w}>{t(w)}</li>
-                    ))}
-                  </ul>
-                  {S.layer && sel && (
+                </> : undefined}
+          formula={S.formula}
+          look={S.look}
+          lookExtra={<>{S.layer && sel && (
                     <a href={href({ page: "hazard", name: sel.project, product: sel.product, view: S.layer })} className="mt-3 inline-block no-underline">
                       <Button>{t("Open the Thematic analysis")}</Button>
                     </a>
-                  )}
-                </div>
-              </Section>
-              <div className="mt-6 text-[12px] text-faint">
+                  )}</>}
+          doc={<>
                 {t("Full method, sources and research plan:")} docs/{lang()}/research/lines-and-consolidation.md
-              </div>
-              <nav className="mt-4 mb-8 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {k > 0 ? t(STEPS[k - 1].title) : t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {k < STEPS.length - 1 ? t(STEPS[k + 1].title) : t("Next")} →
-                </Button>
-              </nav>
-            </div>
-            <aside className="mt-6 space-y-3 xl:sticky xl:top-4 xl:self-start">
+              </>}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={<>
               <div className="rounded-xl border border-line bg-panel p-3">
                 <div className="text-[10.5px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Data of the illustrations")}</div>
                 {ready.length ? (
-                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink">
+                  <select value={sel?.product ?? ""} onChange={(e) => setChoice(e.target.value)} className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink">
                     {ready.map((p) => (
                       <option key={p.product} value={p.product}>
                         {p.label}
@@ -590,9 +560,8 @@ export function LinesChapter({ ws, step }: { ws: Workspace | undefined; step?: n
                   </div>
                 </div>
               )}
-            </aside>
-          </div>
-        </article>
+            </>}
+        />
       </div>
     </div>
   );

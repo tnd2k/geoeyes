@@ -6,7 +6,8 @@ Trạng thái: đã triển khai v1 (kiểm định liên hệ với nước ng�
 trong mô hình dự báo).
 Mã nguồn: `geoeyes.ancillary.groundwater`, `geoeyes.hazard.assess._groundwater`, `geoeyes.hazard.coupling.storage`,
 `geoeyes.ml.forecast._gws_features`. Ghi chú liên quan: [rainfall-insar-hazard.md](rainfall-insar-hazard.md)
-(phép kiểm định liên hệ dùng lại ở đây), [ai-forecasting.md](ai-forecasting.md).
+(phép kiểm định liên hệ dùng lại ở đây), [ai-forecasting.md](ai-forecasting.md). Với mực nước đo được:
+[choshui-groundwater.md](choshui-groundwater.md) (quạt Choshui, Đài Loan, kế hoạch C0–C8, 2026-11-05).
 
 ## Mục lục
 
@@ -43,8 +44,9 @@ nước ngầm của NASA Earthdata liệt kê các sản phẩm mở ước tí
 - **Trọng lực vệ tinh.** GRACE (2002–2017) và GRACE-FO (từ 2018) đo biến đổi tổng lượng nước trên lục địa. Các lời
   giải mascon có độ phân giải hiệu dụng khoảng 3°, lưới 0,5° (Watkins et al. 2015). Cần một mô hình bề mặt đất để
   tách phần nước ngầm khỏi độ ẩm đất, tuyết và nước mặt.
-- **GLDAS đồng hoá dữ liệu GRACE.** GLDAS (Rodell et al. 2004) dùng mô hình bề mặt đất Catchment có đồng hoá GRACE
-  (Li et al. 2019). Sản phẩm cho trữ lượng nước ngầm hằng ngày ở độ phân giải 0,25°; thông tin ở quy mô GRACE được
+- **GLDAS đồng hoá dữ liệu GRACE.** GLDAS (Rodell et al. 2004) chạy nhiều mô hình bề mặt đất; GLDAS-1, 2.0 và 2.1
+  dùng Noah cùng một số mô hình khác. Chỉ GLDAS-2.2, phiên bản dùng ở đây, chạy mô hình bề mặt đất Catchment (CLSM)
+  có đồng hoá GRACE (Li et al. 2019; sửa ngày 2026-11-05). Sản phẩm cho trữ lượng nước ngầm hằng ngày ở độ phân giải 0,25°; thông tin ở quy mô GRACE được
   chi tiết hoá nhờ các quá trình vật lý của mô hình.
 - **Kết hợp GRACE và InSAR.** Các nghiên cứu ở miền Trung Mexico (Castellazzi et al. 2016) và Thung lũng Trung tâm
   California (Ojha et al. 2018) ghép lượng nước mất ở quy mô vùng từ GRACE với sụt lún cục bộ từ InSAR. GRACE cho biết
@@ -172,6 +174,15 @@ Phân vùng nguy cơ với `groundwater = "auto"`, ngày 2026-10-26 (tham số m
   tính nhạy cảm.
 - **R-G4 — Giá trị cho dự báo**: so sánh kết quả kiểm tra ngược có và không có đặc trưng nước ngầm trên các chuỗi dài
   (CSK 2011–2014, Sentinel-1 từ 2016). Tiêu chí: MAE thấp hơn ở tầm dự báo 3–6 tháng.
+
+**Rà soát 2026-11-05: định hướng.**
+- Cửa sổ độ trễ 0–6 tháng chỉ đo được phản ứng đàn hồi, theo mùa. Sụt lún ở Hà Nội và đồng bằng sông Cửu Long chủ
+  yếu do nén chặt không đàn hồi của các lớp thấm nước yếu, trễ hàng năm (Minderhoud et al. 2017), nên kết quả âm tính
+  là điều đã lường trước từ thiết kế; bước hệ số nhả nước của khung đất (R-G3) mới là bước có ý nghĩa.
+- Ở Hà Nội, mực nước do khai thác và mực nước sông Hồng chi phối, nên mưa/CRD chỉ là đại lượng đại diện yếu: ưu tiên
+  mực nước sông Hồng hoặc số liệu quan trắc của NAWAPI.
+- Các phép thử ở Hà Nội dùng vùng trung tâm ổn định của CSK và một năm S1: ưu tiên chuỗi S1 nhiều năm (từ 2016) trên
+  Hoàng Mai, Thanh Trì, Hà Đông, tham chiếu về nền ổn định.
 
 ## 8. Tài liệu tham khảo
 

@@ -87,6 +87,21 @@ def jet_r(n: int) -> list[str]:
     return [",".join(str(int(round(c * 255))) for c in cmap(x)[:3]) for x in np.linspace(0, 1, n)]
 
 
+def velocity_classes(values) -> tuple[np.ndarray, np.ndarray]:
+    """(upper bounds (k,), RGB (k, 3) uint8) of the velocity classes: Pretty Breaks over min-max, jet_r."""
+    v = np.asarray(values, np.float64)
+    v = v[np.isfinite(v)]
+    uppers = np.asarray(pretty_breaks(float(v.min()), float(v.max()), CLASSES))
+    rgb = np.array([[int(c) for c in s.split(",")] for s in jet_r(len(uppers))], np.uint8)
+    return uppers, rgb
+
+
+def class_rgb(values, uppers: np.ndarray, rgb: np.ndarray) -> np.ndarray:
+    """(n, 3) uint8 colour of each value (upper bounds inclusive, as QGIS)."""
+    k = np.clip(np.searchsorted(uppers, np.nan_to_num(np.asarray(values, np.float64)), side="left"), 0, len(uppers) - 1)
+    return rgb[k]
+
+
 def marker_size_m(lon, lat) -> float:
     """Marker diameter (m on the ground): ``FILL`` × median distance to the nearest neighbour."""
     from scipy.spatial import cKDTree

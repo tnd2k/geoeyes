@@ -3,8 +3,7 @@ import { useState } from "react";
 import type { ProjectSummary, Workspace } from "../api";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
-import { Chip, Confidence, fmt, Panel } from "../ui";
-
+import { Chip, Confidence, fmt, PageSkeleton, Panel } from "../ui";
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <Panel className="px-4 py-3.5">
@@ -21,7 +20,7 @@ function VelBar({ min, max }: { min?: number; max?: number }) {
   const x = (v: number) => 50 + (50 * v) / span;
   return (
     <div className="mt-1" title={t("LOS velocity range of the latest product (min to max), 0 in the middle")}>
-      <div className="relative h-2 rounded-full bg-[#1a2740]">
+      <div className="relative h-2 rounded-full bg-chip">
         <div
           className="absolute top-0 h-2 rounded-full"
           style={{
@@ -93,10 +92,11 @@ function Card({ p }: { p: ProjectSummary }) {
   );
 }
 
+/** The workspace's projects (the first tab of the Projects page; the second is the open data). */
 export function Overview({ ws }: { ws: Workspace | undefined }) {
   const { go } = useApp();
   const [filter, setFilter] = useState<"all" | "attention" | "running">("all");
-  if (!ws) return <div className="p-8 text-muted">{t("Loading…")}</div>;
+  if (!ws) return <PageSkeleton panels={3} />;
   const all = Object.values(ws.projects);
   const products = all.flatMap((p) => p.tracks.map((x) => x.product).filter(Boolean));
   const attention = all.filter((p) => ["failed", "interrupted", "invalid"].includes(p.status) || (p.alerts ?? 0) > 0);
@@ -144,6 +144,15 @@ export function Overview({ ws }: { ws: Workspace | undefined }) {
               </button>
             ))}
           </div>
+          <div className="ml-auto flex gap-2 text-[12.5px]">
+            <button type="button" className="text-accent hover:underline" onClick={() => go({ page: "new" })}>
+              + {t("New project")}
+            </button>
+            <span className="text-faint">·</span>
+            <button type="button" className="text-accent hover:underline" onClick={() => go({ page: "opendata" })}>
+              {t("Start from open data")} →
+            </button>
+          </div>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((p) => (
@@ -166,7 +175,7 @@ export function Overview({ ws }: { ws: Workspace | undefined }) {
             </thead>
             <tbody>
               {runs.map(({ project, run }) => (
-                <tr key={project} className="cursor-pointer border-t border-line hover:bg-[#131f35]" onClick={() => go({ page: "project", name: project, tab: "runs" })}>
+                <tr key={project} className="cursor-pointer border-t border-line hover:bg-panel-3" onClick={() => go({ page: "project", name: project, tab: "runs" })}>
                   <td className="px-4 py-2.5 font-mono">{project}</td>
                   <td className="px-4 py-2.5 font-mono text-ink-2">{fmt.runTime(run.id)}</td>
                   <td className="px-4 py-2.5 text-ink-2">{fmt.secs(run.seconds) || "–"}</td>

@@ -37,8 +37,10 @@ adds to what InSAR alone shows, and (c) reproducible on every GeoEyes product?
   outside v1 (§6, R6).
 
 **Out of scope in v1** (listed in the research sequence): event-scale rainfall triggering of rapid landslides
-(intensity–duration thresholds, nowcasting), statistical susceptibility models, 3-D decomposition from two
-geometries, and calibration of the classes against damage or landslide inventories.
+(intensity–duration thresholds, nowcasting), statistical susceptibility models, and calibration of the classes
+against damage or landslide inventories. Two geometries give only a 2-D (east, up) decomposition, not 3-D; it exists
+as `geoeyes decompose` since 2026-10-27 ([two-geometries-and-soft-soil.md](two-geometries-and-soft-soil.md)) but is
+not used by the zoning yet (2026-11-05).
 
 ## 2. Background: what the literature establishes
 
@@ -112,6 +114,8 @@ geometries, and calibration of the classes against damage or landslide inventori
   - Bayer et al. (2018) find different seasonal responses by lithology in the Apennines with COSMO-SkyMed and
     Sentinel-1.
   - Hu et al. (2020) quantify hydro-meteorological forcing in 4-D.
+  - Tomás et al. (2014) constrain the spatial and temporal pattern of the Huangtupo landslide (Three Gorges) with
+    radar interferometry.
 - **Precursors.** Acceleration matters most:
   - Intrieri et al. (2018) detected the acceleration before the Maoxian failure in Sentinel-1 data.
   - The inverse-velocity method extrapolates 1/v to zero (Fukuzono 1985; Voight 1988, 1989).
@@ -157,8 +161,10 @@ geometries, and calibration of the classes against damage or landslide inventori
   horizon. It depends only on rate *differences*, so it does not depend on the reference of the product.
 - **H3 (rainfall coupling).** Where motion responds to rainfall, the detrended displacement follows the lagged
   cumulative rainfall departure: d(t) = a + b·t + k·CRD(t − τ).
-  - For aquifer systems k < 0: rain gives uplift, i.e. less sinking.
-  - For landslides k > 0: rain gives more downslope motion.
+  - With the GeoEyes sign of the outputs (§4.3; corrected 2026-11-05), for aquifer systems k > 0: rain gives
+    uplift, i.e. less sinking (as g > 0 in [groundwater-insar.md](groundwater-insar.md) §4.1).
+  - For landslides k < 0: rain gives more downslope motion.
+  - Inside the analysis, where sinking and downslope are positive (hazard direction), the signs are the reverse.
   - The lag τ reflects recharge or pore-pressure diffusion. The response k then allows a **scenario**: the rate in a
     dry (P10) or wet (P90) year.
 - **H4 (escalation).** A significant, rain-coupled response or a significant acceleration in the hazard direction
@@ -194,8 +200,11 @@ H3 is tested, not assumed: it is accepted only where the surrogate test passes a
 (positive toward the satellite).
 
 - **Subsidence cells:** y = −d_LOS / l_u (vertical motion assumed, sinking positive).
+  - Cells with |l_u| < `min_vertical_sensitivity` (0.1) are not assessed (a parameter since 2026-11-05); it only
+    matters for very oblique or near-horizontal lines of sight.
 - **Landslide cells:** y = d_LOS / (**s**·**l**). **s** is the unit vector of steepest descent, so downslope is
-  positive. This is the L2S projection of Cigna et al. (2013).
+  positive. This is the L2S projection of Cigna et al. (2013); Notti et al. (2014) use the same projection along
+  the slope, with a visibility index (R-index) to screen the slopes a geometry can see.
   - Cells with |**s**·**l**| < `min_sensitivity` (0.3) are not assessed. There the line of sight sees less than 30%
     of a downslope motion, and the projection would amplify noise more than three times.
 
@@ -339,6 +348,7 @@ key=value`, and can be changed in the web app.
 | `horizon_yr` | 10 | Planning horizon. With `horizon_yr = 1`, β is the annual horizontal gradient |
 | `landslide_min_slope_deg` | 10 | ADAtools rules (landslide ≥ 5°, subsidence ≤ 10°), upper bound |
 | `min_sensitivity` | 0.3 | L2S projection (Cigna et al. 2013); caps noise amplification at 3.3 |
+| `min_vertical_sensitivity` | 0.1 | Subsidence cells: \|l_u\| below is not assessed; caps noise amplification at 10 |
 | `slope_breaks` | 15, 25, 35 | **Placeholder.** Replace with a susceptibility raster (R4) |
 | `max_lag_months` | 6 | Lags of weeks to months (Handwerger et al. 2013; Dang et al. 2014 seasonal transients) |
 | `n_surrogates`, `alpha`, `fdr` | 500, 0.05, true | Ebisuzaki 1997; Benjamini & Hochberg 1995; Wilks 2016 |
@@ -389,7 +399,8 @@ steps are needed before the map can support decisions.
   - compare with piezometric records where they exist (Hanoi: Bui et al. 2021; Spain: Béjar-Pizarro et al. 2017);
   - groundwater storage from NASA GLDAS (GRACE assimilated) is coupled with every cell since v1.1, as a
     diagnostic: see [groundwater-insar.md](groundwater-insar.md);
-  - compare ascending and descending products to separate vertical and horizontal motion.
+  - compare ascending and descending products to separate vertical and east-west motion (`geoeyes decompose`);
+    north-south motion stays unresolved.
 - **Output:** for each coupled area, the part explained by rainfall, by temperature and by heads.
 - **Criterion:** the rainfall coefficient stays significant with temperature in the model.
 
@@ -454,7 +465,9 @@ ERA5 was used and the summary says so.
 **Reading.**
 
 - **Hanoi, no rainfall coupling.** No rainfall coupling is detectable in either Hanoi product: the raw share of
-  p < 0.05 is *below* 5%, as expected under the null.
+  p < 0.05 is *below* 5% (3.7% and 1.7%). Under the null about 5% is expected, so the share is consistent with no
+  coupling; 1.7% also suggests that the test is conservative, with little power on 12–26 epochs (reworded
+  2026-11-05).
   - The CSK sampling (18 irregular epochs, about 3 per wet season) and a single S1 year are thin for a seasonal
     signal.
   - Both products are referenced to the scene mean. Dang et al. (2014) found the seasonal transients in the
@@ -473,8 +486,9 @@ ERA5 was used and the summary says so.
 ## 8. Limitations
 
 1. **One geometry.** The motion is assumed vertical (subsidence) or downslope (landslide). Horizontal motion in
-   subsidence bowls, or subsidence on slopes, is misattributed. An ascending and descending decomposition (R2)
-   removes this.
+   subsidence bowls, or subsidence on slopes, is misattributed. An ascending and descending decomposition (R2,
+   `geoeyes decompose`) resolves vertical and east-west motion only: north-south motion stays unresolved, so
+   landslides on north- or south-facing slopes remain misattributed (2026-11-05).
 2. **Reference.** Intensity classes are only as good as the stable-ground reference (§4.3, §7).
 3. **Linear response.** The rainfall scenario extrapolates a linear k to dry and wet years. Landslide response is
    non-linear: thresholds, rate-weakening and runaway failure (Handwerger et al. 2016, 2019). Aquifer response

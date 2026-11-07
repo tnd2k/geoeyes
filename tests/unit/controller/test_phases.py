@@ -21,12 +21,17 @@ def test_csk_preset_links_phase_and_takes_ds():
 
 def test_max_topo_err_auto_is_quarter_median_hoa():
     from geoeyes.processing.ps.params import hoa_max_topo_err
-    assert config().ps["max_topo_err"] == "auto"
+    assert config().ps["max_topo_err"] == "auto_master"                         # CSK preset: the legacy prep
     bperp = [1010.2, 334.1, 1005.7, -101.8, 0.0, 527.4, 1299.7, -141.5, -462.0, 215.7, 286.0, 29.1, -508.6, 425.9,
              534.3, -584.2, -75.3, -549.2]                                         # CSK Hanoi, legacy value 2.7857
     geom = (0.0312284, 699862.3, np.radians(28.13977))                            # λ, median R, median θ
-    assert hoa_max_topo_err(bperp, *geom) == pytest.approx(2.789, abs=0.005)
-    assert hoa_max_topo_err(bperp, *geom, max_perp=800) == pytest.approx(3.441, abs=0.005)
+    assert hoa_max_topo_err(bperp, *geom, about_master=True) == pytest.approx(2.789, abs=0.005)
+    assert hoa_max_topo_err(bperp, *geom, max_perp=800, about_master=True) == pytest.approx(3.441, abs=0.005)
+    # "auto": B⊥ about the stack median, the same whichever date is the master (a constant shift of every B⊥)
+    b = np.asarray(bperp)
+    assert hoa_max_topo_err(b, *geom) == pytest.approx(hoa_max_topo_err(b - 600.0, *geom))
+    assert hoa_max_topo_err(b - 600.0, *geom, about_master=True) != pytest.approx(hoa_max_topo_err(b, *geom,
+                                                                                                about_master=True))
 
 
 def test_legacy_project_without_phase_linking_still_loads():
@@ -74,7 +79,7 @@ def test_ps_phase_reads_linked_slc_and_ds(tmp_path, monkeypatch):
         ps.run(cfg, st, tmp_path / "run")
     phase_linking.run(cfg, st)
     k = ps.run(cfg, st, tmp_path / "run")
-    assert k["slc_var"] == "slc_linked" and k["ds_tcoh_min"] == 0.7 and k["da_max"] == 0.4
+    assert k["slc_var"] == "slc_linked" and k["ds_tcoh_min"] == 0.7 and k["da_max"] == 0.42    # the default da_threshold
     assert ps.run(cfg, st, tmp_path / "run", engine="ps_lite")["slc_var"] == "slc_linked"
     k = ps.run(config("sentinel1"), st, tmp_path / "run2")
     assert k["slc_var"] == "slc" and k["ds_tcoh_min"] is None

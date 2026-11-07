@@ -134,6 +134,9 @@ def _threshold(min_coh, da_mean, da_eval, default):
     return np.atleast_1d(min_coh), np.array([])
 
 
+DEGENERATE_MRL = 1.0 - 1e-6              # interferograms with a constant phase (no information)
+
+
 def select(*, ph: np.ndarray, bperp: np.ndarray, bperp_mat: np.ndarray, master_ix: int, xy: np.ndarray,
            forced: np.ndarray, da: np.ndarray | None, gamma: EstGamma, params: SelectParams,
            seed: int | None = None) -> Select:
@@ -145,9 +148,12 @@ def select(*, ph: np.ndarray, bperp: np.ndarray, bperp_mat: np.ndarray, master_i
     drop = {d - 1 for d in p.drop_ifg_index}
     ifg_index = [k - (k > master_ix) for k in range(n_ifg_all) if k not in drop and k != master_ix]
     mrl = np.abs(np.mean(np.exp(1j * np.angle(ph)), axis=0))
-    degenerate = set(np.flatnonzero(mrl > 0.99).tolist())
+    # degenerate = the same phase everywhere (a date of zeros). A smooth interferogram of a coherent short pair
+    # (ICEYE 1-day pairs on a 1.5 km AOI after phase linking: MRL ~0.995, 0.1 rad spread) is good data: keep it.
+    degenerate = set(np.flatnonzero(mrl > DEGENERATE_MRL).tolist())
     if degenerate:
-        log.warning("dropping degenerate interferogram(s) (constant phase, MRL > 0.99): %s", sorted(degenerate))
+        log.warning("dropping degenerate interferogram(s) (constant phase, MRL > %s): %s", DEGENERATE_MRL,
+                    sorted(degenerate))
         ifg_index = [k for k in ifg_index if k not in degenerate]
     ifg_index = np.asarray(ifg_index, dtype=int)
     if ifg_index.size == 0:
@@ -206,13 +212,17 @@ def select(*, ph: np.ndarray, bperp: np.ndarray, bperp_mat: np.ndarray, master_i
     sub = psdph[:, ifg_index]
     valid = np.flatnonzero(np.all(np.isfinite(sub) & (np.abs(sub) > np.float32(1e-6)), axis=1))
     if valid.size:
-        z = psdph[valid].astype(np.complex128)
-        z = (z / np.where(np.abs(z) > 0, np.abs(z), 1.0))[:, ifg_index]
         fitter = topofit if p.dem_error.enabled else topofit_full
-        fit = fitter(z, bperp_mat[ix][valid][:, ifg_index].astype(np.float64), float(gamma.n_trial_wraps),
-                     mini_batch=500)
-        K2[valid], C2[valid], coh2[valid], Q2[valid] = fit.K, fit.C, fit.coh, fit.Q
-        ph_res2[np.ix_(valid, ifg_index)] = np.angle(fit.residual)
+        # in chunks (the fit is per PS): the complex128 copies of millions of PS are GBs
+        step = 200_000
+        for s in range(0, valid.size, step):
+            v = valid[s:s + step]
+            z = psdph[v].astype(np.complex128)
+            z = (z / np.where(np.abs(z) > 0, np.abs(z), 1.0))[:, ifg_index]
+            fit = fitter(z, bperp_mat[ix[v]][:, ifg_index].astype(np.float64), float(gamma.n_trial_wraps),
+                         mini_batch=500)
+            K2[v], C2[v], coh2[v], Q2[v] = fit.K, fit.C, fit.coh, fit.Q
+            ph_res2[np.ix_(v, ifg_index)] = np.angle(fit.residual)
         if p.dem_error.enabled:
             K2[valid] = regularize(K2[valid], coh2[valid], Q2[valid], delaunay_edges(xy[ix, 1:3][valid]),
                                    p.dem_error)

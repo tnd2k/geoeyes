@@ -28,9 +28,12 @@ from geoeyes.core.errors import ConfigError, DataError
 
 log = logging.getLogger(__name__)
 
-PELLETIER = ("https://data.ornldaac.earthdata.nasa.gov/protected/global_soil/Global_Soil_Regolith_Sediment/data/"
-             "upland_valley-bottom_and_lowland_sedimentary_deposit_thickness.tif")
+PELLETIER_BASE = "https://data.ornldaac.earthdata.nasa.gov/protected/global_soil/Global_Soil_Regolith_Sediment/data/"
 PELLETIER_FILE = "pelletier2016_lowland_sediment_thickness.tif"
+# the other layers of the dataset (1 km, metres): {local file: remote file}
+PELLETIER_LAYERS = {"pelletier2016_hillslope_soil_thickness.tif": "upland_hill-slope_soil_thickness.tif",
+                    "pelletier2016_hillslope_regolith_thickness.tif": "upland_hill-slope_regolith_thickness.tif",
+                    PELLETIER_FILE: "upland_valley-bottom_and_lowland_sedimentary_deposit_thickness.tif"}
 SOURCES = {"raster": "project raster", "boreholes": "boreholes (inverse distance)",
            "open": "Pelletier et al. 2016, sediment thickness above bedrock (1 km, capped at 50 m)"}
 
@@ -90,14 +93,19 @@ def idw(lon: np.ndarray, lat: np.ndarray, blon: np.ndarray, blat: np.ndarray, va
 
 
 def _open_raster(cache: Path, token: str) -> Path:
-    f = cache / PELLETIER_FILE
+    return pelletier_file(cache, token, PELLETIER_FILE)
+
+
+def pelletier_file(cache: Path, token: str, name: str) -> Path:
+    """A layer of Pelletier et al. (2016) in the cache (``name``: a key of PELLETIER_LAYERS), downloaded once."""
+    f = cache / name
     if f.exists():
         return f
     if not token:
         raise DataError("EARTHDATA_TOKEN is required for the open sediment-thickness grid (Pelletier et al. 2016)")
     cache.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(".part")
-    req = urllib.request.Request(PELLETIER, headers={"Authorization": f"Bearer {token}"})
+    req = urllib.request.Request(PELLETIER_BASE + PELLETIER_LAYERS[name], headers={"Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(req, timeout=600) as r, open(tmp, "wb") as out:
         while chunk := r.read(1 << 20):
             out.write(chunk)

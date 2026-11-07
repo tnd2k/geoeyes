@@ -9,7 +9,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import requests
 
@@ -100,12 +100,59 @@ def search(*, start: date | str, end: date | str, full_burst_ids: Iterable[str] 
     if relative_orbit is not None:
         q["relativeOrbit"] = relative_orbit
     http = session or requests.Session()
-    resp = http.get(SEARCH_URL, params=q, timeout=timeout)
-    resp.raise_for_status()
-    refs = [parse_feature(f) for f in resp.json().get("features", [])]
-    refs.sort(key=lambda r: (r.start, r.subswath, r.relative_burst_id))
+    # one request per year at most: a multi-year search can time out at the ASF gateway (HCMC 2023-2026: 504)
+    d0, d1 = date.fromisoformat(str(start)[:10]), date.fromisoformat(str(end)[:10])
+    seen: dict[str, BurstRef] = {}
+    a = d0
+    while a <= d1:
+        b = min(date(a.year, 12, 31), d1)                 # calendar years
+        q["start"] = a.isoformat() if a > d0 else str(start)
+        q["end"] = f"{b}T23:59:59Z" if b < d1 else (f"{end}T23:59:59Z" if len(str(end)) == 10 else str(end))
+        n0 = len(seen)
+        for f in _get_json(http, q, timeout).get("features", []):
+            r = parse_feature(f)
+            seen[r.file_id] = r
+        if d1.year > d0.year:
+            log.info("ASF burst search %s..%s: %d bursts", a, b, len(seen) - n0)
+        a = b + timedelta(days=1)
+    refs = sorted(seen.values(), key=lambda r: (r.start, r.subswath, r.relative_burst_id))
     log.info("ASF burst search: %d bursts", len(refs))
     return refs
+
+
+def _get_json(http: requests.Session, params: dict, timeout: float, attempts: int = 4) -> dict:
+    """GET the search with retries on gateway errors and timeouts (5, 15, 45 s apart)."""
+    import time
+    for k in range(attempts):
+        try:
+            resp = http.get(SEARCH_URL, params=params, timeout=timeout)
+            if resp.status_code < 500:
+                resp.raise_for_status()
+                return resp.json()
+            err: Exception = requests.HTTPError(f"{resp.status_code} {resp.reason}", response=resp)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            err = exc
+        if k + 1 < attempts:
+            log.warning("ASF search %s..%s: %s, retrying", params.get("start"), params.get("end"), err)
+            time.sleep(5 * 3 ** k)
+    raise DataError(f"ASF search failed after {attempts} attempts: {err}")
+
+
+def slc_names_in_frame(*, frame: int, relative_orbit: int, start: date | str, end: date | str,
+                       session: requests.Session | None = None, timeout: float = 300) -> set[str]:
+    """Names of the IW SLC products with ASF frame number ``frame`` on the track: the burst search has no frame,
+    so bursts are kept by their source SLC. One request per calendar year (as ``search``)."""
+    http = session or requests.Session()
+    q: dict = {"platform": "Sentinel-1", "processingLevel": "SLC", "beamMode": "IW", "relativeOrbit": relative_orbit,
+               "frame": frame, "output": "geojson", "maxResults": 10000}
+    d0, d1 = date.fromisoformat(str(start)[:10]), date.fromisoformat(str(end)[:10])
+    names: set[str] = set()
+    for y in range(d0.year, d1.year + 1):
+        q["start"] = max(d0, date(y, 1, 1)).isoformat()
+        q["end"] = f"{min(d1, date(y, 12, 31))}T23:59:59Z"
+        names |= {f["properties"]["sceneName"] for f in _get_json(http, q, timeout).get("features", [])}
+    log.info("ASF SLC search: %d products in frame %d of relative orbit %d", len(names), frame, relative_orbit)
+    return names
 
 
 def burst_ids_for_aoi(aoi: BBox, *, relative_orbit: int, start: date | str, end: date | str,

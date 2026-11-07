@@ -37,6 +37,18 @@ log = logging.getLogger(__name__)
 SCHEMA = "geoeyes.susceptibility/1"
 MODELS = ("logistic", "random_forest", "gradient_boosting")
 CLASSES = (0.2, 0.4, 0.6, 0.8)          # probability limits of very low / low / moderate / high / very high
+SOFT_SOIL_CAP_M = 50.0                  # Pelletier et al. 2016 sediment thickness is capped here
+
+
+def soft_soil_gate(values: np.ndarray, max_cap_share: float, cap_m: float = SOFT_SOIL_CAP_M) -> dict:
+    """Whether ``soft_soil_m`` carries information: when more than ``max_cap_share`` of the cells with a value sit
+    at the cap, the layer mostly reads "≥ cap" and its few uncapped cells (edges of the delta) only encode position,
+    which inflates the AUC (docs/en/research/two-geometries-and-soft-soil.md). Returns {"drop", "cap_share", ...}."""
+    v = np.asarray(values, np.float64)
+    v = v[np.isfinite(v)]
+    share = float(np.mean(v >= cap_m - 1e-6)) if v.size else 0.0
+    return {"drop": bool(v.size and share > max_cap_share), "cap_share": round(share, 4), "cap_m": cap_m,
+            "max_cap_share": max_cap_share, "cells": int(v.size)}
 
 
 @dataclass(frozen=True)
@@ -51,6 +63,8 @@ class SusceptibilityParams:
     # layers left out of the predictors: the rainfall climatology is a 5–25 km grid, so within one city it only
     # encodes the position of a cell (a spatial proxy), not a process
     exclude: tuple[str, ...] = ("rain_annual_mm",)
+    # soft_soil_m dropped when more than this share of its cells sit at the 50 m cap (Pelletier grid saturated)
+    soft_soil_max_cap_share: float = 0.8
     seed: int = 0
 
     @classmethod
@@ -171,6 +185,16 @@ def run(product: Path, out: Path, params: SusceptibilityParams, *, hazard_dir: P
     dropped = [c for c in LAYERS if c not in cols and c not in params.exclude]
     if dropped:
         warnings.append(f"layers without information here (empty or constant): {', '.join(dropped)}")
+    gates: dict[str, dict] = {}
+    if "soft_soil_m" in cols:
+        g = soft_soil_gate(table.loc[labelled, "soft_soil_m"].to_numpy(), params.soft_soil_max_cap_share)
+        gates["soft_soil_m"] = g
+        if g["drop"]:
+            cols.remove("soft_soil_m")
+            msg = (f"soft_soil_m dropped: {100 * g['cap_share']:.0f} % of the labelled cells at the {g['cap_m']:g} m "
+                   f"cap (> {100 * g['max_cap_share']:.0f} %); the layer would encode position, not thickness")
+            warnings.append(msg)
+            say(msg)
     x = table.loc[labelled, cols].reset_index(drop=True)
     y = y_all[labelled].astype(int)
     n_pos = int(y.sum())
@@ -223,7 +247,8 @@ def run(product: Path, out: Path, params: SusceptibilityParams, *, hazard_dir: P
                                            "bounds": grid.bounds},
         "labels": {"cells": int(len(y)), "moving": n_pos, "share": round(n_pos / len(y), 4),
                    "reference": hz.get("reference")},
-        "predictors": cols, "layers": {c: {"group": LAYERS[c][0], "label": LAYERS[c][1], "unit": LAYERS[c][2]}
+        "predictors": cols, "gates": gates,
+        "layers": {c: {"group": LAYERS[c][0], "label": LAYERS[c][1], "unit": LAYERS[c][2]}
                                        for c in LAYERS},
         "models": ev, "chosen": best, "odds_ratio_per_sd": odds, "classes": list(CLASSES),
         "outside_share": round(float(outside.mean()), 4), "warnings": warnings,

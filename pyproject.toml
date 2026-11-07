@@ -41,6 +41,12 @@ era5 = [                    # [atmosphere] method = "era5"
     "cdsapi>=0.7",
     "netcdf4>=1.6",
 ]
+lidar = [                   # [stack] dem = "lidar-3dep" (USGS 3DEP point clouds, LAZ)
+    "laspy[lazrs]>=2.5",
+]
+gpu = [                     # [compute] backend = "auto" | "cupy" (ADR-014): NVIDIA GPU, CUDA 12 driver;
+    "cupy-cuda12x>=13",     # CUDA 11: cupy-cuda11x, AMD ROCm: cupy-rocm-*-* (install by hand instead)
+]
 web = [                     # geoeyes serve (front end prebuilt into geoeyes/api/static)
     "fastapi>=0.110",
     "uvicorn>=0.29",
@@ -61,7 +67,7 @@ where = ["src"]
 include = ["geoeyes*"]
 
 [tool.setuptools.package-data]
-geoeyes = ["config/presets/*.toml", "report/templates/*.typ", "validation/corner_reflector/*.typ",
+geoeyes = ["config/presets/*.toml", "advisor/*.toml","report/templates/*.typ", "validation/corner_reflector/*.typ",
            "api/static/*", "api/static/assets/*"]
 
 # ---------------------------------------------------------------- ruff

@@ -16,7 +16,7 @@ raw imagery lives in the shared workspace archive.
     geom/                              optional inputs: corner reflector list, set-up log
     stacks/<track>-ref<YYYYMMDD>/      coregistered stack (Zarr)
     ps_runs/<track>/                   point engine output (state, points, time series, QC figures)
-    products/<project>_<track>_<first>_<last>_v<N>/   immutable product + report.pdf
+    products/<project>_<track>_<first>_<last>_v<N>/   immutable product + report.pdf, report.json, indicators.json (§6)
     exports/<product>/                 GeoPackage (styled for QGIS), CSV
     validation/corner_reflector/       corner reflector reports
     runs/<run_id>/                     run record: manifest, log.jsonl, one log per phase
@@ -59,7 +59,7 @@ method = "era5"                   # none (linear APS) | era5 | gacos
 | Section | Keys | Notes |
 |---|---|---|
 | `[network]` | `reference` | `"auto"` (median date, then kept when new scenes arrive) or a date |
-| `[stack]` | `dem` | `"srtm-1"` (default: SRTM 1" tiles in `~/.snap/auxdata/dem/SRTM 1Sec HGT`, missing tiles downloaded from the ESA mirror), `"copernicus-30"` (Copernicus GLO-30 from AWS open data into `<workspace>/cache/dem`; also above 60° N/S), a folder of `.hgt` tiles, or a GeoTIFF (EPSG:4326, EGM2008 heights) |
+| `[stack]` | `dem` | `"srtm-1"` (default: SRTM 1" tiles in `~/.snap/auxdata/dem/SRTM 1Sec HGT`, missing tiles downloaded from the ESA mirror), `"copernicus-30"` (Copernicus GLO-30 from AWS open data into `<workspace>/cache/dem`; also above 60° N/S), `"lidar-3dep"` (US only: the top surface of the most recent USGS 3DEP lidar survey over the AOI plus 500 m, 1 m cells, buildings included, inside GLO-30; needs `pip install laspy[lazrs]`; for spotlight stacks whose height of ambiguity is below a metre), a folder of `.hgt` tiles, or a GeoTIFF (EPSG:4326, EGM2008 heights) |
 | `[[tracks]]` | `subswaths` | Sentinel-1: restrict to e.g. `["IW2"]` |
 | `[phase_linking]` | `enabled`, `estimator`, `shp_test`, `half_window`, `gaussian_sigma` | `enabled = true` for long X-band stacks (COSMO-SkyMed); defaults `adaptive`, `ad` |
 | `[selection]` | `da_threshold`, `ds_coherence_min` | PS amplitude dispersion; DS from phase linking |
@@ -124,3 +124,80 @@ Re-running is cheap: a phase runs only when its inputs or parameters changed. Ne
 date folders) are detected by `plan`; the stack is extended incrementally while the reference date is kept (a new
 reference rebuilds it), and the later phases produce a new product version. Use `--force <phase>` to re-run a
 phase, `--from` / `--to` / `--only` to select phases, `--track` for one track of a multi-track project.
+
+**Skipping phases.** `--skip <phase>` (or `--skip <track>/<phase>`, repeatable) leaves a phase as it is: it is not
+even checked (a skipped `acquire` does not search ASF) and its state does not make the following phases run. On
+the project page, the switch at the top right of each phase card does the same for the runs started there (the
+choice is remembered per project in the browser).
+
+**Steps of the point engine.** The `ps` engine saves a checkpoint after each of its 8 steps
+(`ps_runs/<track>/checkpoints/step<N>.pkl`): 1 candidates, 2 estimate gamma, 3 select, 4 weed, 5 correct phase,
+6 unwrap pass 1, 7 unwrap pass 2, 8 velocity, SCN and outputs. A run that was stopped, killed or failed resumes after
+the last finished step, as long as the stack and the parameters of that step and the steps before it are unchanged
+(changing an unwrapping parameter keeps steps 1-5, for example). `--ps-from N` computes step N and the following ones
+again; `--ps-to N` stops after step N (the phase is then *paused* and the next run continues from N + 1). The `ps`
+card shows the saved steps and has the same two choices.
+
+`[ps] unwrap_time_win = "auto"` sets the time window of the space-time unwrapping from the data: a quarter of the span, at least four sampling intervals, between 60 and 730 days (the value used is recorded in the run's `params.json`). The StaMPS default of 730 days suits stacks of several years; on a shorter stack the temporal model is almost a straight line, weakest at both ends of the series.
+
+```bash
+geoeyes run hcm_hist_des --skip acquire --skip build_stack          # straight to ps
+geoeyes run hcm_hist_des --skip acquire --ps-from 6 --ps-to 6       # unwrap pass 1 again, then stop
+```
+
+**Checking the stack before the points.** The project's **Stack** tab (or `geoeyes stack-qc <project>`) shows
+every date of a coregistered stack against its reference, multilooked: the amplitude, the wrapped interferogram
+(the geometric phase already removed) and the coherence. A table lists the perpendicular baseline, the height of
+ambiguity, the mean coherence, the offset left by the coregistration and the amplitude correlation, the last two
+on a central crop at full resolution. The images go to `stacks/<stack_id>/qc/`.
+
+The check runs by itself after `build_stack` for every sensor but Sentinel-1, whose stacks are large; run it from
+the tab when needed. A good stack has offsets below 0.1 pixel, amplitude correlations close to the best pair, and
+fringes or a smooth phase where the coherence is high. An offset of tens of pixels, or an interferogram of pure noise
+where the amplitude shows buildings, means the coregistration failed for that date. That was the case of Umbra
+before the coarse offset search: acquisitions placed 15–25 m apart by their orbits.
+
+## 6. Report
+
+The `report` phase (or `geoeyes report <project> [--product <id>]`, at any time) writes three files into the product
+folder: `report.pdf`, `report.json` (every value shown) and `indicators.json`. The PDF has two parts:
+
+- **Part A — Assessment**, in plain language for city officials and residents: a one-page summary (what sinks or
+  rises, where, how fast, how sure, what to do first, with the vertical velocity map); the **hot spots** (connected
+  100 m cells moving faster than 5 mm/yr or twice the median error, each with its place, rate, trend — accelerating,
+  slowing, seasonal or steady — and its series); the **impacts** read from the analyses already run on the product
+  (`hazard`, `behaviour`, `buildings`, `risk`, `lines`, the flood inventory of `geoeyes floods`, the groundwater
+  coupling of `hazard`); **how sure are we** (confidence, images, GNSS agreement of `geoeyes gnss`, processing checks,
+  what to check on the ground); **recommendations** and the **indicator table**.
+- **Part B — Technical appendix**: technical summary, data, method, quality checks, results, limitations, provenance,
+  product files, references (sections B.1–B.6).
+
+An analysis that has not been run is named in its section with the command that runs it, so a section is never
+silently missing; run the analyses first, then `geoeyes report`, to have them in the report. Rates in Part A are
+vertical (v_LOS / l_u, the ground assumed to move only up or down), negative = sinking; Part B keeps the line of
+sight. Place names come from offline caches only (stack places, OSM line names of `geoeyes lines`, located flood
+reports): the report makes no network request.
+
+`indicators.json` (schema `geoeyes.indicators/1`) holds the same indicators in every report, for comparing reports
+over time and as the input of a digital twin. Every key is always present; `value` is `null` when the analysis
+behind it was not run (`source: "not assessed"`):
+
+| Keys | Unit | |
+|---|---|---|
+| `area_monitored_km2`, `points_n`, `points_density_per_km2` | km², count, 1/km² | coverage |
+| `period_first`, `period_last`, `period_days`, `images_n` | date, days, count | period |
+| `vel_p01/p05/p50/p95/p99_mm_yr`, `vel_min/max_mm_yr`, `vel_std_p50_mm_yr` | mm/yr | point rates (`velocity_basis`) |
+| `sinking_rate_max_mm_yr`, `area_sinking_over_{5,10,20}_mm_yr_km2`, `area_rising_over_{5,10,20}_mm_yr_km2` | mm/yr, km² | 100 m cells with ≥ 3 points |
+| `hotspots_sinking_n`, `hotspots_rising_n`, `hotspot_threshold_mm_yr` | count, mm/yr | hot spots |
+| `hazard_{subsidence,landslide}_{very_low…very_high}_km2`, `hazard_accelerating_cells_n`, `hazard_rain_coupled_cells_n` | km², count | `geoeyes hazard` |
+| `groundwater_coupled_cells_n`, `groundwater_storage_trend_mm_yr` | count, mm/yr | `hazard` with GLDAS |
+| `motion_{stable,steady,seasonal,speeding,slowing,onset,step}_cells_n` | count | `geoeyes behaviour` |
+| `buildings_with_points_n`, `buildings_sinking_over_{5,10,20}_mm_yr_n`, `buildings_tilt_over_1_{500,300}_n` | count | `geoeyes buildings` |
+| `buildings_risk_{very_low…very_high}_n` | count | `geoeyes risk` |
+| `lines_km`, `lines_flagged_stations_n` | km, count | `geoeyes lines` |
+| `flood_reports_n`, `flood_reports_in_sinking_n` | count | `geoeyes floods` |
+| `gnss_stations_n`, `gnss_rate_diff_rms_mm_yr` | count, mm/yr | `geoeyes gnss` |
+| `qc_review_n`, `confidence` | count, level | quality checks, confidence rules |
+
+Each entry is `{"value", "unit", "description", "source"}`; the file also carries `velocity_basis` (`vertical` or
+`los`), the product id, project, track and bounding box.

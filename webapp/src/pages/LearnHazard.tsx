@@ -5,11 +5,12 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type HazardCell, type HazardSummary, type Workspace } from "../api";
-import { ChapterNav } from "../components/LearnKit";
+import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Behaviour, type Cells, type Consolidation, type Geology, type RGB, type View } from "./Hazard";
+import { CellChart, cellColor, DEFAULT_MATRIX, LEVEL_RGB, LEVELS, Legend, MatrixFigure, rgb, type Behaviour, type Cells, type Consolidation, type Geology, type RGB, type View } from "../components/hazardKit";
+import { themeColor } from "../theme";
 
 // ------------------------------------------------------------------ figures
 export type MapKind = View | "points" | "slope";
@@ -51,7 +52,7 @@ export function CellMap({ c, kind, b, cons, soil }: { c: Cells; kind: MapKind; b
     el.width = Wd;
     el.height = H;
     const ctx = el.getContext("2d")!;
-    ctx.fillStyle = "#0b1220";
+    ctx.fillStyle = themeColor("bg");
     ctx.fillRect(0, 0, Wd, H);
     const n = c.meta.n;
     const maxPts = Math.log10(Math.max(...Array.from({ length: n }, (_, i) => g(i, "n_points"))) || 10);
@@ -92,7 +93,7 @@ export function Histogram({
   lines = [],
   unit,
   log = false,
-  color = () => "#4cc2ff",
+  color = () => "var(--c-accent)",
 }: {
   values: number[];
   lo: number;
@@ -120,7 +121,7 @@ export function Histogram({
   const fmtv = (v: number) => (log ? `1/${Math.round(1 / v)}` : Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(v % 1 ? 1 : 0));
   return (
     <svg viewBox={`0 0 ${Wd} ${H + 26}`} className="w-full">
-      <line x1={30} x2={Wd - 10} y1={H} y2={H} stroke="#22324d" />
+      <line x1={30} x2={Wd - 10} y1={H} y2={H} stroke="var(--c-line-2)" />
       {counts.map((n, i) => {
         const h = (n / max) * (H - 14);
         const mid = a + ((i + 0.5) / bins) * (b - a);
@@ -128,19 +129,19 @@ export function Histogram({
       })}
       {lines.map((l) => (
         <g key={l.label}>
-          <line x1={X(l.at)} x2={X(l.at)} y1={6} y2={H} stroke="#ffd34d" strokeDasharray="4 3" />
-          <text x={X(l.at) + 3} y={14} fill="#ffd34d" fontSize="11">
+          <line x1={X(l.at)} x2={X(l.at)} y1={6} y2={H} stroke="var(--c-highlight)" strokeDasharray="4 3" />
+          <text x={X(l.at) + 3} y={14} fill="var(--c-highlight)" fontSize="11">
             {l.label}
           </text>
         </g>
       ))}
-      <text x={30} y={H + 16} fill="#93a4bf" fontSize="11">
+      <text x={30} y={H + 16} fill="var(--c-muted)" fontSize="11">
         {fmtv(lo)}
       </text>
-      <text x={Wd - 10} y={H + 16} fill="#93a4bf" fontSize="11" textAnchor="end">
+      <text x={Wd - 10} y={H + 16} fill="var(--c-muted)" fontSize="11" textAnchor="end">
         {fmtv(hi)}
       </text>
-      <text x={(Wd + 20) / 2} y={H + 16} fill="#93a4bf" fontSize="11" textAnchor="middle">
+      <text x={(Wd + 20) / 2} y={H + 16} fill="var(--c-muted)" fontSize="11" textAnchor="middle">
         {t(unit)} · {t("cells")}
       </text>
     </svg>
@@ -176,21 +177,21 @@ function StorageChart({ c }: { c: HazardCell }) {
   const d = v.map((x, i) => (Number.isFinite(x) ? `${i && Number.isFinite(v[i - 1]) ? "L" : "M"}${X(i).toFixed(1)},${Y(x).toFixed(1)}` : "")).join("");
   return (
     <svg viewBox={`0 0 ${Wd} ${H}`} className="w-full">
-      <line x1={40} x2={Wd - 10} y1={Y(0)} y2={Y(0)} stroke="#22324d" strokeDasharray="3 3" />
+      <line x1={40} x2={Wd - 10} y1={Y(0)} y2={Y(0)} stroke="var(--c-line-2)" strokeDasharray="3 3" />
       <path d={d} fill="none" stroke="#7ee0c3" strokeWidth="2" />
-      <text x={34} y={Y(hi) + 4} fill="#93a4bf" fontSize="11" textAnchor="end">
+      <text x={34} y={Y(hi) + 4} fill="var(--c-muted)" fontSize="11" textAnchor="end">
         {hi.toFixed(0)}
       </text>
-      <text x={34} y={Y(lo) + 4} fill="#93a4bf" fontSize="11" textAnchor="end">
+      <text x={34} y={Y(lo) + 4} fill="var(--c-muted)" fontSize="11" textAnchor="end">
         {lo.toFixed(0)}
       </text>
-      <text x={40} y={H - 2} fill="#93a4bf" fontSize="11">
+      <text x={40} y={H - 2} fill="var(--c-muted)" fontSize="11">
         {g.months[0]}
       </text>
-      <text x={Wd - 10} y={H - 2} fill="#93a4bf" fontSize="11" textAnchor="end">
+      <text x={Wd - 10} y={H - 2} fill="var(--c-muted)" fontSize="11" textAnchor="end">
         {g.months[g.months.length - 1]}
       </text>
-      <text x={(Wd + 30) / 2} y={H - 2} fill="#93a4bf" fontSize="11" textAnchor="middle">
+      <text x={(Wd + 30) / 2} y={H - 2} fill="var(--c-muted)" fontSize="11" textAnchor="middle">
         {t("storage anomaly, mm of water")}
       </text>
     </svg>
@@ -203,21 +204,21 @@ function DistortionFigure() {
     <svg viewBox="0 0 600 220" className="w-full max-w-[620px]" role="img" aria-label={t("Angular distortion between two cells")}>
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0 0 10 5 0 10z" fill="#93a4bf" />
+          <path d="M0 0 10 5 0 10z" fill="var(--c-muted)" />
         </marker>
       </defs>
-      <line x1="40" y1="120" x2="560" y2="120" stroke="#93a4bf" strokeDasharray="5 5" />
-      <path d="M40 120 L200 122 L400 158 L560 160" fill="none" stroke="#f5b84b" strokeWidth="3" />
-      <rect x="170" y="62" width="60" height="58" fill="#1a2740" stroke="#93a4bf" />
-      <rect x="370" y="98" width="60" height="58" fill="#1a2740" stroke="#93a4bf" transform="rotate(4 400 158)" />
-      <text x="200" y="56" fill="#e6edf7" fontSize="14" textAnchor="middle">a</text>
-      <text x="400" y="90" fill="#e6edf7" fontSize="14" textAnchor="middle">b</text>
-      <line x1="455" y1="122" x2="455" y2="157" stroke="#93a4bf" markerEnd="url(#arr)" />
-      <text x="463" y="144" fill="#93a4bf" fontSize="13">Δs = |v_a − v_b| · T</text>
-      <line x1="200" y1="190" x2="400" y2="190" stroke="#93a4bf" markerStart="url(#arr)" markerEnd="url(#arr)" />
-      <text x="300" y="210" fill="#93a4bf" fontSize="13" textAnchor="middle">L ({t("distance between the cell centres")})</text>
-      <text x="40" y="140" fill="#93a4bf" fontSize="12">{t("ground at the first date")}</text>
-      <text x="560" y="178" fill="#f5b84b" fontSize="12" textAnchor="end">{t("after T years")}</text>
+      <line x1="40" y1="120" x2="560" y2="120" stroke="var(--c-muted)" strokeDasharray="5 5" />
+      <path d="M40 120 L200 122 L400 158 L560 160" fill="none" stroke="var(--c-warn)" strokeWidth="3" />
+      <rect x="170" y="62" width="60" height="58" fill="var(--c-chip)" stroke="var(--c-muted)" />
+      <rect x="370" y="98" width="60" height="58" fill="var(--c-chip)" stroke="var(--c-muted)" transform="rotate(4 400 158)" />
+      <text x="200" y="56" fill="var(--c-ink)" fontSize="14" textAnchor="middle">a</text>
+      <text x="400" y="90" fill="var(--c-ink)" fontSize="14" textAnchor="middle">b</text>
+      <line x1="455" y1="122" x2="455" y2="157" stroke="var(--c-muted)" markerEnd="url(#arr)" />
+      <text x="463" y="144" fill="var(--c-muted)" fontSize="13">Δs = |v_a − v_b| · T</text>
+      <line x1="200" y1="190" x2="400" y2="190" stroke="var(--c-muted)" markerStart="url(#arr)" markerEnd="url(#arr)" />
+      <text x="300" y="210" fill="var(--c-muted)" fontSize="13" textAnchor="middle">L ({t("distance between the cell centres")})</text>
+      <text x="40" y="140" fill="var(--c-muted)" fontSize="12">{t("ground at the first date")}</text>
+      <text x="560" y="178" fill="var(--c-warn)" fontSize="12" textAnchor="end">{t("after T years")}</text>
     </svg>
   );
 }
@@ -343,7 +344,7 @@ const STEPS: Step[] = [
         render: (d) => {
           const r = d.col("rate_mm_yr");
           const m = Math.max(5, Math.abs(quant(r, 0.01)), Math.abs(quant(r, 0.99)));
-          return <Histogram values={r} lo={-m} hi={m} unit="mm/yr" lines={[{ at: -2, label: "−2" }, { at: 2, label: "+2" }]} color={(x) => (x <= -2 ? "#d6604d" : x >= 2 ? "#4393c3" : "#7f8ba0")} />;
+          return <Histogram values={r} lo={-m} hi={m} unit="mm/yr" lines={[{ at: -2, label: "−2" }, { at: 2, label: "+2" }]} color={(x) => (x <= -2 ? "#d6604d" : x >= 2 ? "#4393c3" : "var(--c-faint)")} />;
         },
       },
     ],
@@ -610,31 +611,14 @@ export function HazardChapter({ ws, step }: { ws: Workspace | undefined; step?: 
     <div className="flex h-full min-h-0">
       <ChapterNav current="hazard" steps={STEPS.map((s) => s.title)} step={k} onStep={go} />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-[1180px] px-6 py-5">
-          <div className="font-mono text-[12px] text-faint">{t("Step {i} of {n}", { i: k, n: STEPS.length - 1 })}</div>
-          <h1 className="m-0 mt-1 text-[26px] font-bold tracking-tight">{t(S.title)}</h1>
-          <p className="mt-1.5 max-w-[860px] text-[15px] leading-relaxed text-ink-2">{t(S.goal)}</p>
-
-          <div className="grid gap-x-8 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0">
-              <Section title="Principle">
-                <div className="flex max-w-[860px] flex-col gap-3 text-[14px] leading-relaxed text-ink-2">
-                  {S.what.map((w) => (
-                    <p key={w} className="mt-0 mb-0">
-                      {t(w)}
-                    </p>
-                  ))}
-                </div>
-                {S.formula && (
-                  <div className="mt-4 max-w-[860px] rounded-lg border-l-4 border-accent bg-panel px-4 py-3 font-mono text-[14px] leading-loose text-ink">
-                    {S.formula.map((f) => (
-                      <div key={f}>{t(f)}</div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-
-              <Section title="Illustrated on real data">
+        <Lesson
+          chapter={2}
+          step={k}
+          total={STEPS.length}
+          title={S.title}
+          goal={S.goal}
+          idea={S.what}
+          figures={<>
                 {!zoned.length ? (
                   <p className="text-[13px] text-muted">{t("No product of the workspace has a hazard zoning yet: run one on the Thematic analysis page, then come back.")}</p>
                 ) : !data ? (
@@ -657,43 +641,25 @@ export function HazardChapter({ ws, step }: { ws: Workspace | undefined; step?: 
                     })}
                   </div>
                 )}
-              </Section>
-
-              <Section title="What to look for">
-                <div className="max-w-[860px] rounded-lg border border-[#2b4a73] bg-[#0f1d33] px-4 py-3">
-                  <ul className="m-0 list-disc space-y-1 pl-4 text-[13.5px] leading-relaxed text-ink-2">
-                    {S.look.map((w) => (
-                      <li key={w}>{t(w)}</li>
-                    ))}
-                  </ul>
-                  <a href={sel ? `#/hazard/${encodeURIComponent(sel.project)}/${encodeURIComponent(sel.product)}` : href({ page: "hazard" })} className="mt-3 inline-block no-underline">
+              </>}
+          formula={S.formula}
+          look={S.look}
+          lookExtra={<><a href={sel ? `#/hazard/${encodeURIComponent(sel.project)}/${encodeURIComponent(sel.product)}` : href({ page: "hazard" })} className="mt-3 inline-block no-underline">
                     <Button>{t("Open the Thematic analysis")}</Button>
-                  </a>
-                </div>
-              </Section>
-
-              <div className="mt-6 text-[12px] text-faint">
+                  </a></>}
+          doc={<>
                 {t("Full method, sources and research plan:")} docs/{lang()}/research/{S.doc ?? "rainfall-insar-hazard.md"}
-              </div>
-              <nav className="mt-4 mb-8 flex flex-wrap justify-between gap-2 border-t border-line pt-4">
-                <Button disabled={k === 0} onClick={() => go(k - 1)}>
-                  ← {k > 0 ? t(STEPS[k - 1].title) : t("Previous")}
-                </Button>
-                <Button variant="primary" disabled={k === STEPS.length - 1} onClick={() => go(k + 1)}>
-                  {k < STEPS.length - 1 ? t(STEPS[k + 1].title) : t("Next")} →
-                </Button>
-              </nav>
-            </div>
-
-            {/* side: the data used, and its numbers */}
-            <aside className="mt-6 space-y-3 xl:sticky xl:top-4 xl:self-start">
+              </>}
+          titles={STEPS.map((x) => x.title)}
+          onStep={go}
+          sidebar={<>
               <div className="rounded-xl border border-line bg-panel p-3">
                 <div className="text-[10.5px] font-semibold tracking-[1.2px] text-muted uppercase">{t("Data of the illustrations")}</div>
                 {zoned.length ? (
                   <select
                     value={sel?.product ?? ""}
                     onChange={(e) => setChoice(e.target.value)}
-                    className="mt-2 h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[12.5px] text-ink"
+                    className="mt-2 h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[12.5px] text-ink"
                   >
                     {zoned.map((p) => (
                       <option key={p.product} value={p.product}>
@@ -723,9 +689,8 @@ export function HazardChapter({ ws, step }: { ws: Workspace | undefined; step?: 
                   </div>
                 </div>
               )}
-            </aside>
-          </div>
-        </article>
+            </>}
+        />
       </div>
     </div>
   );

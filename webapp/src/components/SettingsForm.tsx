@@ -2,14 +2,51 @@
 // are marked; "reset" removes them so the preset / default applies again), and the raw project.toml.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, type FieldSpec, type SettingsSpec } from "../api";
-import { t, ts } from "../i18n";
+import { api, type FieldSpec, type ParamInfo, type SettingsSpec } from "../api";
+import { lang, t, ts } from "../i18n";
 import { Button, Panel } from "../ui";
+import { AdvisorPanel, FieldSuggestion } from "./AdvisorPanel";
 
 type Draft = Record<string, unknown>; // "section.key" -> new value (null = back to default)
 
+/** Every catalogue text of a field (both languages), for the search box. */
+function infoText(info?: ParamInfo | null): string {
+  if (!info) return "";
+  return [...Object.values(info.en), ...Object.values(info.vi), ...info.related].join(" ");
+}
+
+/** The help line of a field, and on demand what it is for, its risk and the usual values (parameter catalogue). */
+function ParamDetails({ info }: { info: ParamInfo }) {
+  const [open, setOpen] = useState(false);
+  const x = lang() === "vi" ? info.vi : info.en;
+  const row = (label: string, text: string) => (
+    <div>
+      <span className="font-medium text-muted">{label}: </span>
+      {text}
+    </div>
+  );
+  return (
+    <div className="mt-1 text-[11.5px] leading-snug text-faint">
+      <div>
+        {x.help}{" "}
+        <button type="button" className="text-accent-ink hover:underline" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? t("hide details") : t("why?")}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 space-y-0.5 rounded-md border border-line-2 bg-sunken px-2 py-1.5 text-ink/80">
+          {row(t("What it does"), x.use)}
+          {row(t("Risk"), x.risk)}
+          {row(t("Typical values"), x.typical)}
+          {info.related.length > 0 && row(t("Related"), info.related.join(", "))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const input =
-  "h-8 w-full rounded-md border border-line-2 bg-[#0a1322] px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
+  "h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
 
 function show(v: unknown): string {
   if (v == null) return "–";
@@ -37,7 +74,7 @@ function Widget({ f, value, onChange, id }: { f: FieldSpec; value: unknown; onCh
           role="switch"
           aria-checked={!!value}
           onClick={() => onChange(!value)}
-          className={`relative h-6 w-11 rounded-full transition-colors ${value ? "bg-accent-2" : "bg-[#22324d]"}`}
+          className={`relative h-6 w-11 rounded-full transition-colors ${value ? "bg-accent-2" : "bg-line-2"}`}
         >
           <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${value ? "left-[22px]" : "left-0.5"}`} />
         </button>
@@ -74,7 +111,7 @@ function Widget({ f, value, onChange, id }: { f: FieldSpec; value: unknown; onCh
             <label key={o} className="flex items-center gap-1.5 text-[13px]">
               <input
                 type="checkbox"
-                className="accent-[#4cc2ff]"
+                className="accent-accent"
                 checked={cur.has(o)}
                 onChange={(e) => {
                   const n = new Set(cur);
@@ -159,11 +196,23 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
   const [toml, setToml] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set(["project", "aoi", "acquire", "network", "stack", "atmosphere"]));
   const [filter, setFilter] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const adv = useQuery({ queryKey: ["advise", name], queryFn: () => api.advise(name), staleTime: 5 * 60_000, retry: false });
+  const sugg = useMemo(() => new Map((adv.data?.recipe ?? []).map((x) => [x.path, x])), [adv.data]);
+  const remeasure = async () => {
+    setRefreshing(true);
+    try {
+      qc.setQueryData(["advise", name], await api.advise(name, true));
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const done = (s: SettingsSpec) => {
     qc.setQueryData(["settings", name], s);
     qc.invalidateQueries({ queryKey: ["project", name] });
     qc.invalidateQueries({ queryKey: ["workspace"] });
     qc.removeQueries({ queryKey: ["plan", name] });
+    qc.invalidateQueries({ queryKey: ["advise", name] });
     setDraft({});
     setToml(s.toml);
   };
@@ -178,7 +227,11 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
   const sections = useMemo(() => {
     const s = filter.trim().toLowerCase();
     return (q.data?.sections ?? [])
-      .map((sec) => ({ ...sec, fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help}`.toLowerCase().includes(s)) }))
+      .map((sec) => ({
+        ...sec,
+        id: sec.id ?? sec.name,
+        fields: sec.fields.filter((f) => !s || `${sec.name}.${f.key} ${f.help} ${ts(f.help)} ${ts(sec.title)} ${infoText(f.info)}`.toLowerCase().includes(s)),
+      }))
       .filter((sec) => sec.fields.length);
   }, [q.data, filter]);
 
@@ -225,11 +278,22 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
           )}
         </div>
       </div>
-      {error && <div className="rounded-lg bg-[#2a1414] px-3 py-2 text-[13px] whitespace-pre-wrap text-bad">{error.message}</div>}
+      {error && <div className="rounded-lg bg-bad-bg px-3 py-2 text-[13px] whitespace-pre-wrap text-bad">{error.message}</div>}
       {(save.isSuccess || saveToml.isSuccess) && !changed && !error && (
-        <div className="rounded-lg bg-[#0f2a1f] px-3 py-2 text-[13px] text-good">
+        <div className="rounded-lg bg-good-bg px-3 py-2 text-[13px] text-good">
           {t("Saved (previous file kept in .state/). Check the plan to see which phases the change re-runs.")}
         </div>
+      )}
+
+      {mode === "form" && !filter && (
+        <AdvisorPanel
+          advice={adv.data}
+          loading={adv.isLoading || refreshing}
+          error={adv.error as Error | null}
+          onUse={(path, v) => setDraft((d) => ({ ...d, [path]: v }))}
+          onUseAll={(c) => setDraft((d) => ({ ...d, ...c }))}
+          onRefresh={remeasure}
+        />
       )}
 
       {mode === "toml" ? (
@@ -244,19 +308,19 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
         </Panel>
       ) : (
         sections.map((sec) => {
-          const isOpen = open.has(sec.name) || !!filter;
+          const isOpen = open.has(sec.id) || !!filter;
           const own = sec.fields.filter((f) => f.own).length;
           return (
-            <Panel key={sec.name}>
+            <Panel key={sec.id}>
               <button
                 type="button"
-                onClick={() => setOpen((s) => (s.has(sec.name) ? new Set([...s].filter((x) => x !== sec.name)) : new Set([...s, sec.name])))}
+                onClick={() => setOpen((s) => (s.has(sec.id) ? new Set([...s].filter((x) => x !== sec.id)) : new Set([...s, sec.id])))}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left"
                 aria-expanded={isOpen}
               >
                 <span className="text-[14px] font-semibold">{ts(sec.title)}</span>
                 <span className="font-mono text-[11.5px] text-faint">[{sec.name}]</span>
-                {own > 0 && <span className="text-[11.5px] text-[#7cd2ff]">{t("{n} set in project.toml", { n: own })}</span>}
+                {own > 0 && <span className="text-[11.5px] text-accent-ink">{t("{n} set in project.toml", { n: own })}</span>}
                 <span className="ml-auto text-muted">{isOpen ? "–" : "+"}</span>
               </button>
               {isOpen && (
@@ -268,12 +332,12 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                     const own = has ? draft[k] !== null : f.own;
                     const id = `f-${k.replace(/\./g, "-")}`;
                     return (
-                      <div key={k} className={`rounded-lg ${has ? "bg-[#102033] ring-1 ring-[#2f6fb0]" : ""} -m-1.5 p-1.5`}>
+                      <div key={k} className={`rounded-lg ${has ? "bg-accent-bg ring-1 ring-accent-line" : ""} -m-1.5 p-1.5`}>
                         <div className="mb-1 flex items-center gap-2">
                           <label htmlFor={id} className="font-mono text-[12.5px] text-ink-2">
                             {f.key}
                           </label>
-                          <span className={`text-[11px] ${own ? "text-[#7cd2ff]" : "text-faint"}`}>{own ? "project.toml" : t("preset / default")}</span>
+                          <span className={`text-[11px] ${own ? "text-accent-ink" : "text-faint"}`}>{own ? "project.toml" : t("preset / default")}</span>
                           {own && !same(value, f.default) && (
                             <button
                               type="button"
@@ -298,7 +362,33 @@ export function SettingsForm({ name, running }: { name: string; running: boolean
                             })
                           }
                         />
-                        {f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>}
+                        {f.info ? (
+                          <ParamDetails info={f.info} />
+                        ) : (
+                          f.help && <div className="mt-1 text-[11.5px] leading-snug text-faint">{ts(f.help)}</div>
+                        )}
+                        {sugg.get(k) && (
+                          <FieldSuggestion
+                            s={sugg.get(k)!}
+                            matches={same(value, sugg.get(k)!.value)}
+                            onUse={() =>
+                              setDraft((d) => {
+                                const n = { ...d };
+                                const v = sugg.get(k)!.value;
+                                if (same(v, f.value)) delete n[k];
+                                else n[k] = v;
+                                return n;
+                              })
+                            }
+                          />
+                        )}
+                        {f.used?.map((u) => (
+                          <div key={u.track} className="mt-1 text-[11.5px] leading-snug text-warn">
+                            {u.auto
+                              ? t("Last run of {track}: set from the data to {v}", { track: u.track, v: show(typeof u.value === "number" ? Number(u.value.toPrecision(4)) : u.value) })
+                              : t("Last run of {track} used {v}: run it again to apply the value above", { track: u.track, v: show(u.value) })}
+                          </div>
+                        ))}
                         {!own && f.default != null && <div className="sr-only">{t("default {v}", { v: show(f.default) })}</div>}
                       </div>
                     );

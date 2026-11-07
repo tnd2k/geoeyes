@@ -168,8 +168,8 @@ export const HAZARD: Record<string, string> = {
   "I{a} observed → I{b}": "I{a} quan trắc → I{b}",
   "after the rainfall scenario and the acceleration": "sau khi xét kịch bản mưa và gia tốc",
   "Angular distortion": "Góc biến dạng",
-  "largest differential settlement to a neighbouring cell, over the horizon":
-    "lún lệch lớn nhất so với một ô kề, sau khoảng thời gian dự báo",
+  "largest change of slope across the cell, over the horizon":
+    "thay đổi độ dốc lớn nhất qua ô, sau khoảng thời gian dự báo",
   "Slope / sensitivity": "Độ dốc / độ nhạy",
   Acceleration: "Gia tốc",
   significant: "có ý nghĩa",
@@ -270,7 +270,11 @@ export const HAZARD: Record<string, string> = {
   "its own InSAR points ({n})": "điểm InSAR riêng ({n})",
   "its analysis cell": "ô phân tích chứa nó",
   "Vertical rate": "Tốc độ thẳng đứng",
-  "Tilt in 10 years (β)": "Độ nghiêng sau 10 năm (β)",
+  "Angular distortion in 10 years (β)": "Góc biến dạng sau 10 năm (β)",
+  "relative rotation within the building, after its rigid tilt is removed":
+    "góc xoay tương đối trong công trình, sau khi đã bỏ độ nghiêng cứng",
+  "Tilt in 10 years": "Độ nghiêng sau 10 năm",
+  "rigid tilt of the building (plane through its points)": "độ nghiêng cứng của công trình (mặt phẳng qua các điểm đo)",
   "Footprint": "Diện tích chiếm đất",
   "Floors": "Số tầng",
   "assumed": "giả định",
@@ -358,4 +362,48 @@ export const HAZARD: Record<string, string> = {
   "boreholes (inverse distance)": "lỗ khoan (nghịch đảo khoảng cách)",
   "Pelletier et al. 2016, sediment thickness above bedrock (1 km, capped at 50 m)": "Pelletier và cs. 2016, bề dày trầm tích trên đá gốc (1 km, giới hạn 50 m)",
   "A plane was removed from each product first (tilt over the area: {v} mm/yr).": "Đã khử một mặt phẳng khỏi mỗi sản phẩm trước khi tách (độ nghiêng trên vùng: {v} mm/năm).",
+  // exposure (geoeyes exposure)
+  "People and buildings exposed": "Dân và công trình phơi nhiễm",
+  "Population cells of about 90 m (GHS-POP 2025): their sinking class from the product's points, how many people live there, and with a flood month or a river-flood scenario, the share of the cell under water.":
+    "Các ô dân số khoảng 90 m (GHS-POP 2025): cấp lún của ô theo các điểm của sản phẩm, số người sống trong ô, và khi có tháng lũ hoặc kịch bản lũ sông thì phần diện tích ô bị ngập.",
+  "Colour: the sinking class of the cell; the stronger the colour, the more people live in it. Grey: no point in the cell (not observed).":
+    "Màu: cấp lún của ô; màu càng đậm thì càng nhiều người sống trong ô. Xám: ô không có điểm nào (chưa quan trắc được).",
+  "Switch to the flood of the month (blue: share of the cell flooded) or to the river-flood scenario (GloFAS depth).":
+    "Chuyển sang lũ của tháng (xanh: phần ô bị ngập) hoặc kịch bản lũ sông (độ sâu GloFAS).",
+  "Global Surface Water is a monthly optical composite: cloud and short urban floods escape it. GloFAS ignores the dykes: an upper bound in a diked delta.":
+    "Global Surface Water là ảnh quang học tổng hợp theo tháng: mây và các trận ngập đô thị ngắn lọt khỏi nó. GloFAS bỏ qua đê: chỉ là cận trên ở vùng châu thổ có đê.",
+  "Not counted yet. The run reads the population (GHS-POP) and the buildings (GlobalBuildingAtlas) of the area from Source Cooperative, and with a flood month the surface water and the rainfall of that month.":
+    "Chưa đếm. Lần chạy sẽ đọc dân số (GHS-POP) và công trình (GlobalBuildingAtlas) của vùng từ Source Cooperative, và nếu có tháng lũ thì đọc thêm mặt nước và lượng mưa của tháng đó.",
+  "Count the people and buildings exposed": "Đếm dân và công trình phơi nhiễm",
+  "Flood month": "Tháng lũ",
+  none: "không",
+  "{n} yr": "{n} năm",
+  "A month from 2017-01 to 2024-12 (the surface-water record).": "Một tháng từ 2017-01 đến 2024-12 (thời kỳ có dữ liệu mặt nước).",
+  Sinking: "Lún",
+  "Flood of the month": "Lũ của tháng",
+  "River flood": "Lũ sông",
+  "Colour the cells by": "Tô màu ô theo",
+  "sinking, mm/yr": "lún, mm/năm",
+  people: "dân",
+  buildings: "công trình",
+  "not observed": "chưa quan trắc",
+  "Flood of {month}": "Lũ tháng {month}",
+  "{km2} km² of new water against {dry}; {p} people in it ({q} on sinking ground).":
+    "{km2} km² mặt nước mới so với {dry}; {p} người trong đó ({q} người trên nền đang lún).",
+  "Rain: {mm} mm in the month, {d} mm on {date}.": "Mưa: {mm} mm trong tháng, {d} mm ngày {date}.",
+  "Peak {mmh} mm/h at {time} UTC (IMERG, 30 min).": "Cường độ đỉnh {mmh} mm/giờ lúc {time} UTC (IMERG, 30 phút).",
+  "Points on flooded ground: {a} mm/yr, on dry ground: {b} mm/yr (median).":
+    "Điểm trên nền ngập: {a} mm/năm, trên nền khô: {b} mm/năm (trung vị).",
+  "{u} of the area not observed that month; monthly optical composite: cloud hides part of a monsoon month, short floods may be missed.":
+    "{u} diện tích không quan trắc được trong tháng; ảnh quang học tổng hợp theo tháng: mây che một phần tháng mùa mưa, các trận ngập ngắn có thể bị bỏ sót.",
+  "River flood, {n}-year (GloFAS)": "Lũ sông chu kỳ {n} năm (GloFAS)",
+  "{p} people in it, {q} under more than 1 m, {r} on sinking ground.": "{p} người trong vùng ngập, {q} người ngập sâu hơn 1 m, {r} người trên nền đang lún.",
+  "Global model without dykes: in a diked delta, an upper bound.": "Mô hình toàn cầu không có đê: ở vùng châu thổ có đê, đây là cận trên.",
+  "{n} people": "{n} người",
+  "{p} flooded": "ngập {p}",
+  "share of the cell flooded": "phần diện tích ô bị ngập",
+  "river flood depth (GloFAS)": "độ sâu lũ sông (GloFAS)",
+  "no new water": "không có nước mới",
+  dry: "khô",
+  "Stronger colour: more people in the cell.": "Màu càng đậm: ô càng đông dân.",
 };

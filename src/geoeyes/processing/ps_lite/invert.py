@@ -171,8 +171,8 @@ def invert_weighted(phase: np.ndarray, t_yr: np.ndarray, kh: np.ndarray, wavelen
         resid = phase - a_t - sign * kh * r.dh_m[:, None] - r.c_rad[:, None] - r.aps
         q = ifg_quality(resid, mask)
         w_new = np.where(q <= std_max, 1.0 / np.maximum(q, 0.1) ** 2, 0.0)
-        if (w_new > 0).sum() < 4:                    # keep the best four rather than fail
-            w_new = np.where(q <= np.sort(q)[3], 1.0 / np.maximum(q, 0.1) ** 2, 0.0)
+        if (w_new > 0).sum() < 4:                    # keep the best four (or all of fewer) rather than fail
+            w_new = np.where(q <= np.sort(q)[min(3, q.size - 1)], 1.0 / np.maximum(q, 0.1) ** 2, 0.0)
         if w is not None and np.array_equal(w_new > 0, w > 0) and np.allclose(w_new, w, rtol=0.05):
             w = w_new
             break

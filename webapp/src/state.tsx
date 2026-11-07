@@ -1,11 +1,14 @@
 // App state shared by the tree, the map and the pages: the route (hash) and the map layers (like QGIS layers).
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { VelKind } from "./api";
 
 export type Route =
   | { page: "overview" }
   | { page: "explorer" }
   | { page: "new" }
   | { page: "compose" }
+  | { page: "opendata" }
+  | { page: "coop" }
   | { page: "hazard"; name?: string; product?: string; cell?: number; view?: string }
   | { page: "ai"; name?: string; product?: string; tab?: string }
   | { page: "learn"; name?: string; stack?: string; step?: number; chapter?: "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere" }
@@ -16,6 +19,8 @@ function parse(hash: string): Route {
   if (parts[0] === "explorer") return { page: "explorer" };
   if (parts[0] === "new") return { page: "new" };
   if (parts[0] === "compose") return { page: "compose" };
+  if (parts[0] === "opendata") return { page: "opendata" };
+  if (parts[0] === "coop") return { page: "coop" };
   if (["learn-hazard", "learn-behaviour", "learn-lines", "learn-geometry", "learn-ionosphere"].includes(parts[0]))
     return { page: "learn", chapter: parts[0].slice(6) as "hazard" | "behaviour" | "lines" | "geometry" | "ionosphere", step: parts[1] ? Number(parts[1]) : undefined };
   if (parts[0] === "learn")
@@ -36,6 +41,8 @@ export function href(r: Route): string {
   if (r.page === "explorer") return "#/explorer";
   if (r.page === "new") return "#/new";
   if (r.page === "compose") return "#/compose";
+  if (r.page === "opendata") return "#/opendata";
+  if (r.page === "coop") return "#/coop";
   if (r.page === "learn" && r.chapter) return `#/learn-${r.chapter}${r.step != null ? `/${r.step}` : ""}`;
   if (r.page === "learn")
     return r.name
@@ -58,6 +65,10 @@ export interface MapLayer {
   visible: boolean;
   opacity: number;
   mode?: "auto" | "points" | "tiles";   // points: one binary array; tiles: PMTiles (auto: tiles above 2.5 M points)
+  calibrated?: boolean;                 // the calibrated velocities and series (GNSS, else a tie; points only)
+  range?: [number, number] | null;      // colour classes over this range (mm/yr) in place of the full min-max
+  vel?: VelKind | null;                 // a StaMPS velocity kind in place of the product velocity (points only)
+  cohMin?: number;                      // points below this temporal coherence are hidden (0 / unset: all shown)
 }
 
 export interface Selection {
@@ -73,6 +84,10 @@ interface AppState {
   toggleLayer: (key: string) => void;
   setOpacity: (key: string, opacity: number) => void;
   setMode: (key: string, mode: MapLayer["mode"]) => void;
+  setCalibrated: (key: string, on: boolean) => void;
+  setRange: (key: string, range: [number, number] | null) => void;
+  setVel: (key: string, vel: VelKind | null) => void;
+  setCohMin: (key: string, cohMin: number) => void;
   removeLayer: (key: string) => void;
   focus: string | null;   // layer to zoom to
   setFocus: (key: string | null) => void;
@@ -129,7 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLayers((ls) => {
         const rest = ls.filter((l) => l.key !== key).map((l) => (opts.solo ? { ...l, visible: false } : l));
         const old = ls.find((l) => l.key === key);
-        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode }, ...rest];
+        return [{ key, project, product, visible: true, opacity: old?.opacity ?? 1, mode: old?.mode, range: old?.range, vel: old?.vel, cohMin: old?.cohMin }, ...rest];
       });
       setFocus(key);
       if (opts.open) location.hash = href({ page: "explorer" });
@@ -146,6 +161,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleLayer: (key) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, visible: !l.visible } : l))),
       setOpacity: (key, opacity) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, opacity } : l))),
       setMode: (key, mode) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, mode } : l))),
+      setCalibrated: (key, on) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, calibrated: on } : l))),
+      setRange: (key, range) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, range } : l))),
+      // another velocity: another min-max, the chosen colour range no longer fits it
+      setVel: (key, vel) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, vel, range: null } : l))),
+      setCohMin: (key, cohMin) => setLayers((ls) => ls.map((l) => (l.key === key ? { ...l, cohMin } : l))),
       removeLayer: (key) => {
         setLayers((ls) => ls.filter((l) => l.key !== key));
         select((s) => (s?.layer === key ? null : s));

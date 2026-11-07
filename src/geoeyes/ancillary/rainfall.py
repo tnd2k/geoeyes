@@ -128,9 +128,10 @@ def _read_block(url: str, box: tuple[float, float, float, float]) -> np.ndarray 
         quiet.setLevel(level)
 
 
-def _grid(cache: Path, kind: str, url_of, keys: list[str], bbox: list[float]) -> RainGrid:
+def _grid(cache: Path, kind: str, url_of, keys: list[str], bbox: list[float], before: str = "~") -> RainGrid:
     """Pixel blocks of ``keys`` (months or years), cached per snapped bbox in ``<cache>/chirps3_<kind>_<box>.npz``;
-    published periods are kept for good, missing ones are asked again next time.
+    published periods are kept for good, missing ones are asked again next time. Periods from ``before`` on
+    (still running) are never asked: no file exists, and requests for absent files get a client blocked.
 
     One request at a time: the Climate Hazards Center server blocks clients that read many files in parallel;
     a refusal stops the reading (what was read is kept) and is reported in ``RainGrid.refused``."""
@@ -142,19 +143,23 @@ def _grid(cache: Path, kind: str, url_of, keys: list[str], bbox: list[float]) ->
     if f.exists():
         with np.load(f) as z:
             known = {str(k): z["mm"][i] for i, k in enumerate(z["keys"])}
-    todo = [k for k in keys if k not in known]
+    todo = sorted(k for k in keys if k not in known and k < before)
     refused = ""
     if todo:
         log.info("CHIRPS %s: reading %d period(s) over %s", kind, len(todo), box)
         before = len(known)
-        for k in todo:
+        for k in todo:                       # chronological: the first period not published ends the reading
             try:
                 a = _read_block(url_of(k), box)
             except Refused as exc:
                 refused = f"CHIRPS server refused the request ({exc}); try again later"
                 log.warning("%s", refused)
                 break
-            if a is not None and a.shape == (ny, nx):
+            if a is None:
+                if not known or k > max(known):  # past the newest published period: later ones would only
+                    break                         # collect 404s, which CrowdSec blocks as "probing"
+                continue
+            if a.shape == (ny, nx):
                 known[k] = a
         if len(known) > before:
             ks = sorted(known)
@@ -167,13 +172,14 @@ def _grid(cache: Path, kind: str, url_of, keys: list[str], bbox: list[float]) ->
 def monthly_grid(cache: Path, bbox: list[float], start: date, end: date) -> RainGrid:
     """Monthly rainfall (mm) per CHIRPS pixel over the bbox, months from ``start`` to ``end``."""
     keys = [f"{y}-{m:02d}" for y, m in _months(start, end)]
-    return _grid(cache, "monthly", lambda k: URL.format(y=int(k[:4]), m=int(k[5:])), keys, bbox)
+    return _grid(cache, "monthly", lambda k: URL.format(y=int(k[:4]), m=int(k[5:])), keys, bbox,
+                 before=date.today().strftime("%Y-%m"))
 
 
 def annual_grid(cache: Path, bbox: list[float], first: int, last: int) -> RainGrid:
     """Annual rainfall totals (mm) per CHIRPS pixel, years ``first`` to ``last``."""
     keys = [str(y) for y in range(first, last + 1)]
-    return _grid(cache, "annual", lambda k: ANNUAL_URL.format(y=int(k)), keys, bbox)
+    return _grid(cache, "annual", lambda k: ANNUAL_URL.format(y=int(k)), keys, bbox, before=str(date.today().year))
 
 
 ERA5_URL = "https://archive-api.open-meteo.com/v1/archive"

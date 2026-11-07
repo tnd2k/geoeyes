@@ -38,10 +38,24 @@ Quy ước chung:
 | stable ground | nền ổn định |
 | persistent scatterer (PS) | điểm tán xạ bền vững (PS) |
 | distributed scatterer (DS) | điểm tán xạ phân bố (DS) |
-| coherence / temporal coherence | độ kết hợp / độ kết hợp thời gian |
-| interferogram | giao thoa đồ |
-| stack / coregistration | chồng ảnh / đồng đăng ký ảnh |
-| phase unwrapping | giải chập pha |
+| coherence / temporal coherence | độ nhất quán tín hiệu (gọi tắt: độ nhất quán) / độ nhất quán theo thời gian |
+| decorrelation | mất tương quan (mất nhất quán) |
+| consistency (of the blocks of an estimate) | độ đồng thuận |
+| interferogram / fringe | giao thoa đồ / vân giao thoa |
+| stack / coregistration | chồng ảnh / khớp ảnh |
+| single-look complex (SLC) | ảnh phức gốc (SLC): mỗi điểm ảnh là một phép đo riêng, chưa gộp |
+| multilooking / looks | gộp điểm ảnh / số điểm ảnh gộp |
+| speckle | nhiễu đốm |
+| wrapped phase / phase unwrapping | pha chập (chỉ biết trong −π…π) / giải chập pha |
+| residue (phase unwrapping) | thặng dư pha (như "thặng dư" trong giải tích phức) |
+| height of ambiguity | độ cao ứng với một vân |
+| perpendicular / temporal baseline | đường cơ sở vuông góc / đường cơ sở thời gian |
+| azimuth / range / slant range | phương bay / phương nhìn ngang / khoảng cách nghiêng |
+| Doppler centroid | tâm Doppler |
+| incidence angle | góc tới |
+
+Nguyên tắc: dịch theo ý thay vì từng chữ; ở lần xuất hiện đầu trên mỗi trang hoặc tài liệu, ghi thuật ngữ tiếng Anh
+trong ngoặc (ví dụ "gộp điểm ảnh (multilook)").
 | atmospheric phase screen (APS) | nhiễu khí quyển (APS) |
 | spatially correlated noise (SCN) | nhiễu tương quan không gian (SCN) |
 | ascending / descending | quỹ đạo lên / quỹ đạo xuống |

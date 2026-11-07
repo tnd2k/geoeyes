@@ -132,6 +132,20 @@ def _floats(text: str) -> tuple[float, ...]:
     return tuple(float(x) for x in text.split())
 
 
+def _poly(e: ET.Element, name: str) -> tuple[float, ...]:
+    """Polynomial ``name`` of an annotation element; early IPF versions (S1A, early 2015) write the azimuth FM
+    rate as separate ``c0``, ``c1``, ``c2`` elements instead of one ``azimuthFmRatePolynomial``."""
+    text = e.findtext(name)
+    if text is not None:
+        return _floats(text)
+    cs = []
+    while e.findtext(f"c{len(cs)}") is not None:
+        cs.append(float(e.findtext(f"c{len(cs)}")))
+    if not cs:
+        raise SensorError(f"annotation: missing {name} (and no c0, c1, ... coefficients)")
+    return tuple(cs)
+
+
 @lru_cache(maxsize=32)
 def _annotation(xml_path: str, subswath: str, polarization: str) -> ET.Element:
     root = ET.parse(xml_path).getroot()
@@ -203,10 +217,9 @@ def read_metadata(xml_path: str | Path, subswath: str, polarization: str, burst_
     ati = _f(ii, "azimuthTimeInterval")
     mid = start + timedelta(seconds=lines * ati / 2)
 
-    dcs = [RangePoly(_t(e.findtext("azimuthTime")), float(e.findtext("t0")), _floats(e.findtext("dataDcPolynomial")))
+    dcs = [RangePoly(_t(e.findtext("azimuthTime")), float(e.findtext("t0")), _poly(e, "dataDcPolynomial"))
            for e in ann.findall("dopplerCentroid/dcEstimateList/dcEstimate")]
-    fms = [RangePoly(_t(e.findtext("azimuthTime")), float(e.findtext("t0")),
-                     _floats(e.findtext("azimuthFmRatePolynomial")))
+    fms = [RangePoly(_t(e.findtext("azimuthTime")), float(e.findtext("t0")), _poly(e, "azimuthFmRatePolynomial"))
            for e in ann.findall("generalAnnotation/azimuthFmRateList/azimuthFmRate")]
     if not dcs or not fms:
         raise SensorError(f"{xml_path}: missing Doppler / FM-rate estimates")

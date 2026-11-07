@@ -41,8 +41,10 @@ mặt đất (sụt lún và trượt lở chậm) sao cho: (a) mỗi bước đ
   (§6, R6).
 
 **Chưa thuộc phạm vi v1** (đã đưa vào trình tự nghiên cứu): mưa kích hoạt trượt lở nhanh ở quy mô sự kiện (ngưỡng
-cường độ – thời đoạn, dự báo tức thời), mô hình thống kê tính nhạy cảm, tách chuyển dịch 3-D từ hai hình học chụp, và
-hiệu chỉnh các lớp theo danh mục thiệt hại hoặc danh mục trượt lở.
+cường độ – thời đoạn, dự báo tức thời), mô hình thống kê tính nhạy cảm, và hiệu chỉnh các lớp theo danh mục thiệt
+hại hoặc danh mục trượt lở. Hai hình học chụp chỉ tách được 2-D (đông, thẳng đứng), không phải 3-D; phép tách này đã
+có trong `geoeyes decompose` từ 2026-10-27 ([two-geometries-and-soft-soil.md](two-geometries-and-soft-soil.md))
+nhưng phân vùng chưa dùng đến (2026-11-05).
 
 ## 2. Tổng quan tài liệu
 
@@ -118,11 +120,13 @@ hiệu chỉnh các lớp theo danh mục thiệt hại hoặc danh mục trư�
   - Bayer et al. (2018) dùng COSMO-SkyMed và Sentinel-1, ghi nhận đáp ứng theo mùa khác nhau tuỳ thạch học ở dãy
     Apennines.
   - Hu et al. (2020) định lượng tác động khí tượng – thuỷ văn trong không gian 4-D.
+  - Tomás et al. (2014) dùng giao thoa radar để xác định đặc điểm không gian – thời gian của khối trượt Huangtupo
+    (vùng Tam Hiệp).
 - **Dấu hiệu báo trước.** Gia tốc là chỉ báo quan trọng nhất:
   - Intrieri et al. (2018) phát hiện giai đoạn tăng tốc trước khi khối trượt Maoxian phá huỷ trong dữ liệu
     Sentinel-1.
   - Phương pháp nghịch đảo vận tốc ngoại suy 1/v về 0 (Fukuzono 1985; Voight 1988, 1989).
-- **Khoảng trống dữ liệu.** Ở vùng núi dốc chịu gió mùa, InSAR mất độ kết hợp trong mùa mưa (Bekaert et al. 2020,
+- **Khoảng trống dữ liệu.** Ở vùng núi dốc chịu gió mùa, InSAR mất độ nhất quán trong mùa mưa (Bekaert et al. 2020,
   Nepal).
 - **Ngưỡng mưa** *kích hoạt* trượt lở nông, nhanh là một công cụ khác, dùng ở quy mô sự kiện:
   - ngưỡng cường độ – thời đoạn (Caine 1980; Guzzetti et al. 2008; tổng quan của Segoni et al. 2018);
@@ -171,8 +175,10 @@ hiệu chỉnh các lớp theo danh mục thiệt hại hoặc danh mục trư�
   của sản phẩm.
 - **H3 (liên hệ mưa – biến dạng).** Ở nơi chuyển dịch phản ứng với mưa, chuyển dịch sau khi loại xu thế sẽ bám theo
   độ lệch mưa tích luỹ có độ trễ: d(t) = a + b·t + k·CRD(t − τ).
-  - Với hệ tầng chứa nước, k < 0: mưa làm mặt đất nâng lên, tức là lún ít đi.
-  - Với trượt lở, k > 0: mưa làm tăng chuyển dịch xuôi dốc.
+  - Theo quy ước dấu của GeoEyes cho kết quả (§4.3; sửa ngày 2026-11-05), với hệ tầng chứa nước k > 0: mưa làm
+    mặt đất nâng lên, tức là lún ít đi (giống g > 0 trong [groundwater-insar.md](groundwater-insar.md) §4.1).
+  - Với trượt lở, k < 0: mưa làm tăng chuyển dịch xuôi dốc.
+  - Bên trong phân tích, nơi lún và xuôi dốc mang dấu dương (hướng nguy cơ), các dấu này đảo ngược.
   - Độ trễ τ phản ánh quá trình bổ cập hoặc khuếch tán áp lực nước lỗ rỗng. Từ đáp ứng k có thể dựng **kịch bản**:
     tốc độ trong một năm khô (P10) hoặc năm ướt (P90).
 - **H4 (leo thang).** Nếu có đáp ứng với mưa đạt ý nghĩa thống kê, hoặc gia tốc đạt ý nghĩa thống kê theo hướng nguy
@@ -186,7 +192,7 @@ với FDR tính trên toàn bản đồ.
 ### 4.1 Ô phân tích
 
 - Các điểm được gộp vào ô vuông cạnh `cell_m` mét (mặc định 100 m) trên một lưới hệ mét cục bộ.
-- Mỗi ô lưu chuỗi LOS trung vị, vectơ đơn vị LOS trung vị và độ kết hợp trung vị của các điểm trong ô.
+- Mỗi ô lưu chuỗi LOS trung vị, vectơ đơn vị LOS trung vị và độ nhất quán trung vị của các điểm trong ô.
 - Mỗi ô cần tối thiểu `min_points` điểm (mặc định 3, giống yêu cầu cho một ADA của Tomás et al. 2019).
 - Ô là đơn vị của bản đồ. Gộp theo ô giúp chuỗi ít nhạy với nhiễu, giữ số phép kiểm định ý nghĩa ở mức tính toán
   được, và phù hợp với quy mô tính độ dốc và gradient.
@@ -209,8 +215,11 @@ với FDR tính trên toàn bản đồ.
 hướng về phía vệ tinh).
 
 - **Ô sụt lún:** y = −d_LOS / l_u (giả định chuyển dịch thẳng đứng, lún lấy dấu dương).
+  - Ô có |l_u| < `min_vertical_sensitivity` (0,1) được xếp là chưa đánh giá (là tham số từ 2026-11-05); ngưỡng này
+    chỉ có tác dụng với hướng nhìn rất xiên hoặc gần nằm ngang.
 - **Ô trượt lở:** y = d_LOS / (**s**·**l**), trong đó **s** là vectơ đơn vị theo hướng dốc nhất, nên chuyển dịch
-  xuôi dốc mang dấu dương. Đây chính là phép chiếu L2S của Cigna et al. (2013).
+  xuôi dốc mang dấu dương. Đây chính là phép chiếu L2S của Cigna et al. (2013); Notti et al. (2014) cũng chiếu theo
+  sườn dốc như vậy, kèm một chỉ số khả kiến (R-index) để sàng lọc những sườn mà một hình học chụp nhìn thấy được.
   - Ô có |**s**·**l**| < `min_sensitivity` (0,3) được xếp là chưa đánh giá. Tại đó hướng nhìn chỉ ghi nhận được dưới
     30% chuyển dịch xuôi dốc, và phép chiếu sẽ khuếch đại nhiễu hơn ba lần.
 
@@ -359,6 +368,7 @@ key=value` hoặc thay đổi ngay trên ứng dụng web.
 | `horizon_yr` | 10 | Khoảng thời gian quy hoạch. Với `horizon_yr = 1`, β là gradient ngang trong một năm |
 | `landslide_min_slope_deg` | 10 | Quy tắc ADAtools (trượt lở ≥ 5°, sụt lún ≤ 10°), lấy cận trên |
 | `min_sensitivity` | 0.3 | Phép chiếu L2S (Cigna et al. 2013); giới hạn hệ số khuếch đại nhiễu ở 3.3 |
+| `min_vertical_sensitivity` | 0.1 | Ô sụt lún: \|l_u\| nhỏ hơn thì không đánh giá; giới hạn hệ số khuếch đại nhiễu ở 10 |
 | `slope_breaks` | 15, 25, 35 | **Giá trị tạm thời.** Thay bằng raster tính nhạy cảm (R4) |
 | `max_lag_months` | 6 | Độ trễ vài tuần đến vài tháng (Handwerger et al. 2013; dao động theo mùa của Dang et al. 2014) |
 | `n_surrogates`, `alpha`, `fdr` | 500, 0.05, true | Ebisuzaki 1997; Benjamini & Hochberg 1995; Wilks 2016 |
@@ -411,7 +421,8 @@ lại phải hoàn thành trước khi bản đồ có thể làm căn cứ ra q
     al. 2017);
   - từ v1.1, mỗi ô còn được kiểm định liên hệ với trữ lượng nước ngầm của NASA GLDAS (đồng hoá GRACE), như một chẩn
     đoán: xem [groundwater-insar.md](groundwater-insar.md);
-  - so sánh sản phẩm quỹ đạo lên và quỹ đạo xuống để tách chuyển dịch thẳng đứng và nằm ngang.
+  - so sánh sản phẩm quỹ đạo lên và quỹ đạo xuống để tách chuyển dịch thẳng đứng và đông–tây (`geoeyes
+    decompose`); chuyển dịch bắc–nam vẫn chưa tách được.
 - **Đầu ra:** với mỗi vùng có liên hệ, phần do mưa, phần do nhiệt độ và phần do mực áp lực giải thích.
 - **Tiêu chí:** hệ số của mưa vẫn đạt ý nghĩa thống kê khi đã đưa nhiệt độ vào mô hình.
 
@@ -477,7 +488,9 @@ truy cập) nên hệ thống chuyển sang ERA5 và ghi rõ trong bản tóm t�
 **Diễn giải.**
 
 - **Hà Nội: không có liên hệ mưa – biến dạng.** Không phát hiện được liên hệ với mưa ở cả hai sản phẩm Hà Nội: tỉ lệ
-  thô các ô có p < 0,05 *thấp hơn* 5%, đúng như kỳ vọng khi giả thuyết không đúng.
+  thô các ô có p < 0,05 *thấp hơn* 5% (3,7% và 1,7%). Theo giả thuyết không, tỉ lệ kỳ vọng là khoảng 5%, nên kết
+  quả phù hợp với việc không có liên hệ; riêng con số 1,7% còn cho thấy kiểm định khá thận trọng, ít sức mạnh với chỉ
+  12–26 lần chụp (diễn đạt lại ngày 2026-11-05).
   - Cách lấy mẫu của CSK (18 lần chụp không đều, khoảng 3 lần mỗi mùa mưa) và chỉ một năm dữ liệu S1 là quá thưa để
     bắt được tín hiệu theo mùa.
   - Cả hai sản phẩm đều tham chiếu vào trung bình cảnh. Dang et al. (2014) ghi nhận dao động theo mùa ở các vùng ven
@@ -497,7 +510,8 @@ truy cập) nên hệ thống chuyển sang ERA5 và ghi rõ trong bản tóm t�
 
 1. **Một hình học chụp.** Chuyển dịch được giả định là thẳng đứng (sụt lún) hoặc xuôi dốc (trượt lở). Vì vậy chuyển
    dịch ngang trong các phễu lún, hay sụt lún trên sườn dốc, sẽ bị quy sai. Phân tích tổ hợp quỹ đạo lên và quỹ đạo
-   xuống (R2) sẽ khắc phục hạn chế này.
+   xuống (R2, `geoeyes decompose`) chỉ tách được thành phần thẳng đứng và đông–tây: chuyển dịch bắc–nam vẫn chưa
+   tách được, nên trượt lở trên sườn hướng bắc hoặc hướng nam vẫn bị quy sai (2026-11-05).
 2. **Tham chiếu.** Các lớp cường độ chỉ đáng tin khi tham chiếu về nền ổn định đáng tin (§4.3, §7).
 3. **Đáp ứng tuyến tính.** Kịch bản mưa ngoại suy một hệ số k tuyến tính cho năm khô và năm ướt. Thực tế, đáp ứng
    của trượt lở là phi tuyến: có ngưỡng, có suy giảm ma sát theo tốc độ và có thể dẫn tới phá huỷ mất kiểm soát
@@ -506,7 +520,7 @@ truy cập) nên hệ thống chuyển sang ERA5 và ghi rõ trong bản tóm t�
 4. **Tương quan không phải nhân quả.** Ở vùng khí hậu gió mùa, mưa và nhiệt độ biến thiên cùng nhau (R2).
 5. **Dữ liệu mưa thô.** Pixel CHIRPS là 0,05° (khoảng 5,5 km); ERA5 là 0,25° và làm trơn các đỉnh mưa đối lưu. Vì
    thế liên hệ được xét theo từng pixel mưa chứ không theo từng sườn dốc.
-6. **Khoảng trống độ kết hợp.** Mất kết hợp trong mùa mưa làm lệch mẫu trên các sườn có thực phủ (Bekaert et al.
+6. **Khoảng trống độ nhất quán.** Mất nhất quán trong mùa mưa làm lệch mẫu trên các sườn có thực phủ (Bekaert et al.
    2020): những ô còn lại có thể chính là những ô ổn định.
 7. **Giới hạn chưa được hiệu chỉnh.** Các giới hạn cường độ sụt lún, lớp độ dốc tạm thời và ma trận vẫn là lựa chọn
    chuyên gia cho đến khi hoàn thành R3 và R4.

@@ -371,7 +371,8 @@ The user enables/disables optional phases in `[pipeline]` of `project.toml` (rep
 ### 6.4 Runner & guard
 
 ```
-geoeyes run <project> [--track T] [--from PHASE] [--to PHASE] [--only PHASE] [--force PHASE] [--dry-run]
+geoeyes run <project> [--track T] [--from PHASE] [--to PHASE] [--only PHASE] [--force PHASE] [--skip PHASE]
+            [--ps-from STEP] [--ps-to STEP] [--dry-run]
 
 Runner.run():
   cfg   = config.load(project)                       # validate schema
@@ -876,31 +877,35 @@ A person **not involved in the processing** reading the report must be able to a
 
 ### 13.2 Structure
 
+Two parts: an **assessment** first, in plain language for city officials and residents (short sentences, jargon
+explained in one clause, rates vertical and negative = sinking), then the **technical appendix** for specialists.
+
 | Section | Contents | Data source |
 |---|---|---|
-| **Cover page** | Project name, AOI, sensor/track, time span, product ID, software version, creation date | manifest |
-| **Summary (1 page)** | 3–5 key findings (maximum velocity, deforming areas, trends), table of key figures (number of points, density, min/median/max velocity, median uncertainty), thumbnail map, **confidence statement** (high/medium/low + reasons) | metrics, product |
-| **1. Area & data** | AOI map; scene table (date, ID, mode, pol); acquisition timeline; **baseline plot** (Bperp–time) + pair network; coverage | NETWORK, SceneMetadata |
-| **2. Method** | **Processing-chain diagram generated automatically** from the executed DAG; description of each step (coreg, IFG, phase linking, PS/DS selection, unwrapping, APS, inversion, post-processing) with key parameters and **scientific citations**; table of key parameters; differences from the defaults | manifest phases, params |
-| **3. Quality assessment** | Coherence distribution (histogram, per pair); PS/DS density; temporal coherence; IFG standard deviation; phase closure error & fraction of pairs with unwrapping errors; effectiveness of the atmospheric correction (variance reduction); residual RMS; DEM error distribution; reference point stability | QualityMetrics, figures |
-| **4. Results** | LOS velocity map (+ uncertainty map); velocity histogram; time series of representative points/clusters (selected automatically by cluster/alert); alert zones; 3D EW/UD if 2 tracks are available | product |
-| **5. Validation** *(if available)* | GNSS/CR comparison: scatter, bias, RMSE, station table | validation |
-| **6. Interpretation & limitations** | LOS sign convention, reference point, directional sensitivity (insensitive to N-S), residual atmosphere, decorrelated areas, usage recommendations | template + metrics |
-| **Appendix A** | Full parameters (diff against the preset) | params |
-| **Appendix B** | Provenance: scene list + checksums, software/library versions, environment, duration of each phase | manifest |
-| **Appendix C** | List of product files + SHA-256; formats & how to read them (GeoParquet/COG/STAC) | manifest |
-| **Appendix D** | Glossary & references | static |
-| **Appendix E** *(optional)* | Operational information: preflight, run time of each phase, machine resources (no more operating-procedure codes/gates/sign-off — ADR-016) | run manifest |
+| **Cover page** | Project, place (offline cache), sensor/track, time span, product ID, software version, creation date; the two parts | manifest, STAC item |
+| **A1. Summary (1 page)** | Plain statements: area measured, share stable, area sinking faster than 5/10/20 mm/yr, the main sinking area with its trend, rising ground, confidence; what to do first; vertical velocity map (full min–max range) with the hot spots labelled | product, `report.assess` |
+| **A2. Hot spots** | Connected 100 m cells (≥ 3 points) faster than 5 mm/yr or twice the median error (≥ 3 cells, ≥ 30 points), at most 5 sinking + 2 rising; per card: place (nearest named OSM line or flood report), rate, fastest points, trend (accelerating / slowing / seasonal / steady from the half-period rates and an annual fit, dates far off the trend left out), series figure | product, `analyses/lines`, flood inventory |
+| **A3. Impacts** | Hazard zones (area per level, map), kind of motion, buildings (tilt classes 1/500, 1/300; risk screening), dykes / railways / main roads, reported floods on sinking ground (`flood_reports.near_product`), groundwater; each in 2–4 plain sentences + a table; an analysis not run says so with its command | `analyses/{hazard,behaviour,buildings,risk,lines}/<product>`, `inventories/flood` |
+| **A4. How sure are we** | Confidence level and its reasons in plain words, images and period, typical error, GNSS agreement (station table), processing checks, image dates off the trend in most hot spots, what to check on the ground | confidence rules, `analyses/gnss/<product>`, QC |
+| **A5. Recommendations and indicators** | Recommendations, most urgent first, each with its reason; the standard indicator table (also `indicators.json`) | `report.assess` |
+| **B.1 Technical summary** | Findings, confidence (high/medium/low + reasons), key figures, LOS velocity map | metrics, product |
+| **B.2 Area & data** | Extent, acquisitions, baseline plot, per-date table (B⊥, noise, used, weather APS) | stack, PS run |
+| **B.3 Method** | Each step that ran with its key parameters and **citations**; table of key parameters | manifest, params |
+| **B.4 Quality** | Acceptance checks (ionosphere, subswath seams, other tracks, residual ramps, decomposition), distributions, noise per interferogram, points per selection stage | QC, PS run |
+| **B.5 Results** | LOS velocity map; representative series (fastest 0.5 % each way, stable points) | product |
+| **B.6 Interpretation & limitations** | LOS sign convention, reference area, directional sensitivity, residual atmosphere, decorrelated areas, short series, X-band ambiguity | template + metrics |
+| **Provenance, product files, references** | Phase durations, software and packages, scenes, bursts; files + SHA-256 and formats; cited papers only | run state, manifest |
 
 Fixed references in the template (BibTeX): Ferretti et al. 2001 (PS), Hooper et al. 2004/2007 (StaMPS), Berardino et al. 2002 (SBAS), Ferretti et al. 2011 (SqueeSAR), Ansari et al. 2018 (EMI/sequential), Yunjun et al. 2019 (MintPy), Goldstein & Werner 1998, Prats-Iraola et al. 2012 (TOPS ESD), Jolivet et al. 2011/2014 (ERA5/GACOS-type APS), Yu et al. 2018 (GACOS). Only steps that were actually run are cited.
 
 ### 13.3 Technical
 
-- **Collection** (`report/collect.py`): reads only the manifest + `QualityMetrics` + product — does **not** re-read `.mat`/raw logs. Metrics are computed **inside** the pipeline (`products/metrics.py`).
-- **Figures** (`report/figures/`): matplotlib, common style (fonts, non-misleading colormaps: `RdBu_r` symmetric around 0 for velocity, `viridis` for coherence), vector output (PDF/SVG) for sharp printing; maps have a scale bar, north arrow, LOS direction & heading annotation.
-- **Render**: **Typst** (PyPI package `typst`, self-contained binary, runs well on Windows; proper maths & citations) — ADR-010. Templates in `report/templates/*.typ`, data passed as JSON.
-- **Language**: English (ADR-015), no i18n.
-- Output: `products/<id>/report.pdf` + `report.json` (the data used). `geoeyes report <product_id>` regenerates it at any time.
+- **Collection** (`report/collect.py`): reads the product, the PS run, the stack (optional), the configuration and the run state; summary statistics only. The time series read are those shown (a sample of each group), never the whole file.
+- **Assessment** (`report/assess.py`): rates in the assessment basis (vertical v_LOS / l_u when the product has the line of sight, else LOS), 100 m cells, area indicators, hot spots and their trends, the impacts read from `<project>/analyses/<kind>/<product>/` and `<workspace>/inventories/flood/`, plain statements, recommendations, indicators. No network request: place names from the caches only.
+- **Figures** (`report/figures.py`): matplotlib, common style; velocity maps in the classes of QGIS and the web app (Pretty Breaks, 10 classes over the full min–max range, jet_r: never clipped to percentiles); maps have a scale bar, north arrow, LOS direction & heading annotation; hazard levels map; hot spot series with the half-period rates.
+- **Render**: **Typst** (PyPI package `typst`, self-contained binary, runs well on Windows; proper maths & citations) — ADR-010. Template `report/templates/report.typ`, data passed as JSON.
+- **Language**: English (ADR-015, ADR-027), no i18n.
+- Output: `products/<id>/report.pdf` + `report.json` (the data used) + `indicators.json` (`geoeyes.indicators/1`: every indicator key always present, `{value, unit, description, source}`, `value` null when the analysis was not run; list in docs/en/guide/projects-and-data.md §6). `geoeyes report <project> --product <id>` regenerates them at any time.
 - The CR report (`cr_report/report.py`) shares the same engine & style.
 
 ---

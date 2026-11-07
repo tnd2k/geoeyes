@@ -115,6 +115,9 @@ the project rebuilds the layers.
 
 ### 4.1 Decomposition, Mexico City (Sentinel-1 asc 078 + Capella asc)
 
+> **Not to be quoted (2026-11-05).** This pair (50 days of Capella, a ramp, l_n = −0.46) is a test of the method
+> only. None of its numbers below is a measurement of the ground; use the Hanoi pair (§4.2) instead.
+
 | | Sentinel-1 asc 078 | Capella asc |
 |---|---|---|
 | Period | 2024-05-03 → 2024-10-30 | 2024-06-26 → 2024-08-15 (50 days) |
@@ -197,8 +200,8 @@ four times the formal 0.64. Only east-west motion above ~5–8 mm/yr should be r
 | Acquisition time; GIM vertical TEC over Hanoi (CODE IONEX, CDDIS) | asc 11:06 UTC = **18:06 local**, 39–111 TECU; desc 22:50 UTC = 05:50 local, 8–19 TECU | the ascending passes see ~6 times more ionosphere |
 | ESD azimuth shift per date (stack) | asc mean 0.035 lines, desc 0.013; ESD against north ramp: asc **r = −0.56 (p = 0.003)**, desc r = +0.19 (p = 0.37) | an azimuth (north-south) ionospheric gradient shifts the TOPS bursts and bends the phase together |
 
-Hanoi lies under the northern crest of the equatorial ionization anomaly. After sunset, near the maximum of solar
-cycle 25, the electron content there is high and changes quickly in latitude. The ascending passes (18:06) catch
+Hanoi lies under the northern crest of the equatorial ionization anomaly. After sunset, shortly after the maximum
+of solar cycle 25 (about October 2024; activity still high in 2025–26), the electron content there is high and changes quickly in latitude. The ascending passes (18:06) catch
 it, the descending ones (05:50) do not.
 
 The per-date ramps change through the year (higher TEC in autumn 2025, lower in 2026). Their trend becomes a ramp
@@ -208,7 +211,8 @@ orbit).
 The GIM, at 2.5° × 5°, does not resolve gradients over 15 km: its predicted ramps are 15 times smaller and
 uncorrelated with the measured ones. It only gives the TEC level.
 
-**Correction.** The proper fix is the range split-spectrum (Gomba et al. 2016; Liang & Fielding 2017): two
+**Correction.** The proper fix is the range split-spectrum (Gomba et al. 2016; for Sentinel-1 TOPS time series, Liang et al.
+2019): two
 sub-band interferograms separate the dispersive (ionospheric) phase. The stack stores flattened SLCs, so the
 geometric phase must be recomputed exactly from the orbits before splitting: about half of any error in it leaks
 into the ionospheric estimate. Until then, a plane removed per date or from the velocity (`deramp = "plane"`) takes
@@ -271,13 +275,15 @@ ranges (thin). The cells sink twice as fast where the deposits are thickest.
 
 **Hanoi.** The grid is capped almost everywhere and says nothing. A Holocene thickness map is needed.
 
-**Consolidation check.** The implied c_v of the consolidating cells is 830–1,000 m²/yr in every product, about
-100 times the range of soft clays. With the bedrock depth (50 m) as H, the short τ (0.25 yr) of these cells
-cannot be the consolidation of the whole column. Two readings are possible:
-- they consolidate a thin layer near the surface (fill, a few metres);
-- they are not consolidating.
+**Consolidation check.** The implied c_v of the consolidating cells is 830–1,000 m²/yr, about 100 times the
+range of soft clays. These values are what H = 50 m gives, so the cells appear to sit at the 50 m cap (to confirm per cell) (which holds 59 % of the Mexico City cells and 82–92 % in
+Hanoi), so H is the same for all of them and c_v = 4·25² / (π²·τ) ≈ 253/τ is only a rescaled 1/τ.
+**At the cap the check is not informative** (reworded 2026-11-05): it cannot tell a thin consolidating layer
+from a wrong thickness. It needs a real thickness map (G1, G2).
 
-The check works as intended: it rejects a thickness that cannot be the consolidating layer.
+The short τ (≈ 0.25 yr) is itself suspect: it is the time scale of a season, so the consolidation detector may be
+fitting the seasonal signal. Treat τ < 1 yr as possibly seasonal, not as consolidation
+(flagged `tau_seasonal_suspect` in `consolidation.parquet`, counted in `consolidation.json`, since 2026-11-05).
 
 ### 4.4 Susceptibility with soft-soil thickness
 
@@ -325,13 +331,21 @@ settings are the same.
 | G2 | Rate against thickness with the real map; c_v of the consolidating cells against laboratory values |
 | G3 | Groundwater level observations (national monitoring network) with the thickness: settlement per metre of head drop |
 
+**Review 2026-11-05: direction.**
+- The Mexico City / Capella decomposition (§4.1: 50 days, ramp, l_n = −0.46) is not to be quoted anywhere.
+- The open soft-soil layer (Pelletier) in the susceptibility model: AUC gains where most cells sit at the 50 m cap
+  (Hanoi) can come from the grid edges, not the soft layer (§4.4). Implemented (2026-11-05): `soft_soil_m` is dropped
+  when more than `soft_soil_max_cap_share` (0.8) of the labelled cells sit at the 50 m cap
+  (`geoeyes.ml.susceptibility.soft_soil_gate`); the reason is in the warnings and in `"gates"` of
+  `susceptibility.json`. The Hanoi results of §4.4 were computed before the gate.
+
 ## 7. References
 
 - Gomba, G., Parizzi, A., De Zan, F., Eineder, M., & Bamler, R. (2016). Toward operational compensation of
   ionospheric effects in SAR interferograms: the split-spectrum method. *IEEE Transactions on Geoscience and Remote
   Sensing*, 54(3), 1446–1461.
-- Liang, C., & Fielding, E. J. (2017). Measuring azimuth deformation with L-band ALOS-2 ScanSAR interferometry.
-  *IEEE Transactions on Geoscience and Remote Sensing*, 55(5), 2725–2738.
+- Liang, C., Agram, P., Simons, M., & Fielding, E. J. (2019). Ionospheric correction of InSAR time series analysis
+  of C-band Sentinel-1 TOPS data. *IEEE Transactions on Geoscience and Remote Sensing*, 57(9), 6304–6317.
 - Fuhrmann, T., & Garthwaite, M. C. (2019). Resolving three-dimensional surface motion with InSAR: constraints
   from multi-geometry data fusion. *Remote Sensing*, 11(3), 241.
 - Holtz, R. D., & Kovacs, W. D. (1981). *An Introduction to Geotechnical Engineering*. Prentice-Hall.

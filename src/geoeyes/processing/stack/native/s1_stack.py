@@ -50,8 +50,35 @@ class Burst:
     tiff: Path
 
 
+def datatake_slices(scene_dir: Path) -> list[Path]:
+    """``scene_dir`` and the other slices of the same datatake beside it (same date, absolute orbit and datatake
+    id: ``S1A_IW_SLC__1SDV_<start>_<stop>_<orbit>_<datatake>_<crc>``). The bursts of one date over an AOI can lie
+    in two consecutive slices; ASF stores each slice in its own folder."""
+    parts = scene_dir.name.split("_")
+    if len(parts) < 9 or len(parts[5]) < 8:
+        return [scene_dir]
+    key = (parts[0], parts[5][:8], parts[7], parts[8])
+    out = [scene_dir]
+    for p in sorted(scene_dir.parent.iterdir()):
+        q = p.name.split("_")
+        if p != scene_dir and len(q) >= 9 and (q[0], q[5][:8], q[7], q[8]) == key and (p / "bursts.json").exists():
+            out.append(p)
+    return out
+
+
 def load_scene(scene_dir: Path, burst_ids: list[str], polarization: str = "VV", orbits=None) -> dict[str, Burst]:
-    """Bursts of one acquisition; ``orbits`` (a ``PoeorbProvider``) replaces the annotation orbit."""
+    """Bursts of one acquisition; ``orbits`` (a ``PoeorbProvider``) replaces the annotation orbit. Bursts not in
+    ``scene_dir`` are looked for in the other slices of its datatake (``datatake_slices``)."""
+    out: dict[str, Burst] = {}
+    for d in datatake_slices(scene_dir):
+        missing = [b for b in burst_ids if b not in out]
+        if not missing:
+            break
+        out.update(_load_slice(d, missing, polarization, orbits))
+    return out
+
+
+def _load_slice(scene_dir: Path, burst_ids: list[str], polarization: str, orbits) -> dict[str, Burst]:
     refs = json.loads((scene_dir / "bursts.json").read_text(encoding="utf-8"))
     out = {}
     for r in refs:

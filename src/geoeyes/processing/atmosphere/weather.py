@@ -1,4 +1,4 @@
-"""Weather-model APS of the PS: (n, n_epoch) interferometric phase (rad, master column 0) from ERA5 or GACOS,
+"""Weather-model APS of the PS: (n, n_epoch) interferometric phase (rad, master column 0) from ERA5, CERRA or GACOS,
 NaN where the model has no data (the caller fills those entries with the linear APS, as the legacy flow)."""
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from geoeyes.processing.atmosphere import era5, gacos
+from geoeyes.processing.atmosphere import cerra, era5, gacos
 from geoeyes.processing.atmosphere.slant import zenith_to_ifg_phase
 
 log = logging.getLogger(__name__)
@@ -17,8 +17,10 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class WeatherParams:
-    method: str                                  # "era5" | "gacos"
+    method: str                                  # "era5" | "cerra" | "gacos"
     cache: Path | None = None                    # ERA5 NetCDF cache
+    cerra_cache: Path | None = None              # CERRA GRIB cache (whole domain, shared by the projects)
+    cerra_max_wait_min: float = 20.0             # CDS queue wait per run; the rest is collected by the next run
     gacos_dir: Path | None = None
     component: str = "total"                     # ERA5: total | hydro | wet
     buffer_deg: float = 2.0
@@ -31,9 +33,12 @@ class WeatherParams:
     @classmethod
     def from_section(cls, sec, cache_root: Path | None = None) -> WeatherParams:
         """From the project ``[atmosphere]`` section (``era5`` / ``gacos`` sub-tables)."""
-        e, g = dict(sec.era5), dict(sec.gacos)
+        e, g, c = dict(sec.era5), dict(sec.gacos), dict(sec.cerra)
         cache = e.get("cache") or (Path(cache_root) / "era5" if cache_root else None)
+        c_cache = c.get("cache") or (Path(cache_root) / "cerra" if cache_root else None)
         return cls(method=str(sec.method).lower(), cache=Path(cache) if cache else None,
+                   cerra_cache=Path(c_cache) if c_cache else None,
+                   cerra_max_wait_min=float(c.get("max_wait_min", 20)),
                    gacos_dir=Path(g["dir"]) if g.get("dir") else None, component=str(e.get("component", "total")),
                    buffer_deg=float(e.get("buffer_deg", 2.0)), auto_download=bool(e.get("auto_download", True)),
                    levels=tuple(str(v) for v in e.get("pressure_levels") or era5.cds.LEVELS),
@@ -51,12 +56,18 @@ def weather_aps(p: WeatherParams, *, lon, lat, hgt, incidence, times: dict[date,
         zhd, zwd = era5.zenith_delays(lon, lat, hgt, times, p.cache, buffer_deg=p.buffer_deg,
                                       auto_download=p.auto_download, levels=p.levels, workers=p.workers)
         zen = {"total": zhd + zwd, "hydro": zhd, "wet": zwd}[p.component]
+    elif p.method == "cerra":
+        if p.cerra_cache is None:
+            raise ValueError("CERRA APS needs a cache folder ([atmosphere.cerra] cache)")
+        zhd, zwd = cerra.zenith_delays(lon, lat, hgt, times, p.cerra_cache, auto_download=p.auto_download,
+                                       max_wait_min=p.cerra_max_wait_min)
+        zen = {"total": zhd + zwd, "hydro": zhd, "wet": zwd}[p.component]
     elif p.method == "gacos":
         if p.gacos_dir is None:
             raise ValueError("GACOS APS needs the product folder ([atmosphere.gacos] dir)")
         zen = gacos.zenith_delays(lon, lat, dates, p.gacos_dir)
     else:
-        raise ValueError(f"weather APS method {p.method!r} (era5, gacos)")
+        raise ValueError(f"weather APS method {p.method!r} (era5, cerra, gacos)")
     ph = zenith_to_ifg_phase(zen, incidence, wavelength, master_ix)
     ok = np.isfinite(ph)
     log.info("%s APS: %.1f %% of the PS x interferogram values available", p.method.upper(),

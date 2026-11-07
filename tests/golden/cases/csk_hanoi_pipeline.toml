@@ -76,7 +76,7 @@ water_mask = "none"                # (not used yet)
 # ----------------------------------------------------------------------------------------------- PS engine (StaMPS names)
 [ps]
 # step 2 — temporal coherence
-max_topo_err = "auto"              # m, or "auto" = median height of ambiguity / 4
+max_topo_err = "auto_master"       # m, or "auto" / "auto_master": median height of ambiguity / 4 (B⊥ about the median / the master)
 filter_grid_size = 50
 filter_weighting = "P-square"
 clap_win = 32

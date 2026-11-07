@@ -114,6 +114,9 @@ Bề dày là biến dự báo `soft_soil_m` của mô hình tính nhạy cảm 
 
 ### 4.1 Tách thành phần, Mexico City (Sentinel-1 asc 078 + Capella asc)
 
+> **Không được trích dẫn (2026-11-05).** Cặp này (50 ngày Capella, có mặt nghiêng, l_n = −0,46) chỉ để thử phương
+> pháp. Không con số nào dưới đây là số đo của nền đất; hãy dùng cặp Hà Nội (§4.2).
+
 | | Sentinel-1 asc 078 | Capella asc |
 |---|---|---|
 | Thời gian | 2024-05-03 → 2024-10-30 | 2024-06-26 → 2024-08-15 (50 ngày) |
@@ -174,7 +177,7 @@ GeoEyes giờ tự phát hiện mặt nghiêng như vậy và cảnh báo. Với
 - Nhưng nó **không** hướng về các ô lún. Trong khoảng 0,1–1,5 km quanh một ô lún nhanh, 48–53 % số ô dịch về phía
   ô đó, tức là ngẫu nhiên.
 
-Vì vậy đây là phần bất đồng còn lại giữa hai sản phẩm (khí quyển không phẳng, mở pha). Một sai số ở một hướng nhìn
+Vì vậy đây là phần bất đồng còn lại giữa hai sản phẩm (khí quyển không phẳng, giải chập pha). Một sai số ở một hướng nhìn
 lan vào cả e và u, nên nó cũng tập trung ở nơi chuyển dịch lớn.
 
 Nhiễu thực của e nên đọc từ các ô ổn định: trung vị |e| = 1,8 mm/năm, tức σ_e ≈ 2,7 mm/năm, gấp khoảng bốn lần
@@ -194,13 +197,13 @@ trong workspace):
 | Kiểm tra | Kết quả | Ý nghĩa |
 |---|---|---|
 | Tham số xử lý của hai lần chạy PS | giống hệt nhau | không phải do thiết lập |
-| Mặt nghiêng của từng thành phần pha, quy ra vận tốc (asc 128) | pha đã mở ~20 mm/năm; hiệu chỉnh ERA5 1,7; sai số DEM 2,7; nhiễu tương quan 0,7 | có sẵn trong giao thoa đồ; không do ERA5, không do sai số DEM |
+| Mặt nghiêng của từng thành phần pha, quy ra vận tốc (asc 128) | pha đã giải chập ~20 mm/năm; hiệu chỉnh ERA5 1,7; sai số DEM 2,7; nhiễu tương quan 0,7 | có sẵn trong giao thoa đồ; không do ERA5, không do sai số DEM |
 | Mặt nghiêng của từng giao thoa đồ | asc 2,0 mm/km (trung vị), desc 0,8; chủ yếu theo hướng bắc–nam; giảm dần từ thu 2025 đến thu 2026 | sai số nằm ở các lần chụp quỹ đạo lên, theo hướng bay |
 | Giờ chụp; TEC thẳng đứng trên Hà Nội từ GIM (CODE IONEX, CDDIS) | asc 11:06 UTC = **18:06 giờ địa phương**, 39–111 TECU; desc 22:50 UTC = 05:50, 8–19 TECU | quỹ đạo lên gặp tầng điện ly mạnh gấp khoảng 6 lần |
-| Độ dịch phương vị ESD theo ngày (chồng ảnh) | asc trung bình 0,035 dòng, desc 0,013; ESD so với mặt nghiêng bắc–nam: asc **r = −0,56 (p = 0,003)**, desc r = +0,19 (p = 0,37) | gradient tầng điện ly theo phương vị (bắc–nam) vừa làm lệch các burst TOPS vừa uốn pha |
+| Độ dịch theo phương bay ESD theo ngày (chồng ảnh) | asc trung bình 0,035 dòng, desc 0,013; ESD so với mặt nghiêng bắc–nam: asc **r = −0,56 (p = 0,003)**, desc r = +0,19 (p = 0,37) | gradient tầng điện ly theo phương bay (bắc–nam) vừa làm lệch các burst TOPS vừa uốn pha |
 
-Hà Nội nằm dưới đỉnh phía bắc của dị thường ion hoá xích đạo (EIA). Sau hoàng hôn, gần cực đại của chu kỳ mặt trời
-25, lượng điện tử ở đây cao và thay đổi nhanh theo vĩ độ. Các lần chụp quỹ đạo lên (18:06) gặp đúng lúc này, quỹ đạo
+Hà Nội nằm dưới đỉnh phía bắc của dị thường ion hoá xích đạo (EIA). Sau hoàng hôn, ít lâu sau cực đại của chu kỳ mặt
+trời 25 (khoảng tháng 10/2024; hoạt động vẫn còn mạnh trong 2025–26), lượng điện tử ở đây cao và thay đổi nhanh theo vĩ độ. Các lần chụp quỹ đạo lên (18:06) gặp đúng lúc này, quỹ đạo
 xuống (05:50) thì không.
 
 Mặt nghiêng của từng ngày thay đổi trong năm (TEC cao hơn vào thu 2025, thấp hơn trong 2026). Xu thế của chúng trở
@@ -210,8 +213,8 @@ ngày chụp lên cuối cùng (quỹ đạo phục hồi).
 GIM với ô 2,5° × 5° không phân giải được gradient trên 15 km: mặt nghiêng nó dự đoán nhỏ hơn 15 lần và không tương
 quan với mặt nghiêng đo được. Nó chỉ cho biết mức TEC.
 
-**Hiệu chỉnh.** Cách làm đúng là tách phổ theo cự ly (range split-spectrum; Gomba và cs. 2016; Liang & Fielding
-2017): hai giao thoa đồ băng con tách được phần pha tán sắc (tầng điện ly). Chồng ảnh lưu SLC đã khử pha hình học,
+**Hiệu chỉnh.** Cách làm đúng là tách phổ theo phương nhìn ngang (range split-spectrum; Gomba và cs. 2016; với chuỗi thời gian
+Sentinel-1 TOPS, Liang và cs. 2019): hai giao thoa đồ băng con tách được phần pha tán sắc (tầng điện ly). Chồng ảnh lưu SLC đã khử pha hình học,
 nên phải tính lại chính xác pha hình học từ quỹ đạo trước khi tách: khoảng một nửa sai số của nó sẽ lọt vào ước tính
 tầng điện ly. Trong lúc chờ, khử một mặt phẳng theo từng ngày hoặc trên vận tốc (`deramp = "plane"`) loại được phần
 dạng mặt phẳng, cùng với mọi độ nghiêng thật của vùng.
@@ -230,12 +233,12 @@ nó thành vận tốc.
 Nguyên nhân gốc chưa rõ. Bậc không theo vệ tinh (S1A/S1D), phiên bản IPF, cách cắt burst, thời gian hay Doppler.
 
 Cách sửa, trong khâu ghép:
-- **v4:** đo bậc pha qua từng chỗ nối theo từng ngày (hai dải 40 cột, trọng số độ kết hợp, khối 32 dòng) và khử
+- **v4:** đo bậc pha qua từng chỗ nối theo từng ngày (hai dải 40 cột, trọng số độ nhất quán, khối 32 dòng) và khử
   trước khi ghép.
 - **v6:** lấy dải con rộng nhất làm mốc, và trừ cùng bậc đã đo đó khỏi băng con thấp của từng dải trước khi tách phổ
   (`WideArea.shift`). Nếu không, một hằng số c không phụ thuộc tần số sẽ lọt a·c (a ≈ 0,5) vào ước tính tầng điện ly.
 - **v5 (bỏ):** ước lượng bậc như một hằng số tự do cho mỗi dải con trong mô hình tầng điện ly. Kết quả ±4,6 rad, cả ở
-  những ngày không có bậc, vì hằng số này trao đổi với gradient cự ly.
+  những ngày không có bậc, vì hằng số này trao đổi với gradient theo phương nhìn ngang.
 
 Cùng một script cho mọi sản phẩm; bậc = trung vị vận tốc trong 0,08° góc tới mỗi bên chỗ nối; gx, gy = mặt phẳng
 khớp trên toàn vùng (mm/năm/km); E–U = tách thành phần với desc 091 v4:
@@ -270,13 +273,15 @@ lún nhanh gấp đôi ở nơi trầm tích dày nhất.
 
 **Hà Nội.** Lưới gần như chạm giới hạn ở mọi nơi nên không cho thông tin gì. Cần một bản đồ bề dày Holocen.
 
-**Kiểm tra cố kết.** c_v suy ra của các ô cố kết là 830–1.000 m²/năm ở mọi sản phẩm, gấp khoảng 100 lần khoảng giá
-trị của sét yếu. Với H là chiều sâu tới đá gốc (50 m), τ ngắn (0,25 năm) của các ô này không thể là cố kết của cả
-cột đất. Có hai cách hiểu:
-- chúng cố kết một lớp mỏng gần mặt (đất đắp, vài mét);
-- chúng không thực sự cố kết.
+**Kiểm tra cố kết.** c_v suy ra của các ô cố kết là 830–1.000 m²/năm, gấp khoảng 100 lần khoảng giá trị của sét
+yếu. Các giá trị này đúng bằng kết quả với H = 50 m, nên có vẻ các ô này nằm ở giới hạn 50 m (cần xác nhận theo từng ô) (giới hạn này chiếm 59 % số ô ở Mexico City và 82–92 % ở Hà Nội), nên H như
+nhau cho mọi ô và c_v = 4·25² / (π²·τ) ≈ 253/τ chỉ là 1/τ nhân với một hằng số. **Ở giới hạn này phép kiểm tra
+không cho thông tin** (diễn đạt lại ngày 2026-11-05): nó không phân biệt được một lớp mỏng đang cố kết với một bề
+dày sai. Cần một bản đồ bề dày thật (G1, G2).
 
-Phép kiểm tra hoạt động đúng như mong muốn: nó loại một bề dày không thể là lớp đang cố kết.
+Bản thân τ ngắn (≈ 0,25 năm) cũng đáng ngờ: đó là thang thời gian của một mùa, nên bộ phát hiện cố kết có thể đang
+khớp tín hiệu theo mùa. Coi τ < 1 năm là có thể do mùa, chưa phải cố kết
+(đánh dấu `tau_seasonal_suspect` trong `consolidation.parquet`, đếm trong `consolidation.json`, từ 2026-11-05).
 
 ### 4.4 Tính nhạy cảm có bề dày đất yếu
 
@@ -318,18 +323,26 @@ nguyên.
 | D2 | Dùng thành phần thẳng đứng sau khi tách cho phân vùng, tuyến và công trình ở nơi có hai hình học |
 | D3 | Gắn GNSS cho phép tách (vận tốc ngang của trạm), và thành phần bắc từ hình học thứ ba |
 | D4 | Tách chuỗi thời gian trên các mốc tháng chung |
-| D5 | Hiệu chỉnh tầng điện ly bằng tách phổ theo cự ly trong bước dựng chồng ảnh (pha hình học chính xác từ quỹ đạo); trước tiên cho Hà Nội asc 128, sau đó cho mọi sản phẩm chụp lúc chạng vạng gần dị thường xích đạo |
+| D5 | Hiệu chỉnh tầng điện ly bằng tách phổ theo phương nhìn ngang trong bước dựng chồng ảnh (pha hình học chính xác từ quỹ đạo); trước tiên cho Hà Nội asc 128, sau đó cho mọi sản phẩm chụp lúc chạng vạng gần dị thường xích đạo |
 | G1 | Bề dày đất yếu Holocen của Hà Nội: số hoá một bản đồ đã công bố (ví dụ Phi & Strokova 2017) hoặc xin số liệu lỗ khoan (mô hình 3D của BGS, Trường Đại học Mỏ – Địa chất) |
 | G2 | Tốc độ lún so với bề dày trên bản đồ thật; c_v của các ô cố kết so với số liệu thí nghiệm |
 | G3 | Số liệu quan trắc mực nước ngầm (mạng quan trắc quốc gia) cùng bề dày: độ lún trên mỗi mét hạ cột nước |
+
+**Rà soát 2026-11-05: định hướng.**
+- Kết quả tách thành phần Mexico City / Capella (§4.1: 50 ngày, có mặt nghiêng, l_n = −0,46) không được trích dẫn
+  ở bất kỳ đâu.
+- Lớp đất yếu mở (Pelletier) trong mô hình tính nhạy cảm: mức tăng AUC ở nơi phần lớn ô chạm giới hạn 50 m (Hà Nội)
+  có thể đến từ rìa lưới chứ không từ lớp đất yếu (§4.4). Đã thực hiện (2026-11-05): bỏ `soft_soil_m` khi hơn
+  `soft_soil_max_cap_share` (0,8) số ô có nhãn chạm giới hạn 50 m (`geoeyes.ml.susceptibility.soft_soil_gate`); lý do
+  ghi trong warnings và trong `"gates"` của `susceptibility.json`. Kết quả Hà Nội ở §4.4 được tính trước khi có cổng này.
 
 ## 7. Tài liệu tham khảo
 
 - Gomba, G., Parizzi, A., De Zan, F., Eineder, M., & Bamler, R. (2016). Toward operational compensation of
   ionospheric effects in SAR interferograms: the split-spectrum method. *IEEE Transactions on Geoscience and Remote
   Sensing*, 54(3), 1446–1461.
-- Liang, C., & Fielding, E. J. (2017). Measuring azimuth deformation with L-band ALOS-2 ScanSAR interferometry.
-  *IEEE Transactions on Geoscience and Remote Sensing*, 55(5), 2725–2738.
+- Liang, C., Agram, P., Simons, M., & Fielding, E. J. (2019). Ionospheric correction of InSAR time series analysis
+  of C-band Sentinel-1 TOPS data. *IEEE Transactions on Geoscience and Remote Sensing*, 57(9), 6304–6317.
 - Fuhrmann, T., & Garthwaite, M. C. (2019). Resolving three-dimensional surface motion with InSAR: constraints
   from multi-geometry data fusion. *Remote Sensing*, 11(3), 241.
 - Holtz, R. D., & Kovacs, W. D. (1981). *An Introduction to Geotechnical Engineering*. Prentice-Hall.

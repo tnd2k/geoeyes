@@ -32,8 +32,103 @@
 | 025 | GNSS comparison and calibration from NGL; vertical tie by default; usable by the hazard zoning | Proposed |
 | 026 | SCN temporal low-pass: local linear fit by default (departs from StaMPS `ps_scn_filt`) | Accepted |
 | 027 | Vietnamese: bilingual web app (EN / VI), Vietnamese translations of the docs; notification centre | Accepted |
+| 028 | Open-data hub (ICEYE, Capella, Umbra STAC) and the ICEYE SLC-COG reader; open-data stacks fetched by `acquire` | Accepted |
+| 029 | SICD (NITF) reader and slant-plane stack builder; Umbra processable (`ps_lite`) | Accepted |
+| 030 | Landslide studies: package `geoeyes.landslide`, study folders outside projects, labels from inventories | Proposed |
 
 ---
+
+### ADR-030 — Landslide studies from inventories *(Proposed 2026-11-01)*
+**Context.** The project owner started a separate study: susceptibility to rainfall-triggered landslides, with
+rainfall thresholds and pre-event InSAR
+([`docs/en/research/landslide-susceptibility.md`](../research/landslide-susceptibility.md)). Its labels come from
+landslide inventories, not from InSAR cells (`ml.susceptibility`). It spans several storms and possibly several
+InSAR products, so it does not belong to one project.
+**Decision.**
+- Package `geoeyes.landslide`:
+  - `study` (configuration);
+  - `inventory` (the workspace inventories, footprints, area–frequency);
+  - `labels`;
+  - later `terrain`, `predictors`, `model`, `thresholds`, `hindcast`, one per step of the plan.
+  - It reuses `ml.layers.Grid`, the model code of `ml.susceptibility`, `ancillary.rainfall` and the InSAR products.
+- A study is a folder `<workspace>/studies/<name>/` with `study.toml` (schema `geoeyes.landslide_study/1`):
+  - inventory and its citation;
+  - study area (one row of a GeoPackage);
+  - footprint variants;
+  - events;
+  - step parameters.
+  - Each step writes its outputs and a `Manifest` in a subfolder (`audit/`, `labels/`, …).
+  - InSAR stacks stay ordinary projects (`projects/<name>`).
+- Inventories stay workspace data (`inventories/landslide/`), rebuilt by `geoeyes landslide inventory` from the cached
+  sources; the reported-events CSV stays editable by hand.
+- CLI: `geoeyes landslide inventory | audit | labels [--study NAME] [--set KEY=VALUE]`.
+- Labels: positives at the initiation zone (scarp cell; variants upper third and centroid); negatives inside the
+  footprint, farther than a buffer from the event's polygons, drawn several times with seeded generators. The
+  footprint is approximated (`near` by default) because the mapping extents are not published.
+**Consequences.**
+- A study can run a step at a time and be reviewed between steps.
+- The pilot area (§3.4 of the plan) is just the study's `[area]`: extending it means changing that row, not the code.
+- Outputs of a study are not shown in the web app until a step is accepted (L7 gate).
+
+### ADR-029 — SICD: NITF reader, image projections, slant-plane stacks *(Accepted 2026-10-28, completes ADR-028)*
+**Context.** Umbra (and other providers) deliver complex data as SICD (NGA Sensor Independent Complex Data): a NITF
+2.1 file with the complex image (I / Q bands) and the SICD XML in a DES. Umbra's products are spotlight images formed
+by polar format (PFA) on a slant plane (Grid `RGAZIM`), squinted by a few degrees: not a zero-Doppler (azimuth time,
+slant range) grid, so `RadarGrid` and the stripmap builder do not apply. A product is ~7 GB (0.15 m pixels).
+**Decision.**
+- `sensors/sicd/nitf.py`: own NITF 2.1 parser (segment table, image subheaders, DES), complex windows from a local
+  file (memory map) or a URL (HTTP range requests per row: an AOI is cut without downloading the product). Types
+  RE32F_IM32F and RE16I_IM16I, uncompressed, pixel-interleaved, blocks and several image segments.
+- `sensors/sicd/meta.py`: the SICD Volume 3 image projections: pixel -> (t_coa, ARP, R, Rdot) for PFA and RMA / INCA,
+  the R / Rdot contour intersected with a surface of given height (DEM iterated), ground -> pixel by Newton. Checked
+  against sarpy (NGA's reference library): identical ground points, < 0.02 pixel back. Phase convention: -2π·KCtr·ΔR
+  with ΔR the range to the point minus the range to the SCP at t_coa (PFA) or xrow (RMA); Row.Sgn = +1 data are
+  conjugated on reading.
+- `processing/stack/native/sicd_stack.py`: reference coarse grid -> ground (DEM) -> pixels of each secondary,
+  resampling at baseband, residual constant offset by amplitude correlation, flattening with 2π (KCtr_sec ΔR_sec -
+  KCtr_ref ΔR_ref), `kh` along the reference resolution cell, B⊥ from the ARPs. Same StackStore as the other builders
+  (lines = SICD columns, samples = SICD rows). Scenes with another side of track / pass, incidence > 2° away, or a
+  spectrum not at baseband (DeltaKCOAPoly) are left out.
+- A cut is stored as a complex GeoTIFF + the chip XML (SICD `FirstRow / FirstCol` convention). The Umbra STAC items
+  have no asset hrefs: `fetch.umbra_sicd_url` lists `sar-data/task-data/<umbra:task_id>/` and takes the collect
+  nearest in time. Default cut margin: 50 m (ICEYE 500 m).
+- New sensor `umbra`, preset `presets/umbra.toml`; method `ps_lite` allowed for Capella and Umbra (short spotlight
+  stacks).
+**Consequences.** GeoEyes reads any SICD with PFA / RGAZIM or RMA / INCA geometry (other grids are refused). Repeat
+passes of a spotlight constellation differ in look angle by degrees while the angular aperture is ~4–5°: the
+azimuth spectra only partly overlap, and the multi-kilometre baselines give height ambiguities below a metre; water
+and container yards decorrelate. Choose small AOIs on stable structures.
+
+### ADR-028 — Open-data hub and ICEYE SLC-COG *(Accepted 2026-10-28)*
+**Context.** Commercial X-band constellations publish open SAR data on AWS as static STAC catalogs (CC-BY 4.0):
+ICEYE (`iceye-open-data-catalog`, SLC-COG), Capella (`capella-open-data`, SLC GeoTIFF + extended JSON), Umbra
+(`umbra-open-data-catalog`, SICD NITF). Some of it is repeat-pass: ICEYE publishes a 19-date daily stack over
+Tenerife (ICEYE-X53, 2026-02-11..03-01), Capella tags InSAR collects (`capella:use_case = insar`, repeat ground track
+`capella:rgt_id`) and holds stacks of up to ~95 dates. They exercise the high-resolution stripmap / spotlight chain
+on data anyone can download.
+**Decision.**
+- `geoeyes.opendata`: a local index per source (`<workspace>/cache/opendata/<source>.json`, refreshed by `sync`,
+  only new item URLs fetched), grouping into candidate stacks from the STAC item geometry only (source, satellite or
+  provider ground track, mode, pass, look side, incidence ±1°, look azimuth ±3°, footprint overlap ≥ 50 %), stable
+  stack ids (`iceye:x53-sm-ar-26-28.2n016.7w`, a track hash for Capella). Baselines are only known once the products
+  are read: `build_stack` logs them and leaves out the scenes outside the reference geometry.
+- `[acquire] opendata = "<stack id>"` makes the `acquire` phase fetch the stack's scenes covering the AOI into
+  `<archive>/<sensor>/<track>/YYYYMMDD/`. ICEYE SLC-COG is cut to the AOI + `opendata_margin_m` with HTTP range
+  reads (window from the product's RPC at the lowest and highest DEM height of the AOI; `geoeyes:crop` in the
+  metadata); Capella scenes are downloaded whole.
+- `sensors/iceye/slc_cog.py`: amplitude / phase uint16 bands with GDAL scale / offset → complex64; the raster is
+  `shadows-down` (rows = range, columns = azimuth) and is transposed to the GeoEyes convention; geometry from the
+  STAC properties (zero-Doppler start, 1 / PRF, near range, precise state vectors, Doppler centroid); checked
+  against the product's RPC to < 0.3 pixel. New sensor `iceye`, preset `presets/iceye.toml` (CSK chain,
+  `max_perp_m = 1000`).
+- Umbra (SICD) is indexed and searchable but not processable (no SICD reader yet): stacks are marked "search only".
+- Interfaces: `geoeyes opendata sync | sources | scenes | stacks | show | fetch | project`, `/api/opendata/*`, web
+  page *Open data*: the server indexes the catalogs by itself (first visit, then daily) and lists every stack by place
+  name (OpenStreetMap reverse geocoding, Nominatim or Photon, cached), a dot per stack on the map; choosing one proposes
+  an area and a project name. Default base map of every map page: light gray.
+**Consequences.** The archive can hold open-data scenes next to commercial ones (same folder layout). The open
+catalogs may hold experimental products (ICEYE's own warning): the reader refuses other orientations / product
+types instead of guessing.
 
 ### ADR-027 — Vietnamese interface and documentation; notification centre *(Accepted 2026-10-26, completes ADR-015)*
 **Context.** The project owner and the expected users work in Vietnamese; ADR-015 made English the product
@@ -50,6 +145,10 @@ language (code, logs, reports, docs).
 - Notification centre in the web app: analysis warnings and finished runs / analyses go to a bell list (kept per
   browser) with toasts and desktop notifications (browser Notification API, after permission); `/api/activity`
   gives the state of the background analyses.
+- Live state by server-sent events (2026-11-06): `/api/events` pushes `workspace` and `activity`,
+  `/api/projects/{name}/events` pushes `project`, `ps-steps` and, with `?run=&after=`, the run's new `log` lines;
+  each only when its JSON changed (`geoeyes/api/events.py`). The web app (`webapp/src/live.ts`) switches its polls off
+  while a stream is up and falls back to them when it is not (older server, lost connection, hidden tab).
 **Consequences.** Every new user-visible text goes through `t()` with its Vietnamese entry; every new server message
 shown in the web app gets an entry or a pattern in `server.ts`.
 
@@ -160,8 +259,12 @@ triggering, risk) is open.
 **Decision (2026-10-21).** Sentinel-1, COSMO-SkyMed, ALOS-PALSAR, Capella, **TerraSAR-X (kept)**. TSX is refactored like the other sensors (the old TSX fork of `flow.py` is not carried over; TSX uses the unified PS engine and so gets SBAS/step 8 automatically).
 **ALOS generation (still open, not blocking).** ALOS-1 PALSAR (2006–2011, archive data only), ALOS-2 PALSAR-2 (2014–, CEOS L1.1), ALOS-4 PALSAR-3 (launched 2024; L1.1 format to be verified). The project owner **already has sample data**; ALOS is done **last** (Phase 4b, after S1/CSK/Capella/TSX are stable) — the specific generation will be determined from the sample data at that time. Readers are designed as per-generation plug-ins. ScanSAR is out of the initial scope.
 
-### ADR-014 — GPU *(Proposed)*
-**Proposed decision.** Array kernels: NumPy/Numba (CPU) ↔ CuPy (GPU) via `core.compute`. Torch only for ML models. Every kernel has a CPU path.
+### ADR-014 — GPU *(Accepted)*
+**Decision (2026-11-04).** Array kernels: NumPy/Numba (CPU) ↔ CuPy (GPU) via `core.compute`. Torch only for ML models. Every kernel has a CPU path.
+- `core.compute.Backend`: `xp` (numpy | cupy), `fft` (scipy.fft | cupyx.scipy.fft) with `fft_kw`, `asarray`/`asnumpy`, `batch()` (larger batches on the GPU). Chosen once per run in `pipeline.run` from `[compute] backend` (`auto` | `numpy` | `cupy`; env `GEOEYES_COMPUTE_BACKEND` wins) and set with a context variable (`compute.use`), so kernels need no extra argument. `auto` falls back to NumPy when CuPy is missing, sees no device or fails a test FFT; `cupy` without a usable GPU is an error before any phase runs. `geoeyes check` reports the backend; the run manifest records it.
+- **The CPU path stays bit-identical** to the code before the port (on the CPU `xp` *is* numpy, the copies are no-ops, `workers=-1` is kept); checked against snapshots when a kernel is ported. GPU results agree to rounding, not bit for bit.
+- Ported (2026-11-04): `ps.topofit.topofit`/`topofit_full` (steps 2 and 3) and `ps.clap.clap_at_points` (step 3). Next by expected gain: `clap.clap_filter` (step 2, needs the windows of a row batched first), `steps/velocity` high-pass and `scn_filt` (step 8), phase linking. Each port: snapshot the CPU outputs, port, check bit identity on the CPU and the stand-in GPU test (`tests/unit/core/test_compute.py`); the real-GPU test runs where CuPy sees a device.
+- Install: `pip install "geoeyes[gpu]"` (cupy-cuda12x, NVIDIA with a CUDA 12 driver); AMD needs a ROCm CuPy build on Linux. The owner's current machine (AMD Radeon integrated, Windows) has no usable GPU, so the GPU path is tested there only with the stand-in backend.
 
 ### ADR-015 — Language: English *(Accepted)*
 **Decision (2026-10-21).** Code, comments, docstrings, logs, CLI, documentation, PDF reports: **English**. Reports need no i18n (drop `report/i18n/`). The current architecture documents (in Vietnamese) will be translated into English after the project owner has finished reviewing v0.1.

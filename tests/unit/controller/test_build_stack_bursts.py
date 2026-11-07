@@ -53,6 +53,9 @@ def test_orbit_upgrades_when_poeorb_is_published(tmp_path, monkeypatch):
     ctx = NS(track=NS(sensor=Sensor.SENTINEL1), workspace=NS(cache_dir=lambda k: tmp_path / k), cache={
         "stack": {"path": store, "scenes": {old: folder(old), new: folder(new)}, "reference": old}})
     found = []
+    import requests
+    monkeypatch.setattr("geoeyes.sensors.sentinel1.earthdata.EarthdataSession",
+                        lambda token: requests.Session())                      # no network in a unit test
     monkeypatch.setattr(orbits.PoeorbProvider, "find", lambda self, m, t0, t1, kind="POEORB": found.append(m) or "x")
     assert bs.orbit_upgrades(ctx) == [str(old)] and found == ["S1D"]     # a 3-day-old date is not even looked up
 

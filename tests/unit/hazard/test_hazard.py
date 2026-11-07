@@ -81,8 +81,17 @@ def test_angular_distortion():
     kx, ky = np.array([0, 1, 2, 5]), np.array([0, 0, 0, 5])
     rate = np.array([0.0, 20.0, 20.0, 50.0])                     # mm/yr; cell 3 has no neighbour
     beta = zoning.angular_distortion(kx, ky, rate, 100.0, 10.0)
-    np.testing.assert_allclose(beta[:3], [0.002, 0.002, 0.0])     # 20 mm/yr × 10 yr over 100 m = 1/500
-    assert np.isnan(beta[3])
+    np.testing.assert_allclose(beta[1], 0.002)                    # kink: slope 20 mm/yr / 100 m -> 0: 1/500 in 10 yr
+    assert np.isnan(beta[[0, 2, 3]]).all()                        # no pair of opposite neighbours
+
+
+def test_angular_distortion_ignores_a_uniform_slope():
+    kx, ky = np.meshgrid(np.arange(5), np.arange(5))
+    kx, ky = kx.ravel(), ky.ravel()
+    tilt = zoning.angular_distortion(kx, ky, 10.0 * kx + 5.0 * ky, 100.0, 10.0)      # plane: rigid tilt
+    np.testing.assert_allclose(tilt[np.isfinite(tilt)], 0.0, atol=1e-12)
+    bowl = zoning.angular_distortion(kx, ky, -2.0 * ((kx - 2) ** 2 + (ky - 2) ** 2), 100.0, 10.0)
+    assert bowl[12] == pytest.approx(4.0 * 10 / 1000 / 100)                          # |Δ²v| = 4 mm/yr over 100 m
 
 
 def test_params_validation():

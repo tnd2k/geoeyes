@@ -5,6 +5,7 @@
 | Index · Mục lục | [en/README.md](en/README.md) | [vi/README.md](vi/README.md) |
 | Rainfall and InSAR hazard zoning · Mưa và InSAR trong phân vùng nguy cơ | [en/research/rainfall-insar-hazard.md](en/research/rainfall-insar-hazard.md) | [vi/research/rainfall-insar-hazard.md](vi/research/rainfall-insar-hazard.md) |
 | GNSS validation and calibration · Kiểm định và hiệu chỉnh bằng GNSS | [en/research/gnss-insar-calibration.md](en/research/gnss-insar-calibration.md) | [vi/research/gnss-insar-calibration.md](vi/research/gnss-insar-calibration.md) |
+| Automatic ramp selection · Tự chọn deramp | [en/research/ramp-selection.md](en/research/ramp-selection.md) | [vi/research/ramp-selection.md](vi/research/ramp-selection.md) |
 | Groundwater and InSAR · Nước ngầm và InSAR | [en/research/groundwater-insar.md](en/research/groundwater-insar.md) | [vi/research/groundwater-insar.md](vi/research/groundwater-insar.md) |
 | Kinds of motion and risk to buildings · Kiểu chuyển dịch và rủi ro công trình | [en/research/behaviour-and-risk.md](en/research/behaviour-and-risk.md) | [vi/research/behaviour-and-risk.md](vi/research/behaviour-and-risk.md) |
 | Infrastructure lines and consolidation · Hạ tầng tuyến và lún cố kết | [en/research/lines-and-consolidation.md](en/research/lines-and-consolidation.md) | [vi/research/lines-and-consolidation.md](vi/research/lines-and-consolidation.md) |
@@ -13,6 +14,10 @@
 | Projects and data · Dự án và dữ liệu | [en/guide/projects-and-data.md](en/guide/projects-and-data.md) | [vi/guide/projects-and-data.md](vi/guide/projects-and-data.md) |
 | Learning path: one pair, step by step · Lộ trình học: một cặp ảnh từng bước | [en/guide/learn-insar-pair.md](en/guide/learn-insar-pair.md) | [vi/guide/learn-insar-pair.md](vi/guide/learn-insar-pair.md) |
 | Ionosphere: recognise and correct · Tầng điện ly: nhận diện và xử lý | [en/guide/ionosphere.md](en/guide/ionosphere.md) | [vi/guide/ionosphere.md](vi/guide/ionosphere.md) |
+| Incremental processing and monitoring · Xử lý gia tăng và giám sát | [en/guide/incremental.md](en/guide/incremental.md) | [vi/guide/incremental.md](vi/guide/incremental.md) |
+| Open data hub · Hub dữ liệu mở | [en/guide/opendata.md](en/guide/opendata.md) | [vi/guide/opendata.md](vi/guide/opendata.md) |
+| Troposphere: weather models · Tầng đối lưu: mô hình thời tiết | [en/guide/atmosphere.md](en/guide/atmosphere.md) | [vi/guide/atmosphere.md](vi/guide/atmosphere.md) |
+| Reported floods: inventory and comparison · Điểm ngập được báo cáo: danh mục và đối chiếu | [en/guide/flood-reports.md](en/guide/flood-reports.md) | [vi/guide/flood-reports.md](vi/guide/flood-reports.md) |
 | Architecture · Kiến trúc | [en/architecture/ARCHITECTURE.md](en/architecture/ARCHITECTURE.md) | [vi/architecture/ARCHITECTURE.md](vi/architecture/ARCHITECTURE.md) |
 | Decisions (ADR) · Quyết định kiến trúc | [en/architecture/decisions.md](en/architecture/decisions.md) | [vi/architecture/decisions.md](vi/architecture/decisions.md) |
 | Migration map · Bảng chuyển đổi | [en/architecture/migration-map.md](en/architecture/migration-map.md) | [vi/architecture/migration-map.md](vi/architecture/migration-map.md) |

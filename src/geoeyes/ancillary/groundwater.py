@@ -109,6 +109,63 @@ def _harmony_daily(token: str, box, first: date, last: date, progress=None,
     return out
 
 
+OPENDAP = "https://opendap.earthdata.nasa.gov/collections"
+GRANULES = "https://cmr.earthdata.nasa.gov/search/granules.json"
+LAT0, LON0, NLAT = -60.0, -180.0, 600              # GLDAS 0.25° grid: lower-left corner, rows (lat ascending)
+
+
+def _granules(cid: str, first: date, last: date) -> list[tuple[str, str]]:
+    """(YYYY-MM-DD, granule UR) of every daily file in ``first``..``last`` (CMR, paged)."""
+    out, page = [], 1
+    while True:
+        q = urllib.parse.urlencode({"collection_concept_id": cid, "page_size": 2000, "page_num": page,
+                                    "temporal": f"{first}T00:00:00Z,{last}T23:59:59Z", "sort_key": "start_date"})
+        req = urllib.request.Request(f"{GRANULES}?{q}", headers={"User-Agent": "GeoEyes"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            entries = json.loads(r.read())["feed"]["entry"]
+        out += [(e["time_start"][:10], e["title"]) for e in entries]
+        if len(entries) < 2000:
+            return out
+        page += 1
+
+
+def _opendap_daily(token: str, box, first: date, last: date, progress=None, workers: int = 16) -> dict[str, np.ndarray]:
+    """Daily ``GWS_tavg`` blocks {YYYY-MM-DD: (ny, nx)}: one tiny subset per day from the Earthdata Cloud OPeNDAP
+    (a few kB each, 16 at a time: about a minute per year). Harmony queues the same subsetting server-side, which
+    takes from minutes to an hour per year whatever the client machine."""
+    from concurrent.futures import ThreadPoolExecutor
+    cid = _collection(token)
+    w, s, e, n = box
+    i0, i1 = round((s - LAT0) / RES), round((n - LAT0) / RES) - 1
+    j0, j1 = round((w - LON0) / RES), round((e - LON0) / RES) - 1
+    ce = urllib.parse.quote(f"/{VARIABLE}[0:1:0][{i0}:1:{i1}][{j0}:1:{j1}]")
+    days = _granules(cid, first, last)
+
+    def one(item):
+        day, ur = item
+        url = f"{OPENDAP}/{cid}/granules/{urllib.parse.quote(ur, safe='')}.dap.csv?dap4.ce={ce}"
+        for k in range(4):
+            try:
+                text = _request(url, token, timeout=90).decode("utf-8", "replace")
+                break
+            except Exception:                              # transient cloud errors: a few retries
+                if k == 3:
+                    raise
+                time.sleep(2 * (k + 1))
+        rows = [[float(v) for v in ln.split(",")[1:]] for ln in text.splitlines() if ln.startswith(f"/{VARIABLE}[")]
+        a = np.asarray(rows, np.float32)
+        a[a <= -9998] = np.nan
+        return day, a[::-1]                                # rows from north to south, as RainGrid
+
+    out: dict[str, np.ndarray] = {}
+    with ThreadPoolExecutor(workers) as pool:
+        for k, (day, a) in enumerate(pool.map(one, days), 1):
+            out[day] = a
+            if progress and (k % 30 == 0 or k == len(days)):
+                progress(f"groundwater: GLDAS {first.year}: {k}/{len(days)} days")
+    return out
+
+
 def monthly_grid(cache: Path, bbox: list[float], start: date, end: date, token: str, progress=None) -> RainGrid:
     """Monthly mean groundwater storage (mm) per 0.25° pixel; months not published yet are NaN. Months already
     in the cache are not asked again."""
@@ -136,15 +193,19 @@ def monthly_grid(cache: Path, bbox: list[float], start: date, end: date, token: 
             chunks.append((date.fromisoformat(f"{ks[0]}-01"),
                            min(date(y, m, calendar.monthrange(y, m)[1]), date.today())))
         if progress:
-            progress(f"groundwater: GLDAS {chunks[0][0]} .. {chunks[-1][1]} over {box}, {len(chunks)} job(s)")
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(min(len(chunks), 6)) as pool:
-            futures = [pool.submit(_harmony_daily, token, box, a, b, progress) for a, b in chunks]
-            for fut in as_completed(futures):
-                known.update(_monthly(fut.result(), (ny, nx)))
-                if known:
-                    ks = sorted(known)
-                    np.savez(f, keys=np.array(ks), mm=np.stack([known[k] for k in ks]))
+            progress(f"groundwater: GLDAS {chunks[0][0]} .. {chunks[-1][1]} over {box}, {len(chunks)} year(s)")
+        # OPeNDAP subsets year by year (each year cached as soon as it is in); Harmony only if OPeNDAP fails
+        for a, b in chunks:
+            try:
+                daily = _opendap_daily(token, box, a, b, progress)
+            except Exception as exc:
+                log.warning("groundwater: OPeNDAP failed for %s (%s: %s); falling back to Harmony", a.year,
+                            type(exc).__name__, exc)
+                daily = _harmony_daily(token, box, a, b, progress)
+            known.update(_monthly(daily, (ny, nx)))
+            if known:
+                ks = sorted(known)
+                np.savez(f, keys=np.array(ks), mm=np.stack([known[k] for k in ks]))
     mm = np.stack([known.get(k, np.full((ny, nx), np.nan, np.float32)) for k in keys]) if keys else \
         np.zeros((0, ny, nx), np.float32)
     return RainGrid(list(keys), mm.astype(np.float32), box[0], box[3], RES, source=SOURCE)

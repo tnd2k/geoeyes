@@ -14,50 +14,111 @@ from typing import Any
 
 import tomlkit
 
+from geoeyes.advisor import catalog
 from geoeyes.config.loader import load, load_dict
 from geoeyes.config.schema import ProjectConfig
 from geoeyes.core.errors import ConfigError
 from geoeyes.workspace import ProjectLayout, WorkspaceLayout
 
-# (section, key, help) shown in the form, in this order; ps.* (StaMPS parameters) are appended from the engine
-# defaults
-FIELDS: list[tuple[str, str, str]] = [
-    ("project", "description", "Free text shown in the tree, the overview and the report"),
-    ("project", "method", "psi: persistent scatterers; psds: PS + distributed scatterers (phase linking)"),
-    ("aoi", "bbox", "West, south, east, north (WGS84 degrees)"),
-    ("acquire", "date_range", "Sentinel-1 acquisitions between these dates are downloaded from ASF"),
-    ("acquire", "max_per_month", "Keep the first N acquisitions of each month (0 = all)"),
-    ("acquire", "archive", "Folder of raw scenes shared by projects ('' = workspace archive)"),
-    ("network", "reference", "Reference date of the stack ('auto' = the most central acquisition)"),
-    ("network", "max_perp_m", "Largest perpendicular baseline kept (m)"),
-    ("network", "max_temporal_days", "Largest temporal baseline kept (days, 0 = no limit)"),
-    ("stack", "dem", "srtm-1 or copernicus-30 (downloaded when missing), a folder of .hgt or a GeoTIFF"),
-    ("stack", "esd", "Enhanced spectral diversity (Sentinel-1 azimuth fine coregistration)"),
-    ("stack", "multilook", "Range, azimuth looks (1, 1 = full resolution)"),
-    ("stack", "incremental", "Keep coregistered dates when the stack is extended (same reference)"),
-    ("selection", "da_threshold", "Amplitude dispersion threshold of the PS candidates"),
-    ("selection", "robust_da", "Robust amplitude dispersion (median / MAD)"),
-    ("selection", "ds_coherence_min", "Minimum coherence of a distributed scatterer"),
-    ("selection", "water_mask", "Mask water before the selection"),
-    ("phase_linking", "enabled", "Phase linking of distributed scatterers before the point engine"),
-    ("phase_linking", "estimator", "Phase linking estimator"),
-    ("phase_linking", "shp_test", "Statistically homogeneous pixels: ad = Anderson-Darling, ks = Kolmogorov-Smirnov"),
-    ("phase_linking", "half_window", "Half window of the SHP search (rows, columns)"),
-    ("phase_linking", "shp_alpha", "Significance level of the SHP test"),
-    ("phase_linking", "min_shp", "Minimum number of SHP for a distributed scatterer"),
-    ("phase_linking", "ps_da_max", "PS below this amplitude dispersion keep their own SLC (0 = link all)"),
-    ("phase_linking", "gaussian_sigma", "Gaussian post-filter of the linked phase (0 = off)"),
-    ("atmosphere", "method", "none, era5 (needs ~/.cdsapirc) or gacos"),
-    ("atmosphere", "select", "auto: weather correction kept only where it reduces the phase; all: everywhere"),
-    ("export", "formats", "GIS formats written for each product"),
-    ("report", "copy_to", "Folder the PDF report is also copied to ('' = none)"),
+# (section, key) shown in the form, in this order; ps.* (StaMPS parameters) are appended from the engine
+# defaults. The help line of each field comes from the parameter catalogue (geoeyes/advisor/params.toml).
+FIELDS: list[tuple[str, str, str]] = [(s, k, catalog.help_of(s, k)) for s, k in [
+    ("project", "description"),
+    ("project", "method"),
+    ("aoi", "bbox"),
+    ("acquire", "date_range"),
+    ("acquire", "max_per_month"),
+    ("acquire", "archive"),
+    ("network", "reference"),
+    ("network", "max_perp_m"),
+    ("network", "max_temporal_days"),
+    ("stack", "dem"),
+    ("stack", "esd"),
+    ("stack", "multilook"),
+    ("stack", "incremental"),
+    ("selection", "da_threshold"),
+    ("selection", "robust_da"),
+    ("selection", "ds_coherence_min"),
+    ("selection", "water_mask"),
+    ("phase_linking", "enabled"),
+    ("phase_linking", "estimator"),
+    ("phase_linking", "shp_test"),
+    ("phase_linking", "half_window"),
+    ("phase_linking", "shp_alpha"),
+    ("phase_linking", "min_shp"),
+    ("phase_linking", "ps_da_max"),
+    ("phase_linking", "gaussian_sigma"),
+    ("sbas", "looks_az"),
+    ("sbas", "looks_rg"),
+    ("sbas", "reference"),
+    ("sbas", "source"),
+    ("sbas", "n_nearest"),
+    ("sbas", "min_pair_coherence"),
+    ("sbas", "min_pair_fraction"),
+    ("sbas", "min_mean_coherence"),
+    ("sbas", "min_temporal_coherence"),
+    ("sbas", "troposphere"),
+    ("sbas", "troposphere_min_relief_m"),
+    ("sbas", "dem_error"),
+    ("sbas", "goldstein_alpha"),
+    ("atmosphere", "method"),
+    ("atmosphere", "select"),
+    ("export", "formats"),
+    ("report", "copy_to"),
+]]
+# titles of the TOML sections, numbered by the pipeline phase that reads them (the form shows them in that order)
+SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "1 · Acquisition",
+                  "network": "2 · Stack: interferogram network", "stack": "2 · Stack: coregistration",
+                  "phase_linking": "3 · Phase linking (distributed scatterers)",
+                  "selection": "4 · PS step 1 · candidates", "atmosphere": "4 · PS step 7 · weather-model atmosphere",
+                  "sbas": "4 · SBAS (in place of PS when method = sbas)", "export": "5 · Export",
+                  "report": "6 · Report",
+                  "ps": "4 · Point engine (StaMPS parameters)"}
+# the [ps] table in groups, by StaMPS step: (form id, title, keys). Keys not listed land in the last group.
+PS_GROUPS: list[tuple[str, str, list[str]]] = [
+    ("ps-gamma", "4 · PS step 2 · temporal coherence and DEM error",
+     ["max_topo_err", "filter_grid_size", "filter_weighting", "clap_win", "clap_low_pass_wavelength", "clap_alpha",
+      "clap_beta", "gamma_change_convergence", "gamma_max_iterations", "dem_error_ambiguity",
+      "dem_error_amb_auto_threshold", "dem_error_amb_q_reject", "dem_error_amb_q_ok", "dem_error_spatial_lambda",
+      "dem_error_spatial_iters"]),
+    ("ps-select", "4 · PS step 3 · point selection",
+     ["select_method", "percent_rand", "density_rand", "gamma_min_threshold", "gamma_stdev_reject",
+      "select_nr_scaling", "slc_osf", "reest_smoothing_flag"]),
+    ("ps-weed", "4 · PS step 4 · weeding",
+     ["weed_time_win", "weed_standard_dev", "weed_zero_elevation", "weed_neighbours", "weed_adjacent_keep_per_group",
+      "weed_noisy_check"]),
+    ("ps-ref", "4 · PS step 5 · reference area", ["ref_centre_lonlat", "ref_radius", "ref_auto"]),
+    ("ps-unwrap", "4 · PS step 6 · unwrapping",
+     ["unwrap_patch_phase", "unwrap_grid_size", "unwrap_prefilter_flag", "unwrap_grid_filter",
+      "unwrap_grid_filter_sigma", "unwrap_grid_filter_unit", "unwrap_gold_n_win", "unwrap_gold_alpha",
+      "unwrap_gold_coh_floor", "unwrap_time_win", "unwrap_la_error_flag", "unwrap_edge_velocity",
+      "unwrap_max_edge_velocity", "unwrap_model_cycles", "unwrap_ps_rate", "unwrap_ps_rate_max_arc",
+      "unwrap_ps_rate_min_ifg", "unwrap_irls_iter", "unwrap_irls_target_rms", "unwrap_irls_epsilon",
+      "unwrap_align_constant"]),
+    ("ps-scla", "4 · PS step 7 · DEM error, orbit ramps and atmosphere",
+     ["subtr_tropo", "scla_deramp", "ramp_auto_allow_planar"]),
+    ("ps-scn", "4 · PS step 8 · spatially correlated noise (SCN)", ["scn_time_win", "scn_wavelength", "scn_time_fit"]),
+    ("ps-misc", "4 · PS · memory and compatibility",
+     ["topofit_chunk_pixels", "ps_select_smooth_chunk_pixels", "weed_noise_ifg_chunk", "legacy_quirks"]),
 ]
-SECTION_TITLES = {"project": "Project", "aoi": "Area of interest", "acquire": "Acquisition", "network": "Network",
-                  "stack": "Stack", "selection": "Point selection", "phase_linking": "Phase linking",
-                  "atmosphere": "Atmosphere", "export": "Export", "report": "Report",
-                  "ps": "Point engine (StaMPS parameters)"}
-SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "gacos"], ("stack", "dem"): ["srtm-1", "copernicus-30"],
-               ("network", "reference"): ["auto"]}
+# the order of the form: the pipeline; "@<id>" = a [ps] group
+ORDER = ["project", "aoi", "acquire", "network", "stack", "phase_linking", "selection", "@ps-gamma", "@ps-select",
+         "@ps-weed", "@ps-ref", "@ps-unwrap", "@ps-scla", "atmosphere", "@ps-scn", "@ps-misc", "sbas", "export",
+         "report"]
+SUGGESTIONS = {("atmosphere", "method"): ["none", "era5", "cerra", "gacos"],
+               ("stack", "dem"): ["srtm-1", "copernicus-30"], ("network", "reference"): ["auto"],
+               ("ps", "max_topo_err"): ["auto", "auto_master"], ("ps", "unwrap_time_win"): ["auto"],
+               ("ps", "unwrap_grid_filter_sigma"): ["auto", "cells"], ("ps", "ref_radius"): ["inf"]}
+# fields of a bool-or-word type: offered as text options, written back as true / false / the word
+WORD_BOOL = {("sbas", "troposphere"): ["auto", "true", "false"]}
+# [ps] keys that take a number or one of these words (set from the data when the engine runs)
+PS_WORDS = {"max_topo_err": {"auto", "auto_master"}, "unwrap_time_win": {"auto"},
+            "unwrap_grid_filter_sigma": {"auto", "cells"}, "ref_radius": {"inf"}}
+# [ps] keys with a fixed set of values (the form offers all of them, not only y / n)
+PS_OPTIONS = {"scla_deramp": ["n", "y", "auto"], "unwrap_ps_rate": ["auto", "y", "n"],
+              "unwrap_grid_filter": ["gaussian", "goldstein", "none"], "select_method": ["PERCENT", "DENSITY"],
+              "scn_time_fit": ["linear", "mean"], "select_nr_scaling": ["low_coherence", "population"],
+              "filter_weighting": ["P-square", "SNR"]}
 
 
 def _schema() -> dict:
@@ -100,7 +161,13 @@ def _kind(schema: dict, prop: dict) -> dict:
     return {"kind": "string", "nullable": nullable}
 
 
-def _ps_kind(v: Any) -> dict | None:
+def _ps_kind(v: Any, key: str = "") -> dict | None:
+    if key in PS_WORDS:
+        return {"kind": "string", "nullable": False}
+    if key in PS_OPTIONS:
+        return {"kind": "enum", "options": PS_OPTIONS[key], "nullable": False}
+    if key == "ref_centre_lonlat":
+        return {"kind": "pair", "nullable": False}
     if isinstance(v, bool):
         return {"kind": "bool", "nullable": False}
     if isinstance(v, int):
@@ -130,6 +197,43 @@ def _get(cfg, section: str, key: str) -> Any:
     return getattr(getattr(cfg, section), key)
 
 
+def _safe(v: Any) -> Any:
+    """JSON for the browser: infinite numbers as text."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return str(v)
+    if isinstance(v, (list, tuple)):
+        return [_safe(x) for x in v]
+    return v
+
+
+def _close(a: Any, b: Any) -> bool:
+    try:
+        return math.isclose(float(a), float(b))
+    except (TypeError, ValueError):
+        return False
+
+
+def _used(project: ProjectLayout) -> dict[str, list[dict]]:
+    """Per [ps] key, the value each track's last ps run used, when it differs from the configured one or was set
+    from the data ("auto")."""
+    import json
+
+    from geoeyes.report.methods import effective_ps
+    out: dict[str, list[dict]] = {}
+    for f in sorted((project.root / "ps_runs").glob("*/params.json")):
+        try:
+            snap = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if "table" not in snap:                                  # ps_lite
+            continue
+        eff, resolved = effective_ps(snap), snap.get("resolved") or {}
+        for k, v in eff.items():
+            out.setdefault(k, []).append({"track": f.parent.name, "value": _json(_safe(v)),
+                                          "auto": k in resolved})
+    return out
+
+
 def _base(raw: dict) -> ProjectConfig:
     """The configuration a project would have with only its name, method and tracks (preset + defaults)."""
     return load_dict({k: raw[k] for k in ("schema", "project", "tracks") if k in raw})
@@ -143,20 +247,57 @@ def describe(project: ProjectLayout) -> dict:
     cfg = load(project.config)
     base = _base(raw)
     schema = _schema()
-    rows = list(FIELDS) + [("ps", k, "") for k, v in DEFAULTS.items() if _ps_kind(v)]
+    rows = list(FIELDS) + [("ps", k, catalog.help_of("ps", k)) for k, v in DEFAULTS.items() if _ps_kind(v, k)]
+    used = _used(project)
     sections: dict[str, list] = {}
     for section, key, help_ in rows:
         if section == "ps":
-            kind = _ps_kind(DEFAULTS[key])
+            kind = _ps_kind(DEFAULTS[key], key)
+        elif (section, key) in WORD_BOOL:
+            kind = {"kind": "enum", "options": WORD_BOOL[(section, key)], "nullable": False}
         else:
             sec = _resolve(schema, schema["properties"][section])
             kind = _kind(schema, sec["properties"][key])
+        value = _json(_safe(_get(cfg, section, key)))
+        runs = []
+        if section == "ps":
+            for u in used.get(key, []):
+                auto = u["auto"] or str(value).lower() == "auto"
+                if auto or (str(u["value"]) != str(value) and not _close(u["value"], value)):
+                    runs.append({**u, "auto": auto})
+        default = _json(_safe(_get(base, section, key)))
+        if (section, key) in WORD_BOOL:                          # true / false as the option text
+            value, default = (str(x).lower() for x in (value, default))
+        entry = catalog.get(section, key)
         sections.setdefault(section, []).append({
-            "key": key, "help": help_, **kind, "suggest": SUGGESTIONS.get((section, key)),
-            "value": _json(_get(cfg, section, key)), "default": _json(_get(base, section, key)),
-            "own": key in (raw.get(section) or {})})
-    return {"sections": [{"name": s, "title": SECTION_TITLES.get(s, s), "fields": f} for s, f in sections.items()],
-            "toml": text, "tracks": raw.get("tracks", [])}
+            "key": key, "help": help_, "info": entry.info() if entry else None,
+            **kind, "suggest": SUGGESTIONS.get((section, key)),
+            "value": value, "default": default,
+            "own": key in (raw.get(section) or {}), "used": runs or None})
+    return {"sections": _ordered(sections), "toml": text, "tracks": raw.get("tracks", [])}
+
+
+def _ordered(sections: dict[str, list]) -> list[dict]:
+    """The form's sections in the pipeline order (``ORDER``), [ps] split into its StaMPS-step groups; ``name`` is
+    the TOML section the fields are written to, ``id`` the form's own key."""
+    ps = {f["key"]: f for f in sections.get("ps", [])}
+    listed = {k for _, _, keys in PS_GROUPS for k in keys}
+    out = []
+    for item in ORDER:
+        if item.startswith("@"):
+            gid = item[1:]
+            title, keys = next((t, k) for i, t, k in PS_GROUPS if i == gid)
+            fields = [ps[k] for k in keys if k in ps]
+            if gid == PS_GROUPS[-1][0]:                           # keys no group lists (new engine parameters)
+                fields += [f for k, f in ps.items() if k not in listed]
+            if fields:
+                out.append({"name": "ps", "id": gid, "title": title, "fields": fields})
+        elif item in sections:
+            out.append({"name": item, "id": item, "title": SECTION_TITLES.get(item, item), "fields": sections[item]})
+    seen = {s["name"] for s in out}
+    out += [{"name": s, "id": s, "title": SECTION_TITLES.get(s, s), "fields": f}
+            for s, f in sections.items() if s not in seen]
+    return out
 
 
 def _toml_value(v: Any) -> Any:
@@ -203,6 +344,20 @@ def apply(project: ProjectLayout, changes: dict[str, Any]) -> dict:
             if section in doc and key in doc[section]:
                 del doc[section][key]
             continue
+        if (section, key) in WORD_BOOL and isinstance(value, str) and value.lower() in ("true", "false"):
+            value = value.lower() == "true"
+        if section == "ps" and key in PS_WORDS and isinstance(value, str):
+            words = PS_WORDS[key]
+            if value.strip().lower() in words:
+                value = value.strip().lower()
+                if value == "inf":
+                    value = float("inf")
+            else:
+                try:
+                    value = float(value)
+                except ValueError:
+                    raise ConfigError(f"[ps] {key}: a number or one of {', '.join(sorted(words))}, "
+                                      f"not {value!r}") from None
         if section not in doc:
             doc.add(tomlkit.nl())
             doc[section] = tomlkit.table()
@@ -247,6 +402,8 @@ def create(ws: WorkspaceLayout, spec: dict) -> str:
         acq["max_per_month"] = int(spec["max_per_month"])
     if spec.get("archive"):
         acq["archive"] = str(spec["archive"])
+    if spec.get("opendata"):
+        acq["opendata"] = str(spec["opendata"])
     if acq:
         doc["acquire"] = acq
     if spec.get("atmosphere") and spec["atmosphere"] != "none":

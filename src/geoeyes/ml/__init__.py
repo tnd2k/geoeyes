@@ -7,6 +7,8 @@
 * ``behaviour``: the kind of motion of every hazard cell (stable, steady, seasonal, speeding, slowing, onset, step)
   and the date of a change; ``risk``: hazard × consequence for every Overture building;
   docs/en/research/behaviour-and-risk.md.
+* ``exposure``: people and buildings on subsiding ground and in the flooded area of an event (open layers of
+  Source Cooperative); ``geoeyes.hazard.exposure``.
 * ``lines``: InSAR profiles along dykes, railways and main roads (OpenStreetMap) and their differential settlement;
   ``consolidation``: final and remaining settlement of the cells that settle towards an end;
   docs/en/research/lines-and-consolidation.md.
@@ -21,8 +23,23 @@ from __future__ import annotations
 import os
 from typing import Any
 
-# joblib (scikit-learn) counts physical cores with wmic, gone from Windows 11: it warns with a traceback each run
+# joblib (scikit-learn) counts physical cores with wmic, gone from Windows 11: it warns with a traceback each run.
+# LOKY_MAX_CPU_COUNT alone does not stop it (loky still asks wmic when the value equals the logical count), so the
+# physical count is given to loky directly, from psutil (no subprocess).
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
+
+def _physical_cores_for_loky() -> None:
+    try:
+        import psutil
+        from joblib.externals.loky.backend import context
+    except ImportError:
+        return
+    if context.physical_cores_cache is None:
+        context.physical_cores_cache = psutil.cpu_count(logical=False) or os.cpu_count() or 1
+
+
+_physical_cores_for_loky()
 
 
 def run_susceptibility(cfg, project, ws, product_id: str, overrides: dict[str, Any] | None = None, progress=None):
@@ -57,6 +74,15 @@ def run_risk(cfg, project, ws, product_id: str, overrides: dict[str, Any] | None
     return run(project.product(product_id), project.analysis("risk", product_id), params,
                hazard_dir=project.analysis("hazard", product_id),
                buildings_dir=project.analysis("buildings", product_id), overture_cache=ws.cache_dir("overture"),
+               coop_cache=ws.cache_dir("sourcecoop"), progress=progress)
+
+
+def run_exposure(cfg, project, ws, product_id: str, overrides: dict[str, Any] | None = None, progress=None):
+    from geoeyes.config.settings import load_settings
+    from geoeyes.hazard.exposure import ExposureParams, run
+    params = ExposureParams.from_dict({**dict(cfg.postprocess.exposure), **(overrides or {})})
+    return run(project.product(product_id), project.analysis("exposure", product_id), params,
+               cache=ws.cache_dir("sourcecoop"), icechunk_python=load_settings().icechunk_python or None,
                progress=progress)
 
 

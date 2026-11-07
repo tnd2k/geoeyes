@@ -55,6 +55,19 @@ def _orbit_text(orbit: str) -> str:
     return f"precise where available, restituted or annotation otherwise: {orbit}"
 
 
+def effective_ps(params: dict) -> dict[str, Any]:
+    """Every parameter the ps engine used: the run's snapshot, or (runs before it was written) the project keys
+    over the engine defaults."""
+    from geoeyes.processing.ps.params import DEFAULTS
+    return params.get("effective") or {**DEFAULTS, **(params.get("table") or {})}
+
+
+def _num(v: Any) -> str:
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return f"{v:g}" if float(v).is_integer() else f"{v:.2f}"
+    return "" if v is None else str(v)
+
+
 def _step(title: str, text: str, cites: tuple[str, ...] = ()) -> dict[str, Any]:
     return {"title": title, "text": text, "cites": list(cites)}
 
@@ -152,13 +165,22 @@ def describe(cfg, ps_manifest, params: dict, stack_attrs: dict) -> dict[str, Any
         table += [("D_A max", params.get("da_max")), ("Temporal coherence min", params.get("tcoh_min")),
                   ("Unwrapping grid", params.get("uw_cell"))]
     else:
-        t = params.get("table", {})
+        t = effective_ps(params)
+        resolved = dict(params.get("resolved") or {})
+        # runs written before "resolved" existed: "auto" from the project
+        if "max_topo_err" not in resolved and cfg is not None and str(dict(cfg.ps).get("max_topo_err", "")) in (
+                "auto", "auto_master"):
+            resolved["max_topo_err"] = {"from": "auto", "rule": "median height of ambiguity / 4"}
+        density = str(t.get("select_method", "DENSITY")).upper() != "PERCENT"
+        rand = (f"at most {_num(t.get('density_rand'))} random-phase pixels per km² are expected among the "
+                "selected ones" if density else
+                f"at most {_num(t.get('percent_rand'))} % of the selected pixels are expected to be random-phase "
+                "pixels")
         steps.append(_step("Point selection",
                            f"Candidates with amplitude dispersion ≤ {params.get('da_max')} were tested for phase "
                            "stability: the phase noise about a spatially filtered estimate and a height-error fit "
-                           "gives a temporal coherence, thresholded per amplitude-dispersion bin so that at most "
-                           f"{t.get('percent_rand', 20)} % of the selected pixels are expected to be random-phase "
-                           "pixels; adjacent and noisy pixels were "
+                           f"(up to ±{_num(t.get('max_topo_err'))} m) gives a temporal coherence, thresholded per "
+                           f"amplitude-dispersion bin so that {rand}; adjacent and noisy pixels were "
                            "then weeded on the Delaunay network.", ("ferretti2001", "hooper2004", "hooper2007")))
         if params.get("ds_tcoh_min"):
             steps.append(_step("Distributed scatterers",
@@ -175,8 +197,14 @@ def describe(cfg, ps_manifest, params: dict, stack_attrs: dict) -> dict[str, Any
                            "atmosphere and the reference-epoch error, was converted to LOS displacement and fitted per "
                            "point with a linear rate; spatially correlated noise was estimated by high-pass filtering "
                            "in time and low-pass in space.", ("hooper2007",)))
-        table += [("D_A max", params.get("da_max")), ("Random-pixel fraction", f"{t.get('percent_rand', '')} %"),
-                  ("Max. height error (m)", t.get("max_topo_err", ""))]
+        mte = _num(t.get("max_topo_err"))
+        if "max_topo_err" in resolved:
+            mte += f" (auto: {resolved['max_topo_err'].get('rule', '')})"
+        table += [("D_A max", params.get("da_max")),
+                  ("Selection", f"{_num(t.get('density_rand'))} random pixels / km² (DENSITY)" if density
+                   else f"{_num(t.get('percent_rand'))} % random pixels (PERCENT)"),
+                  ("Max. height error (m)", mte),
+                  ("Unwrapping grid (m)", _num(t.get("unwrap_grid_size")))]
 
     method, select, n_weather = weather_used(cfg, ps_manifest)
     lite = "ps_lite" in ps_manifest.engine

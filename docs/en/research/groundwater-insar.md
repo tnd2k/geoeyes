@@ -3,7 +3,8 @@
 Status: v1 implemented (GLDAS groundwater coupling in the hazard zoning, groundwater features in the forecast).
 Code: `geoeyes.ancillary.groundwater`, `geoeyes.hazard.assess._groundwater`, `geoeyes.hazard.coupling.storage`,
 `geoeyes.ml.forecast._gws_features`. Companion notes: [rainfall-insar-hazard.md](rainfall-insar-hazard.md)
-(the coupling test reused here), [ai-forecasting.md](ai-forecasting.md).
+(the coupling test reused here), [ai-forecasting.md](ai-forecasting.md). With measured heads:
+[choshui-groundwater.md](choshui-groundwater.md) (Choshui fan, Taiwan, plan C0–C8, 2026-11-05).
 
 ## Contents
 
@@ -39,9 +40,10 @@ groundwater page lists open products that estimate groundwater storage directly.
 - **Satellite gravity.** GRACE (2002–2017) and GRACE-FO (2018–) measure changes of terrestrial water storage. The
   mascon solutions are about 3° in effective resolution, gridded at 0.5° (Watkins et al. 2015). A land-surface
   model separates the groundwater part from the soil moisture, snow and surface water.
-- **GLDAS with GRACE data assimilation.** GLDAS (Rodell et al. 2004) uses the Catchment land-surface model with
-  GRACE assimilated (Li et al. 2019). It gives daily groundwater storage at 0.25°, with GRACE-scale information
-  downscaled by the model physics.
+- **GLDAS with GRACE data assimilation.** GLDAS (Rodell et al. 2004) runs several land-surface models; GLDAS-1,
+  2.0 and 2.1 use Noah among others. Only GLDAS-2.2, the version used here, runs the Catchment land-surface model
+  (CLSM) with GRACE assimilated (Li et al. 2019; corrected 2026-11-05). It gives daily groundwater storage at 0.25°,
+  with GRACE-scale information downscaled by the model physics.
 - **GRACE and InSAR together.** Studies of Central Mexico (Castellazzi et al. 2016) and the Central Valley
   (Ojha et al. 2018) combine the regional storage loss from GRACE with the local subsidence from InSAR. GRACE
   gives the volume and its timing; InSAR gives where the ground responds.
@@ -163,6 +165,15 @@ Hazard zoning with `groundwater = "auto"`, 2026-10-26 (default parameters: 100 m
   Smith & Knight 2019); a pumping map would be a real spatial layer for the susceptibility models.
 - **R-G4 — Forecast value**: compare the backtest with and without groundwater features on long series (CSK
   2011–2014, Sentinel-1 2016 →). Criterion: lower MAE at the 3–6 month horizons.
+
+**Review 2026-11-05: direction.**
+- The 0–6 month lag window only measures the elastic, seasonal response. Hanoi and Mekong subsidence is mostly
+  inelastic aquitard compaction delayed by years (Minderhoud et al. 2017), so null results are expected by design;
+  the skeletal storage step (R-G3) is the meaningful one.
+- In Hanoi the head is driven by pumping and the Red River stage, so rainfall/CRD is a weak proxy: prioritise Red
+  River stage or NAWAPI piezometers.
+- The Hanoi tests used the stable central CSK area and one S1 year: prioritise multi-year S1 (2016 →) over Hoàng
+  Mai, Thanh Trì and Hà Đông, referenced to stable ground.
 
 ## 8. References
 

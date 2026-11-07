@@ -4,7 +4,9 @@
 
 InSAR time-series processing, from raw SAR scenes to versioned displacement products and reports.
 
-- **Sensors**: Sentinel-1 IW (bursts from ASF), COSMO-SkyMed and Capella stripmap; native coregistration (no SNAP).
+- **Sensors**: Sentinel-1 IW (bursts from ASF), COSMO-SkyMed, Capella and ICEYE stripmap / spotlight; native coregistration
+  (no SNAP). Open-data hub: repeat-pass stacks of the ICEYE / Capella / Umbra open STAC catalogs
+  (`geoeyes opendata`, [guide](docs/en/guide/opendata.md)).
 - **Methods**: StaMPS-type persistent scatterers (`psi`), phase linking with distributed scatterers (`psds`),
   `ps_lite` for short Capella stacks; ERA5 / GACOS atmospheric correction.
 - **Outputs**: immutable products (GeoParquet points and time series, COG rasters, STAC item), GIS exports
@@ -40,6 +42,11 @@ geoeyes cr-report <project>     # corner reflector identification (Sentinel-1)
 geoeyes hazard <project>        # hazard zoning with rainfall of the latest product (--set cell_m=50 ...)
 geoeyes gnss   <project>        # compare with the NGL GNSS stations; GNSS calibration (--set radius_m=200 ...)
 geoeyes catalog search --bbox W,S,E,N    # products of every project over an area
+geoeyes params unwrap_grid_size          # what a parameter is for, its risk, usual values (--lang vi)
+geoeyes site   <project>                 # site profile: relief, slopes, land cover, geology, climate, data
+geoeyes advise <project>                 # suggested parameters for the site, with the reason of each (--apply)
+geoeyes advise --learn                   # every project against the rules: agreements, differences, candidates
+geoeyes mcp                              # the advisor as a local MCP server for Claude Code (read only)
 geoeyes serve --open            # web app on http://localhost:8765
 ```
 

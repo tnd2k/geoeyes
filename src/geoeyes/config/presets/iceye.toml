@@ -1,0 +1,37 @@
+# ICEYE defaults (X-band, stripmap / spotlight SLC-COG). Raw data: an archive, or an open-data stack
+# ([acquire] opendata, `geoeyes opendata stacks`). Starts from the COSMO-SkyMed chain (same band, metre pixels).
+[network]
+# ICEYE orbit tube: the Tenerife open stack (2026-02) spans -873..+75 m, critical baseline ~9 km at 148 MHz
+max_perp_m = 1000.0
+
+[stack]
+geometry = "radar"
+esd = false
+
+[phase_linking]
+enabled = true
+estimator = "adaptive"
+half_window = [7, 7]
+min_shp = 25
+gaussian_sigma = 1.5
+
+[selection]
+robust_da = true
+ds_coherence_min = 0.7
+
+[ps]
+max_topo_err = "auto_master"       # height of ambiguity / 4 with the master-relative B⊥ (legacy prep)
+select_method = "PERCENT"
+percent_rand = 92
+density_rand = 20
+weed_standard_dev = inf
+weed_max_noise = 2.5
+weed_adjacent_keep_per_group = 2
+unwrap_grid_size = 10
+unwrap_gold_n_win = 64
+unwrap_irls_target_rms = 0.005
+unwrap_irls_epsilon = 0.0005
+# one-cycle region slips of interferograms with a mean phase near ±pi (Tenerife 2026-02-27): aligning before
+# snapping fixes them, but it stays off until assessed against SNAP+StaMPS (set "y" in a project to try it)
+unwrap_align_constant = "n"
+scla_deramp = "y"

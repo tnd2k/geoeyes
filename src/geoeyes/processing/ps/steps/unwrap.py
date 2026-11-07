@@ -8,6 +8,7 @@ them back after unwrapping.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -16,6 +17,8 @@ from geoeyes.processing.ps.unwrap.grid import UwGrid, grid_wrapped
 from geoeyes.processing.ps.unwrap.interp import UwInterp, interp
 from geoeyes.processing.ps.unwrap.space_time import SpaceTime, space_time
 from geoeyes.processing.ps.unwrap.spatial import SpatialParams, SpatialResult, spatial_unwrap
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,12 +31,26 @@ class UnwrapParams:
     gold_alpha: float = 0.8
     coh_floor: float = 0.2
     prefilter: str = "gaussian"                # grid prefilter: gaussian (legacy S1) | goldstein (CSK) | none
+    # "gaussian": σ in metres (None = the legacy σ = prefilt_win/8 cells); filter_unit: on unit phasors per cell
+    filter_sigma_m: float | None = None
+    filter_unit: bool = False
     time_win: float = 730.0
     la_flag: bool = True
     scla_deramp: bool = False
     drop_ifg_index: tuple[int, ...] = ()       # 1-based epochs (master included) not unwrapped
     spatial: SpatialParams = field(default_factory=SpatialParams)
     legacy: bool = False                       # legacy G master-master row and gradient_filt indices (parity)
+    # temporal unwrapping of the edges (space_time.edge_rates): largest rate searched between two neighbouring grid
+    # cells, mm/yr of LOS (0 = off, the legacy model fitted to the wrapped phase)
+    edge_rate_max: float = 0.0
+    # PS rate model (unwrap/ps_rate.py): a linear rate per PS from the PS network is removed before the grid, the
+    # grid unwraps the step-5 phase of the PS itself (not the patch phase), and each PS adds its wrapped residual to
+    # its cell; the model is added back. Rate bound = edge_rate_max (mm/yr; 0 = none searched)
+    # StaMPS unwrap_patch_phase: True = grid the step-4 patch phase (legacy), False = the step-5 PS phase ph_rc
+    patch_phase: bool = False
+    ps_rate: str = "n"                         # "y" | "n" | "auto": >= ps_rate_min_ifg and >= half the arcs reliable
+    ps_rate_max_arc: float = 500.0
+    ps_rate_min_ifg: int = 40
 
 
 @dataclass
@@ -73,7 +90,34 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
     bperp = np.asarray(bperp, np.float64)
     bp_ps = (bperp[None, :] if bperp_mat is None or p.legacy
              else _with_master(np.asarray(bperp_mat, np.float64), master_ix, 0.0))   # (n or 1, n_ifg)
-    ph_w = _with_master(np.complex128(ph_patch) / np.abs(ph_patch), master_ix, 1)
+    drop = {d - 1 for d in p.drop_ifg_index}
+    idx = np.array([k for k in range(n_ifg) if k not in drop], dtype=int)
+    ps_model = None
+    sec = np.array([k for k in idx if k != master_ix], dtype=int)
+    mode = str(p.ps_rate).lower()
+    if mode == "auto" and sec.size < p.ps_rate_min_ifg:
+        log.info("PS rate model (auto) not used: %d interferograms < %d", sec.size, p.ps_rate_min_ifg)
+    elif mode in ("y", "auto") and not p.legacy and p.edge_rate_max > 0:
+        from geoeyes.processing.ps.unwrap.ps_rate import ps_rate_model
+        rc = np.asarray(ph_rc, np.complex128)
+        mag = np.abs(rc)
+        rc = np.where(mag > 0, rc / np.where(mag > 0, mag, 1.0), 0)
+        rc[:, master_ix] = 1
+        t_yr = np.asarray(day, np.float64) / 365.25
+        rate = ps_rate_model(rc[:, sec], np.asarray(xy, np.float64)[:, 1:3], t_yr[sec],
+                             rate_max=4 * np.pi / p.wavelength * p.edge_rate_max * 1e-3,
+                             max_arc=p.ps_rate_max_arc, min_reliable=0.5 if mode == "auto" else 0.0)
+        if rate is not None:
+            ps_model = rate[:, None] * t_yr[None, :]                 # (n, n_ifg), 0 at the master
+            ph_w = rc * np.exp(-1j * ps_model)
+    use_rc = ps_model is not None or not p.patch_phase
+    if ps_model is None and use_rc:                # StaMPS unwrap_patch_phase = 'n': the PS phase itself
+        ph_w = np.asarray(ph_rc, np.complex128)
+        mag = np.abs(ph_w)
+        ph_w = np.where(mag > 0, ph_w / np.where(mag > 0, mag, 1.0), 0)
+        ph_w[:, master_ix] = 1
+    elif ps_model is None:                         # 'y': the step-4 patch phase, PS residual added back after
+        ph_w = _with_master(np.complex128(ph_patch) / np.abs(ph_patch), master_ix, 1)
     k_dem = np.nan_to_num(np.asarray(K, np.float64).reshape(-1))
     has_k = bool(np.any(np.isfinite(K) & (np.asarray(K) != 0)))
     kb = k_dem[:, None] * bp_ps if has_k else None
@@ -101,29 +145,37 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
 
     max_k = p.max_topo_err / (p.wavelength * p.rho * np.sin(mean_incidence) / 4 / np.pi)
     n_trial_wraps = (np.amax(bperp) - np.amin(bperp)) * max_k / (2 * np.pi)
-    drop = {d - 1 for d in p.drop_ifg_index}
-    idx = np.array([k for k in range(n_ifg) if k not in drop], dtype=int)
 
     grid = grid_wrapped(ph_w[:, idx], xy, grid_size=p.grid_size, prefilt_win=p.prefilt_win, gold_alpha=p.gold_alpha,
-                        coh=coh, coh_floor=p.coh_floor, prefilter=p.prefilter)
+                        coh=coh, coh_floor=p.coh_floor, prefilter=p.prefilter, sigma_m=p.filter_sigma_m,
+                        unit=p.filter_unit)
     ui = interp(grid.nzix)
     st = space_time(grid=grid, ui=ui, day=np.asarray(day, np.float64), ifgday_ix=np.asarray(ifgday_ix)[idx],
                     bperp=bperp[idx], n_trial_wraps=n_trial_wraps, time_win=p.time_win, prefilt_win=p.prefilt_win,
-                    la_flag=p.la_flag, estimate_K=scla is None, legacy=p.legacy)
+                    la_flag=p.la_flag, estimate_K=scla is None, legacy=p.legacy,
+                    rate_max=4 * np.pi / p.wavelength * p.edge_rate_max * 1e-3 / 365.25)
     sp = spatial_unwrap(grid=grid, ui=ui, st=st, params=p.spatial)
 
     ph_uw = np.zeros((n, n_ifg), np.float32)
     msd = np.zeros(n_ifg, np.float32)
     ph_uw[:, idx] = sp.ph_uw
     msd[idx] = sp.msd
+    if use_rc:
+        # each PS: its cell's unwrapped value + its own wrapped residual to it (StaMPS uw_unwrap_from_grid; with the
+        # PS rate model the residual is small, so a PS faster than its cell no longer loses cycles)
+        cell = ph_uw[:, idx].astype(np.float64)
+        ph_uw[:, idx] = (cell + np.angle(ph_w[:, idx] * np.exp(-1j * np.nan_to_num(cell)))).astype(np.float32)
     if restore is not None:
         ph_uw[:, idx] += restore[:, idx].astype(np.float32)
     if scla is not None:
         ph_uw = ph_uw + scla.K_uw[:, None] * bp_ps + scla.C_uw[:, None]
         if ramp is not None:
             ph_uw = ph_uw + ramp
-    patch = _with_master(np.asarray(ph_patch) / np.abs(ph_patch), master_ix, 0)
-    ph_uw = ph_uw + np.angle(ph_rc * np.conj(patch))
+    if not use_rc:
+        patch = _with_master(np.asarray(ph_patch) / np.abs(ph_patch), master_ix, 0)
+        ph_uw = ph_uw + np.angle(ph_rc * np.conj(patch))
+    elif ps_model is not None:
+        ph_uw = ph_uw + ps_model.astype(np.float32)
     ph_uw[:, np.setdiff1d(np.arange(n_ifg), idx)] = 0
     if aps_c is not None:
         ph_uw = ph_uw + aps_c

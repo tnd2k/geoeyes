@@ -1,0 +1,1250 @@
+# GeoEyes parameter catalogue (site advisor, step V0). One table per form field: "[section.key]".
+#
+#   help     one line shown under the field in the settings form (the text the form showed before V0)
+#   use      what the parameter does, and what you gain by setting it
+#   risk     what it costs, or how it goes wrong when set badly
+#   typical  values in use, the owner's habits and the projects they come from
+#   related  other fields to look at together ("section.key")
+# Every text has a Vietnamese twin with the suffix _vi. The web app shows the language of the interface;
+# `geoeyes params <word>` prints the entries from the command line. Keep this file the only source of these texts.
+
+# ================================================================ project, AOI
+[project.description]
+help = "Free text shown in the tree, the overview and the report"
+help_vi = "Mô tả tự do, hiện trong cây dự án, trang tổng quan và báo cáo"
+use = "A sentence that says what the project is for (area, track, purpose). It is copied into the PDF report."
+use_vi = "Một câu nói dự án dùng để làm gì (khu vực, quỹ đạo, mục đích). Câu này được chép vào báo cáo PDF."
+risk = "None."
+risk_vi = "Không có."
+typical = "'HCMC descending 18, PSI vs SARPROZ'"
+typical_vi = "'TP.HCM quỹ đạo xuống 18, so PSI với SARPROZ'"
+related = []
+
+[project.method]
+help = "psi: persistent scatterers; psds: PS + distributed scatterers (phase linking)"
+help_vi = "psi: điểm tán xạ bền vững; psds: PS + điểm phân tán (liên kết pha)"
+use = """The processing chain. psi keeps stable point targets (buildings, roads, rock); best in cities. psds adds the \
+distributed scatterers (fields, bare soil, sparse vegetation) after phase linking, so rural areas and slopes get \
+many more points. sbas forms small-baseline interferograms on a multilooked grid and inverts them per pixel; best \
+for slow, spatially smooth motion over large non-urban areas. ps_lite is the short-stack workflow of Capella and \
+Umbra."""
+use_vi = """Chuỗi xử lý. psi giữ các điểm tán xạ bền vững (nhà, đường, đá); tốt nhất ở đô thị. psds thêm các điểm \
+phân tán (ruộng, đất trống, thực vật thưa) sau liên kết pha, nên vùng nông thôn và sườn dốc có nhiều điểm hơn hẳn. \
+sbas tạo giao thoa đồ baseline ngắn trên lưới multilook và nghịch đảo theo từng pixel; tốt cho chuyển động chậm, \
+trơn theo không gian trên vùng rộng ngoài đô thị. ps_lite là quy trình chuỗi ngắn của Capella và Umbra."""
+risk = """psds and sbas cost much more time and memory than psi. sbas gives grid cells (about 30 m), not single \
+buildings. ps_lite is refused for Sentinel-1."""
+risk_vi = """psds và sbas tốn thời gian và bộ nhớ hơn psi nhiều. sbas cho ô lưới (khoảng 30 m), không phải từng toà \
+nhà. ps_lite bị từ chối với Sentinel-1."""
+typical = "Cities (HCMC, Hanoi, Hai Phong): psi. Slopes, farmland, landslides: psds or sbas. Capella / Umbra: ps_lite."
+typical_vi = "Đô thị (TP.HCM, Hà Nội, Hải Phòng): psi. Sườn dốc, đồng ruộng, trượt lở: psds hoặc sbas. Capella / Umbra: ps_lite."
+related = ["phase_linking.enabled", "sbas.looks_az", "selection.da_threshold"]
+
+[aoi.bbox]
+help = "West, south, east, north (WGS84 degrees)"
+help_vi = "Tây, nam, đông, bắc (độ WGS84)"
+use = """The area processed. Only the bursts that cover it are downloaded and only its pixels go through the chain. \
+Include some stable ground around the target: the reference area, the ramp and the atmosphere estimates need it."""
+use_vi = """Vùng được xử lý. Chỉ tải các burst phủ vùng này và chỉ các pixel của nó đi qua chuỗi xử lý. Nên lấy thêm \
+một ít nền ổn định quanh mục tiêu: vùng tham chiếu, ước lượng ramp và khí quyển đều cần nền đó."""
+risk = """Too small: no stable reference, ramps and atmosphere cannot be told from motion. Too large: hours more \
+processing and memory; very large areas need sbas or tiling."""
+risk_vi = """Quá nhỏ: không có tham chiếu ổn định, không tách được ramp và khí quyển khỏi chuyển động. Quá lớn: thêm \
+hàng giờ xử lý và bộ nhớ; vùng rất rộng cần sbas hoặc chia ô."""
+typical = "A city district plus 2-5 km of margin; a landslide slope plus the valley floor."
+typical_vi = "Một quận cộng 2-5 km xung quanh; một sườn trượt cộng thêm đáy thung lũng."
+related = ["ps.ref_centre_lonlat", "ps.scla_deramp"]
+
+# ================================================================ 1 · acquisition
+[acquire.date_range]
+help = "Sentinel-1 acquisitions between these dates are downloaded from ASF"
+help_vi = "Tải từ ASF các lần chụp Sentinel-1 trong khoảng ngày này"
+use = """The time span of the series. A longer span gives a more precise linear velocity (its error falls roughly as \
+1 / span^1.5) and separates seasonal motion from the trend."""
+use_vi = """Khoảng thời gian của chuỗi. Khoảng càng dài thì vận tốc tuyến tính càng chính xác (sai số giảm khoảng \
+1 / khoảng^1,5) và tách được chuyển động mùa khỏi xu hướng."""
+risk = """Long spans lose coherence on vegetation and changing land use; Sentinel-1B stopped in December 2021, so \
+the revisit is 12 days in most places after that. Fast motion over long gaps can alias."""
+risk_vi = """Khoảng dài làm mất độ nhất quán trên thực vật và nơi đất thay đổi; Sentinel-1B ngừng từ 12/2021 nên \
+sau đó hầu hết nơi chỉ còn chu kỳ 12 ngày. Chuyển động nhanh qua các khoảng trống dài có thể bị chập."""
+typical = "At least 2 years (Hanoi GNSS tie: >= 2 years); hcm_d18 and hp_maychai: about 3-4 years, 98-110 dates."
+typical_vi = "Ít nhất 2 năm (đối chiếu GNSS Hà Nội: >= 2 năm); hcm_d18 và hp_maychai: khoảng 3-4 năm, 98-110 ảnh."
+related = ["acquire.max_per_month", "ps.unwrap_time_win"]
+
+[acquire.max_per_month]
+help = "Keep the first N acquisitions of each month (0 = all)"
+help_vi = "Giữ N lần chụp đầu tiên của mỗi tháng (0 = tất cả)"
+use = """Thins the series to save download and processing. Two per month keeps the seasonal cycle and halves the \
+work of a 6-day series."""
+use_vi = """Tỉa bớt chuỗi để đỡ tải và xử lý. Hai ảnh mỗi tháng vẫn giữ được chu kỳ mùa và giảm một nửa khối lượng \
+của chuỗi 6 ngày."""
+risk = """Longer gaps between dates: fast motion (> about 50 mm/yr in C band) and vegetated areas unwrap worse, and \
+events (a landslide, a flood) may fall between dates."""
+risk_vi = """Khoảng cách giữa các ảnh dài hơn: chuyển động nhanh (> khoảng 50 mm/năm ở băng C) và vùng có thực vật \
+giải chập kém hơn, và sự kiện (trượt lở, lũ) có thể rơi vào giữa hai ảnh."""
+typical = "2 (default). 0 for fast subsidence, landslides or short spans."
+typical_vi = "2 (mặc định). 0 cho lún nhanh, trượt lở hoặc khoảng thời gian ngắn."
+related = ["acquire.date_range"]
+
+[acquire.archive]
+help = "Folder of raw scenes shared by projects ('' = workspace archive)"
+help_vi = "Thư mục ảnh gốc dùng chung giữa các dự án ('' = kho của workspace)"
+use = "Where the downloaded bursts are kept, so several projects on the same track share one download."
+use_vi = "Nơi giữ các burst đã tải, để nhiều dự án trên cùng quỹ đạo dùng chung một lần tải."
+risk = "A folder on a slow or full disk slows every phase that reads the scenes."
+risk_vi = "Thư mục trên ổ chậm hoặc đầy làm chậm mọi pha đọc ảnh."
+typical = "'' (the workspace archive)."
+typical_vi = "'' (kho của workspace)."
+related = []
+
+# ================================================================ 2 · stack
+[network.reference]
+help = "Reference date of the stack ('auto' = the most central acquisition)"
+help_vi = "Ngày ảnh chủ của stack ('auto' = ngày nằm giữa nhất)"
+use = """The date every other date is coregistered and differenced against. The central date keeps the temporal \
+and perpendicular baselines small on both sides, which keeps the coherence up."""
+use_vi = """Ngày mà mọi ngày khác được đồng đăng ký và lấy hiệu so với nó. Ngày nằm giữa giữ cho baseline thời gian \
+và vuông góc nhỏ ở cả hai phía, nhờ đó độ nhất quán cao."""
+risk = """A reference on a bad date (rain, snow, strong atmosphere) adds its noise to every interferogram. Changing \
+it means coregistering the stack again."""
+risk_vi = """Ảnh chủ rơi vào ngày xấu (mưa, tuyết, khí quyển mạnh) cộng nhiễu của nó vào mọi giao thoa đồ. Đổi ảnh \
+chủ nghĩa là phải đồng đăng ký lại stack."""
+typical = "auto. Fixed date when comparing with another product (hcm_d18: 2024-11-06, as SARPROZ)."
+typical_vi = "auto. Đặt cố định khi so với sản phẩm khác (hcm_d18: 2024-11-06, như SARPROZ)."
+related = ["stack.incremental"]
+
+[network.max_perp_m]
+help = "Largest perpendicular baseline kept (m)"
+help_vi = "Đường cơ sở vuông góc lớn nhất được giữ (m)"
+use = """Drops dates whose orbit is too far from the reference. Large baselines decorrelate distributed scatterers \
+and make the phase very sensitive to DEM errors."""
+use_vi = """Bỏ các ngày có quỹ đạo quá xa ảnh chủ. Baseline lớn làm mất tương quan điểm phân tán và làm pha rất \
+nhạy với sai số DEM."""
+risk = "Too small drops good dates. Sentinel-1 baselines stay within about +-150 m, so the default keeps almost all."
+risk_vi = "Quá nhỏ thì bỏ mất ngày tốt. Baseline Sentinel-1 nằm trong khoảng +-150 m nên mặc định giữ gần như tất cả."
+typical = "150 m for Sentinel-1; larger for the X-band sensors, as their presets set it."
+typical_vi = "150 m cho Sentinel-1; lớn hơn cho các cảm biến băng X, theo preset của chúng."
+related = ["ps.max_topo_err", "network.max_temporal_days"]
+
+[network.max_temporal_days]
+help = "Largest temporal baseline kept (days, 0 = no limit)"
+help_vi = "Đường cơ sở thời gian lớn nhất được giữ (ngày, 0 = không giới hạn)"
+use = """Limits the time between the two dates of a pair. For SBAS it sets the network: short pairs keep coherence \
+on vegetation and soil."""
+use_vi = """Giới hạn thời gian giữa hai ngày của một cặp. Với SBAS nó quyết định mạng: cặp ngắn giữ được độ nhất \
+quán trên thực vật và đất."""
+risk = """Too short a limit gives a thin, poorly connected SBAS network and lets small unwrapping biases accumulate \
+over time."""
+risk_vi = """Giới hạn quá ngắn cho mạng SBAS thưa, kém liên thông, và để các sai lệch nhỏ khi giải chập cộng dồn \
+theo thời gian."""
+typical = "0 for PSI. SBAS: 0 with sbas.n_nearest = 3, or 36-96 days on vegetation."
+typical_vi = "0 cho PSI. SBAS: 0 với sbas.n_nearest = 3, hoặc 36-96 ngày trên vùng thực vật."
+related = ["sbas.n_nearest"]
+
+[stack.dem]
+help = "srtm-1 or copernicus-30 (downloaded when missing), a folder of .hgt or a GeoTIFF"
+help_vi = "srtm-1 hoặc copernicus-30 (tự tải khi chưa có), một thư mục .hgt hoặc một GeoTIFF"
+use = """The terrain model removed from the phase and used to geocode. Copernicus 30 is newer (2011-2015) and \
+better in steep terrain; SRTM (2000) is the StaMPS habit. A lidar DSM can be given as a GeoTIFF."""
+use_vi = """Mô hình địa hình được trừ khỏi pha và dùng để geocode. Copernicus 30 mới hơn (2011-2015) và tốt hơn ở \
+địa hình dốc; SRTM (2000) là thói quen của StaMPS. DSM lidar có thể đưa vào dạng GeoTIFF."""
+risk = """Both are surface models (roofs, trees). The DEM error of each point is estimated in step 2 anyway, so the \
+choice matters most for geocoding and steep slopes."""
+risk_vi = """Cả hai đều là mô hình bề mặt (mái nhà, cây). Sai số DEM của từng điểm vẫn được ước lượng ở bước 2, nên \
+lựa chọn quan trọng nhất cho geocode và sườn dốc."""
+typical = "srtm-1 in flat deltas; copernicus-30 on mountains and landslide slopes."
+typical_vi = "srtm-1 ở đồng bằng; copernicus-30 ở vùng núi và sườn trượt lở."
+related = ["ps.max_topo_err"]
+
+[stack.esd]
+help = "Enhanced spectral diversity (Sentinel-1 azimuth fine coregistration)"
+help_vi = "Enhanced spectral diversity (đồng đăng ký tinh theo phương vị của Sentinel-1)"
+use = """Aligns the bursts of Sentinel-1 TOPS to about 1/1000 pixel in azimuth. Without it the phase jumps at the \
+burst boundaries."""
+use_vi = """Căn các burst của Sentinel-1 TOPS đến khoảng 1/1000 pixel theo phương vị. Không có nó pha bị nhảy ở \
+ranh giới các burst."""
+risk = "Needs coherent ground in the burst overlaps; where they cover only sea or dense forest the estimate is poor."
+risk_vi = "Cần nền có độ nhất quán trong vùng chồng burst; nơi vùng chồng chỉ có biển hoặc rừng rậm thì ước lượng kém."
+typical = "true for Sentinel-1 (always)."
+typical_vi = "true cho Sentinel-1 (luôn bật)."
+related = []
+
+[stack.multilook]
+help = "Range, azimuth looks (1, 1 = full resolution)"
+help_vi = "Số look theo cự ly, phương vị (1, 1 = độ phân giải đầy đủ)"
+use = """Averages neighbouring pixels of the stack. Fewer pixels and less noise, at the cost of resolution. PSI \
+works at full resolution."""
+use_vi = """Lấy trung bình các pixel lân cận của stack. Ít pixel hơn và ít nhiễu hơn, đổi lại mất độ phân giải. PSI \
+làm việc ở độ phân giải đầy đủ."""
+risk = "Multilooking mixes a point target with its surroundings and removes the PS character."
+risk_vi = "Multilook trộn điểm tán xạ với xung quanh và làm mất tính chất PS."
+typical = "1, 1. SBAS sets its own looks in [sbas]."
+typical_vi = "1, 1. SBAS đặt số look riêng trong [sbas]."
+related = ["sbas.looks_az", "sbas.looks_rg"]
+
+[stack.incremental]
+help = "Keep coregistered dates when the stack is extended (same reference)"
+help_vi = "Giữ các ngày đã đồng đăng ký khi mở rộng stack (cùng ảnh chủ)"
+use = "When new dates arrive only those are coregistered; the old ones are kept. Monitoring becomes cheap."
+use_vi = "Khi có ngày mới chỉ đồng đăng ký các ngày đó; giữ nguyên các ngày cũ. Giám sát trở nên rẻ."
+risk = "Only valid with the same reference; a new reference rebuilds everything."
+risk_vi = "Chỉ đúng khi giữ nguyên ảnh chủ; đổi ảnh chủ thì làm lại toàn bộ."
+typical = "true."
+typical_vi = "true."
+related = ["network.reference"]
+
+# ================================================================ 3 · phase linking
+[phase_linking.enabled]
+help = "Phase linking of distributed scatterers before the point engine"
+help_vi = "Liên kết pha các điểm phân tán trước bộ xử lý điểm"
+use = """Estimates one consistent phase series for each distributed scatterer from all interferogram pairs of its \
+statistically homogeneous neighbours. Gives many reliable points on fields, soil, slopes and sparse vegetation."""
+use_vi = """Ước lượng một chuỗi pha nhất quán cho mỗi điểm phân tán từ mọi cặp giao thoa của các pixel lân cận đồng \
+nhất thống kê. Cho nhiều điểm tin cậy trên ruộng, đất, sườn dốc và thực vật thưa."""
+risk = "Slow (the SHP search and the covariance per pixel); smooths sharp spatial changes within the window."
+risk_vi = "Chậm (tìm SHP và ma trận hiệp phương sai cho từng pixel); làm trơn các thay đổi không gian sắc nét trong cửa sổ."
+typical = "On for psds and for landslide slopes; off for dense cities with psi."
+typical_vi = "Bật cho psds và sườn trượt lở; tắt cho đô thị dày đặc với psi."
+related = ["project.method", "phase_linking.estimator", "phase_linking.shp_test"]
+
+[phase_linking.estimator]
+help = "Phase linking estimator"
+help_vi = "Bộ ước lượng liên kết pha"
+use = """How the series is taken from the coherence matrix. adaptive chooses between the eigen decomposition and the \
+maximum-likelihood fit by the quality of the matrix, so a poorly estimated matrix does not break the fit."""
+use_vi = """Cách lấy chuỗi pha từ ma trận độ nhất quán. adaptive chọn giữa phân tích trị riêng và phép khớp hợp lý \
+cực đại theo chất lượng của ma trận, nên ma trận ước lượng kém không làm hỏng phép khớp."""
+risk = "A pure maximum-likelihood estimator is unstable when the coherence matrix is near singular (few SHP)."
+risk_vi = "Bộ ước lượng hợp lý cực đại thuần tuý không ổn định khi ma trận gần suy biến (ít SHP)."
+typical = "adaptive (owner's default)."
+typical_vi = "adaptive (mặc định của chủ dự án)."
+related = ["phase_linking.min_shp"]
+
+[phase_linking.shp_test]
+help = "Statistically homogeneous pixels: ad = Anderson-Darling, ks = Kolmogorov-Smirnov"
+help_vi = "Pixel đồng nhất thống kê (SHP): ad = Anderson-Darling, ks = Kolmogorov-Smirnov"
+use = """The test that decides which neighbours share the amplitude statistics of a pixel. Anderson-Darling weighs \
+the tails and separates mixed land covers better than Kolmogorov-Smirnov."""
+use_vi = """Phép thử quyết định pixel lân cận nào có cùng thống kê biên độ với một pixel. Anderson-Darling chú ý \
+phần đuôi và tách lớp phủ hỗn hợp tốt hơn Kolmogorov-Smirnov."""
+risk = "Needs enough dates (about 20 or more) for the test to have power."
+risk_vi = "Cần đủ số ngày (khoảng 20 trở lên) để phép thử có sức phân biệt."
+typical = "ad (owner's default)."
+typical_vi = "ad (mặc định của chủ dự án)."
+related = ["phase_linking.shp_alpha", "phase_linking.half_window"]
+
+[phase_linking.half_window]
+help = "Half window of the SHP search (rows, columns)"
+help_vi = "Nửa cửa sổ tìm SHP (hàng, cột)"
+use = "The neighbourhood searched for homogeneous pixels. A larger window finds more SHP and lowers the noise."
+use_vi = "Vùng lân cận được tìm pixel đồng nhất. Cửa sổ lớn tìm được nhiều SHP hơn và giảm nhiễu."
+risk = "The time grows with the window area; a large window blurs small landslides and building edges."
+risk_vi = "Thời gian tăng theo diện tích cửa sổ; cửa sổ lớn làm mờ khối trượt nhỏ và mép công trình."
+typical = "7, 7 (15 x 15 pixels, about 210 m x 35 m in Sentinel-1)."
+typical_vi = "7, 7 (15 x 15 pixel, khoảng 210 m x 35 m với Sentinel-1)."
+related = ["phase_linking.min_shp"]
+
+[phase_linking.shp_alpha]
+help = "Significance level of the SHP test"
+help_vi = "Mức ý nghĩa của phép thử SHP"
+use = "Lower values accept more neighbours as homogeneous; higher values are stricter."
+use_vi = "Giá trị thấp nhận nhiều pixel lân cận là đồng nhất hơn; giá trị cao khắt khe hơn."
+risk = "Too low mixes different surfaces; too high leaves too few SHP."
+risk_vi = "Quá thấp trộn các bề mặt khác nhau; quá cao để lại quá ít SHP."
+typical = "0.05."
+typical_vi = "0.05."
+related = ["phase_linking.shp_test"]
+
+[phase_linking.min_shp]
+help = "Minimum number of SHP for a distributed scatterer"
+help_vi = "Số SHP tối thiểu cho một điểm phân tán"
+use = "A pixel with fewer homogeneous neighbours is not linked: its coherence matrix would be too noisy."
+use_vi = "Pixel có ít pixel đồng nhất hơn ngưỡng này thì không liên kết: ma trận độ nhất quán sẽ quá nhiễu."
+risk = "Too high removes narrow targets (roads, dykes, small slopes)."
+risk_vi = "Quá cao bỏ mất các đối tượng hẹp (đường, đê, sườn nhỏ)."
+typical = "25."
+typical_vi = "25."
+related = ["phase_linking.half_window"]
+
+[phase_linking.ps_da_max]
+help = "PS below this amplitude dispersion keep their own SLC (0 = link all)"
+help_vi = "PS có DA dưới ngưỡng này giữ SLC gốc của mình (0 = liên kết tất cả)"
+use = "True point targets keep their own unfiltered phase, so linking does not smear them with their surroundings."
+use_vi = "Điểm tán xạ thật giữ pha gốc chưa lọc của mình, nên liên kết pha không làm nhoè chúng với xung quanh."
+risk = "0 links everything, which blurs buildings in cities."
+risk_vi = "0 liên kết tất cả, làm mờ các công trình ở đô thị."
+typical = "0.25."
+typical_vi = "0.25."
+related = ["selection.da_threshold"]
+
+[phase_linking.gaussian_sigma]
+help = "Gaussian post-filter of the linked phase (0 = off)"
+help_vi = "Lọc Gauss sau liên kết pha (0 = tắt)"
+use = "Smooths the linked phase in space; the CSK chain uses it after phase linking."
+use_vi = "Làm trơn pha đã liên kết theo không gian; chuỗi CSK dùng nó sau liên kết pha."
+risk = "Removes small-scale motion and mixes points across the filter width."
+risk_vi = "Xoá chuyển động quy mô nhỏ và trộn các điểm trong độ rộng bộ lọc."
+typical = "0 for Sentinel-1; 1.5 in the COSMO-SkyMed preset (phase linking + Gaussian, no wavelet / FAMM)."
+typical_vi = "0 cho Sentinel-1; 1.5 trong preset COSMO-SkyMed (liên kết pha + Gauss, không wavelet / FAMM)."
+related = ["phase_linking.enabled"]
+
+# ================================================================ 4 · PS step 1 · candidates
+[selection.da_threshold]
+help = "Amplitude dispersion threshold of the PS candidates"
+help_vi = "Ngưỡng phân tán biên độ (DA) của điểm PS ứng viên"
+use = """Pixels whose amplitude varies little over time (low DA) are likely stable point targets and become \
+candidates. A higher threshold gives more candidates for step 2 to test."""
+use_vi = """Pixel có biên độ ít thay đổi theo thời gian (DA thấp) nhiều khả năng là điểm tán xạ ổn định và trở thành \
+ứng viên. Ngưỡng cao hơn cho nhiều ứng viên hơn để bước 2 kiểm tra."""
+risk = "Higher thresholds add noisy pixels and processing time; lower ones lose points in rural areas."
+risk_vi = "Ngưỡng cao thêm pixel nhiễu và thời gian xử lý; ngưỡng thấp mất điểm ở vùng nông thôn."
+typical = "0.42 (default, StaMPS 0.4); 0.6 for the landslide pilot with phase linking (PL + DA 0.6)."
+typical_vi = "0.42 (mặc định, StaMPS 0.4); 0.6 cho thí điểm trượt lở có liên kết pha (PL + DA 0.6)."
+related = ["selection.robust_da", "ps.gamma_min_threshold"]
+
+[selection.robust_da]
+help = "Robust amplitude dispersion (median / MAD)"
+help_vi = "Phân tán biên độ bền vững (trung vị / MAD)"
+use = "Computes DA with the median and the median absolute deviation, so one odd date does not reject a good point."
+use_vi = "Tính DA bằng trung vị và độ lệch tuyệt đối trung vị, nên một ngày bất thường không loại mất điểm tốt."
+risk = "Not identical to StaMPS; turn off only to compare with a StaMPS product point by point."
+risk_vi = "Không giống hệt StaMPS; chỉ tắt khi cần so từng điểm với sản phẩm StaMPS."
+typical = "true."
+typical_vi = "true."
+related = ["selection.da_threshold"]
+
+[selection.ds_coherence_min]
+help = "Minimum coherence of a distributed scatterer"
+help_vi = "Độ nhất quán tối thiểu của một điểm phân tán"
+use = "After phase linking, distributed scatterers below this quality are not passed to the point engine."
+use_vi = "Sau liên kết pha, điểm phân tán có chất lượng dưới ngưỡng này không được đưa vào bộ xử lý điểm."
+risk = "Too low passes noise that step 2 must reject; too high keeps few points on slopes."
+risk_vi = "Quá thấp đưa nhiễu vào mà bước 2 phải loại; quá cao giữ ít điểm trên sườn dốc."
+typical = "Empty for Sentinel-1; 0.7 in the COSMO-SkyMed preset."
+typical_vi = "Để trống cho Sentinel-1; 0.7 trong preset COSMO-SkyMed."
+related = ["phase_linking.enabled"]
+
+[selection.water_mask]
+help = "Mask water before the selection"
+help_vi = "Che vùng nước trước khi chọn điểm"
+use = "Removes rivers, lakes and sea before the selection; less noise and less time in the following steps."
+use_vi = "Bỏ sông, hồ, biển trước khi chọn điểm; ít nhiễu và ít thời gian hơn ở các bước sau."
+risk = "A mask that is too wide removes quays, bridges and dykes, which are often good PS."
+risk_vi = "Mặt nạ quá rộng bỏ mất bến cảng, cầu và đê, vốn thường là PS tốt."
+typical = "none in cities; a water mask in deltas, coasts and reservoirs."
+typical_vi = "none ở đô thị; dùng mặt nạ nước ở đồng bằng châu thổ, ven biển và hồ chứa."
+related = []
+
+# ================================================================ 4 · SBAS
+[sbas.looks_az]
+help = "Azimuth looks of the SBAS grid (Sentinel-1: 1 look ≈ 14 m)"
+help_vi = "Số look phương vị của lưới SBAS (Sentinel-1: 1 look ≈ 14 m)"
+use = "With looks_rg sets the SBAS cell. More looks: less noise, fewer pixels, faster."
+use_vi = "Cùng với looks_rg quyết định ô SBAS. Nhiều look: ít nhiễu, ít pixel, nhanh hơn."
+risk = "Large cells mix stable and moving ground (a landslide narrower than the cell is diluted)."
+risk_vi = "Ô lớn trộn nền ổn định với nền chuyển động (khối trượt hẹp hơn ô bị pha loãng)."
+typical = "2 (with looks_rg 8: about 28 m x 30 m)."
+typical_vi = "2 (với looks_rg 8: khoảng 28 m x 30 m)."
+related = ["sbas.looks_rg"]
+
+[sbas.looks_rg]
+help = "Range looks of the SBAS grid (Sentinel-1: 1 look ≈ 2.3 m slant, ≈ 3.7 m ground)"
+help_vi = "Số look cự ly của lưới SBAS (Sentinel-1: 1 look ≈ 2,3 m nghiêng, ≈ 3,7 m mặt đất)"
+use = "See looks_az; together they make a roughly square cell on the ground."
+use_vi = "Xem looks_az; hai giá trị cùng tạo ô gần vuông trên mặt đất."
+risk = "See looks_az."
+risk_vi = "Xem looks_az."
+typical = "8."
+typical_vi = "8."
+related = ["sbas.looks_az"]
+
+[sbas.reference]
+help = "Stable reference point (lon, lat); empty = the most coherent 10 % of pixels"
+help_vi = "Điểm tham chiếu ổn định (kinh độ, vĩ độ); để trống = 10 % pixel nhất quán nhất"
+use = "All velocities are relative to this point. A known stable site (GNSS station, bedrock) gives absolute meaning."
+use_vi = "Mọi vận tốc tính tương đối so với điểm này. Một nơi ổn định đã biết (trạm GNSS, nền đá) cho ý nghĩa tuyệt đối."
+risk = "A reference that moves shifts the whole map by its motion."
+risk_vi = "Tham chiếu bị chuyển động làm cả bản đồ lệch theo chuyển động đó."
+typical = "Empty, or a GNSS station."
+typical_vi = "Để trống, hoặc một trạm GNSS."
+related = ["ps.ref_centre_lonlat"]
+
+[sbas.source]
+help = "auto: phase-linked SLC when phase linking is on; slc or linked to force one"
+help_vi = "auto: SLC đã liên kết pha khi bật liên kết pha; slc hoặc linked để ép một loại"
+use = "The phase the interferograms are formed from. Linked phases (PL-SBAS) are cleaner over distributed scatterers."
+use_vi = "Pha dùng để tạo giao thoa đồ. Pha đã liên kết (PL-SBAS) sạch hơn trên điểm phân tán."
+risk = "linked needs a phase-linking run first."
+risk_vi = "linked cần chạy liên kết pha trước."
+typical = "auto."
+typical_vi = "auto."
+related = ["phase_linking.enabled"]
+
+[sbas.n_nearest]
+help = "Pairs per date with the next N dates (when max_temporal_days = 0)"
+help_vi = "Số cặp của mỗi ngày với N ngày kế tiếp (khi max_temporal_days = 0)"
+use = "Builds a redundant network of short pairs: each date to its next N dates. Redundancy lets the closure check catch unwrapping errors."
+use_vi = "Tạo mạng dư gồm các cặp ngắn: mỗi ngày nối với N ngày kế tiếp. Tính dư giúp kiểm tra khép kín bắt được lỗi giải chập."
+risk = "Larger N means more interferograms to unwrap (time grows linearly)."
+risk_vi = "N lớn hơn thì nhiều giao thoa đồ phải giải chập hơn (thời gian tăng tuyến tính)."
+typical = "3."
+typical_vi = "3."
+related = ["network.max_temporal_days"]
+
+[sbas.min_pair_coherence]
+help = "A pixel of a pair below this coherence has no value in that pair"
+help_vi = "Pixel của một cặp có độ nhất quán dưới ngưỡng này thì không có giá trị trong cặp đó"
+use = "Ignores decorrelated pixels pair by pair instead of dropping the pixel entirely."
+use_vi = "Bỏ qua pixel mất tương quan theo từng cặp thay vì bỏ hẳn pixel."
+risk = "Too high leaves gaps in the network of a pixel; too low passes unwrapping errors."
+risk_vi = "Quá cao tạo lỗ trong mạng của pixel; quá thấp để lọt lỗi giải chập."
+typical = "0.2."
+typical_vi = "0.2."
+related = ["sbas.min_pair_fraction"]
+
+[sbas.min_pair_fraction]
+help = "A pixel needs a value in this share of the pairs"
+help_vi = "Một pixel cần có giá trị trong tỉ lệ này của các cặp"
+use = "Keeps only pixels with enough valid pairs to invert reliably."
+use_vi = "Chỉ giữ pixel có đủ cặp hợp lệ để nghịch đảo tin cậy."
+risk = "High values remove seasonally decorrelated areas (crops, snow)."
+risk_vi = "Giá trị cao bỏ mất vùng mất tương quan theo mùa (cây trồng, tuyết)."
+typical = "0.7."
+typical_vi = "0.7."
+related = ["sbas.min_pair_coherence"]
+
+[sbas.min_mean_coherence]
+help = "Output mask: mean coherence of the pairs"
+help_vi = "Mặt nạ đầu ra: độ nhất quán trung bình của các cặp"
+use = "Masks pixels whose pairs are on average too noisy."
+use_vi = "Che pixel có các cặp trung bình quá nhiễu."
+risk = "Too strict on vegetated slopes."
+risk_vi = "Quá khắt khe trên sườn có thực vật."
+typical = "0.3."
+typical_vi = "0.3."
+related = ["sbas.min_temporal_coherence"]
+
+[sbas.min_temporal_coherence]
+help = "Output mask: temporal coherence of the inversion"
+help_vi = "Mặt nạ đầu ra: độ nhất quán thời gian của phép nghịch đảo"
+use = "How well the unwrapped pairs agree with the inverted series (Pepe and Lanari 2006); the main quality mask."
+use_vi = "Mức độ các cặp đã giải chập khớp với chuỗi nghịch đảo (Pepe và Lanari 2006); mặt nạ chất lượng chính."
+risk = "Too low keeps pixels with unwrapping errors."
+risk_vi = "Quá thấp giữ lại pixel có lỗi giải chập."
+typical = "0.7."
+typical_vi = "0.7."
+related = ["sbas.min_mean_coherence"]
+
+[sbas.troposphere]
+help = "Stratified troposphere (phase linear in height, per pair): auto = off on flat terrain, else removed without its steady trend; true = as fitted; false = off"
+help_vi = "Tầng đối lưu phân tầng (pha tuyến tính theo độ cao, theo từng cặp): auto = tắt ở địa hình phẳng, còn lại trừ đi nhưng không lấy xu hướng ổn định; true = trừ như khớp được; false = tắt"
+use = """Removes the delay that follows height in each pair. In relief it can be tens of mm and mimic motion that \
+follows the topography."""
+use_vi = """Trừ phần trễ đi theo độ cao trong mỗi cặp. Ở vùng có địa hình nó có thể tới hàng chục mm và giả làm \
+chuyển động đi theo địa hình."""
+risk = """On flat ground there is no height signal to fit and the fit absorbs real motion; true can also remove a \
+real trend that correlates with height (a sliding slope)."""
+risk_vi = """Ở vùng phẳng không có tín hiệu độ cao để khớp và phép khớp nuốt chuyển động thật; true cũng có thể trừ \
+mất xu hướng thật tương quan với độ cao (một sườn đang trượt)."""
+typical = "auto."
+typical_vi = "auto."
+related = ["sbas.troposphere_min_relief_m", "ps.subtr_tropo"]
+
+[sbas.troposphere_min_relief_m]
+help = "auto: terrain relief (m, p5-p95) below which the troposphere is not removed"
+help_vi = "auto: chênh cao địa hình (m, p5-p95) dưới mức này thì không trừ tầng đối lưu"
+use = "The relief that switches the auto troposphere on."
+use_vi = "Mức chênh cao bật chế độ auto của tầng đối lưu."
+risk = "Too low turns the correction on in deltas, where it removes subsidence."
+risk_vi = "Quá thấp làm bật hiệu chỉnh ở đồng bằng, nơi nó trừ mất lún."
+typical = "100 m."
+typical_vi = "100 m."
+related = ["sbas.troposphere"]
+
+[sbas.dem_error]
+help = "Estimate the DEM error of each pixel from the series and remove it (c + v·t + K·B⊥)"
+help_vi = "Ước lượng sai số DEM của từng pixel từ chuỗi và trừ đi (c + v·t + K·B⊥)"
+use = "Removes the part of the phase proportional to the perpendicular baseline, which a DEM error causes."
+use_vi = "Trừ phần pha tỉ lệ với baseline vuông góc, do sai số DEM gây ra."
+risk = "With very small baseline spread the term is poorly determined (little to gain, little to lose)."
+risk_vi = "Khi độ trải baseline rất nhỏ thành phần này xác định kém (ít lợi, ít hại)."
+typical = "true."
+typical_vi = "true."
+related = ["ps.max_topo_err"]
+
+[sbas.goldstein_alpha]
+help = "Goldstein filter strength before unwrapping (0 = off)"
+help_vi = "Độ mạnh bộ lọc Goldstein trước khi giải chập (0 = tắt)"
+use = "Lowers the phase noise of each pair so the IRLS unwrapping makes fewer errors."
+use_vi = "Giảm nhiễu pha của từng cặp để giải chập IRLS ít lỗi hơn."
+risk = "Strong filtering smears sharp boundaries (landslide edges)."
+risk_vi = "Lọc mạnh làm nhoè ranh giới sắc nét (mép khối trượt)."
+typical = "0.5."
+typical_vi = "0.5."
+related = ["ps.unwrap_gold_alpha"]
+
+# ================================================================ atmosphere, export, report
+[atmosphere.method]
+help = "Weather-model APS for step 7: none, era5 (needs ~/.cdsapirc), cerra or gacos"
+help_vi = "APS từ mô hình thời tiết cho bước 7: none, era5 (cần ~/.cdsapirc), cerra hoặc gacos"
+use = """Predicts the tropospheric delay of each date from a weather model and removes it. Helps most in relief and \
+large areas, where the delay varies with height and distance."""
+use_vi = """Dự báo trễ tầng đối lưu của mỗi ngày từ mô hình thời tiết và trừ đi. Có ích nhất ở vùng có địa hình và \
+vùng rộng, nơi trễ thay đổi theo độ cao và khoảng cách."""
+risk = """Weather models miss small, short convective cells (tropics); a wrong prediction adds noise. Downloads take \
+time (ERA5 queue)."""
+risk_vi = """Mô hình thời tiết bỏ sót các ổ đối lưu nhỏ, ngắn (vùng nhiệt đới); dự báo sai làm thêm nhiễu. Tải dữ \
+liệu mất thời gian (hàng đợi ERA5)."""
+typical = "none for flat deltas (hcm_d18: all checks said off); era5 on mountains."
+typical_vi = "none cho đồng bằng phẳng (hcm_d18: mọi kiểm tra đều cho thấy nên tắt); era5 ở vùng núi."
+related = ["atmosphere.select", "ps.subtr_tropo"]
+
+[atmosphere.select]
+help = "auto: weather correction kept only where it reduces the phase; all: everywhere"
+help_vi = "auto: chỉ giữ hiệu chỉnh thời tiết ở những giao thoa đồ mà nó làm giảm pha; all: dùng cho mọi giao thoa đồ"
+use = "auto keeps the correction only for the dates where it lowers the phase variance, so bad predictions are dropped."
+use_vi = "auto chỉ giữ hiệu chỉnh cho những ngày nó làm giảm phương sai pha, nên dự báo xấu bị bỏ."
+risk = "all applies bad predictions too."
+risk_vi = "all áp dụng cả các dự báo xấu."
+typical = "auto."
+typical_vi = "auto."
+related = ["atmosphere.method"]
+
+[export.formats]
+help = "GIS formats written for each product"
+help_vi = "Các định dạng GIS được xuất cho mỗi sản phẩm"
+use = "gpkg for QGIS, pmtiles for the web map; others on request."
+use_vi = "gpkg cho QGIS, pmtiles cho bản đồ web; các định dạng khác khi cần."
+risk = "Every extra format costs disk space and export time."
+risk_vi = "Mỗi định dạng thêm tốn dung lượng đĩa và thời gian xuất."
+typical = "gpkg, pmtiles."
+typical_vi = "gpkg, pmtiles."
+related = []
+
+[report.copy_to]
+help = "Folder the PDF report is also copied to ('' = none)"
+help_vi = "Thư mục nhận thêm một bản báo cáo PDF ('' = không)"
+use = "A shared folder that receives each new report."
+use_vi = "Một thư mục dùng chung nhận mỗi báo cáo mới."
+risk = "None."
+risk_vi = "Không có."
+typical = "''."
+typical_vi = "''."
+related = []
+
+# ================================================================ 4 · PS step 2 · temporal coherence and DEM error
+[ps.max_topo_err]
+help = "Largest DEM error searched (m); auto = median height of ambiguity / 4 (baselines about their median); auto_master = the same about the master (legacy CSK / ICEYE)"
+help_vi = "Sai số DEM lớn nhất được tìm (m); auto = trung vị độ cao mơ hồ / 4 (B⊥ tính quanh trung vị); auto_master = như trên nhưng tính quanh ảnh chủ (CSK / ICEYE cũ)"
+use = """Sets the search range of the DEM error of each candidate, and through it the expected spread of random \
+phase. It must cover real errors (buildings on a bare-earth DEM, trees) but no more."""
+use_vi = """Đặt khoảng tìm sai số DEM của mỗi ứng viên, và qua đó độ trải kỳ vọng của pha ngẫu nhiên. Phải phủ được \
+sai số thật (nhà trên DEM mặt đất, cây) nhưng không hơn."""
+risk = """Too large: random-phase pixels fit by chance and the selection becomes permissive (the Umbra false fits). \
+Too small: tall buildings are rejected or keep a height residual."""
+risk_vi = """Quá lớn: pixel pha ngẫu nhiên khớp tình cờ và việc chọn điểm trở nên dễ dãi (các khớp giả ở Umbra). Quá \
+nhỏ: nhà cao tầng bị loại hoặc giữ phần dư độ cao."""
+typical = "auto in the Sentinel-1 preset (owner, 2026-11-07; StaMPS used 20 m); auto_master for COSMO-SkyMed."
+typical_vi = "auto trong preset Sentinel-1 (chủ dự án, 2026-11-07; StaMPS dùng 20 m); auto_master cho COSMO-SkyMed."
+related = ["network.max_perp_m", "stack.dem"]
+
+[ps.filter_grid_size]
+help = "Grid cell (m) of the adaptive phase filter that estimates the neighbourhood phase"
+help_vi = "Ô lưới (m) của bộ lọc pha thích nghi dùng để ước lượng pha lân cận"
+use = """The phase of each candidate is compared with the filtered phase of its neighbourhood; the difference is its \
+noise. A finer grid follows short-wavelength motion better."""
+use_vi = """Pha của mỗi ứng viên được so với pha đã lọc của vùng lân cận; phần chênh là nhiễu của nó. Lưới mịn hơn \
+theo được chuyển động bước sóng ngắn tốt hơn."""
+risk = "Finer grids are slower and noisier where points are sparse."
+risk_vi = "Lưới mịn chậm hơn và nhiễu hơn ở nơi điểm thưa."
+typical = "10 m (StaMPS uses 50 m)."
+typical_vi = "10 m (StaMPS dùng 50 m)."
+related = ["ps.clap_win", "ps.clap_low_pass_wavelength"]
+
+[ps.filter_weighting]
+help = "Weighting of the PS in that filter: P-square (coherence) or SNR"
+help_vi = "Trọng số PS trong bộ lọc đó: P-square (độ nhất quán) hoặc SNR"
+use = "How much each candidate counts in the neighbourhood phase. P-square weights by the coherence of the last iteration."
+use_vi = "Mức đóng góp của mỗi ứng viên vào pha lân cận. P-square lấy trọng số theo độ nhất quán của vòng lặp trước."
+risk = "SNR is rarely better; keep P-square unless comparing with an old run."
+risk_vi = "SNR hiếm khi tốt hơn; giữ P-square trừ khi so với lần chạy cũ."
+typical = "P-square."
+typical_vi = "P-square."
+related = []
+
+[ps.clap_win]
+help = "Window (grid cells) of the CLAP adaptive filter"
+help_vi = "Cửa sổ (số ô lưới) của bộ lọc thích nghi CLAP"
+use = "Size of the neighbourhood that the CLAP filter uses. With filter_grid_size it sets the spatial extent (cells x size)."
+use_vi = "Cỡ vùng lân cận mà bộ lọc CLAP dùng. Cùng filter_grid_size quyết định phạm vi không gian (số ô x cỡ ô)."
+risk = "Too small: noisy neighbourhood phase; too large: motion that varies across the window counts as noise."
+risk_vi = "Quá nhỏ: pha lân cận nhiễu; quá lớn: chuyển động thay đổi trong cửa sổ bị coi là nhiễu."
+typical = "16 (160 m at 10 m cells)."
+typical_vi = "16 (160 m với ô 10 m)."
+related = ["ps.filter_grid_size"]
+
+[ps.clap_low_pass_wavelength]
+help = "Low-pass wavelength (m) of the CLAP filter"
+help_vi = "Bước sóng thông thấp (m) của bộ lọc CLAP"
+use = "The smooth part of the neighbourhood phase; signals longer than this pass unchanged."
+use_vi = "Phần trơn của pha lân cận; tín hiệu dài hơn bước sóng này đi qua nguyên vẹn."
+risk = "Rarely changed."
+risk_vi = "Hiếm khi cần đổi."
+typical = "800 m."
+typical_vi = "800 m."
+related = ["ps.clap_alpha", "ps.clap_beta"]
+
+[ps.clap_alpha]
+help = "CLAP: weight of the adaptive (spectral) part"
+help_vi = "CLAP: trọng số của phần thích nghi (phổ)"
+use = "Balance between the low-pass and the adaptive spectral part of the filter."
+use_vi = "Cân bằng giữa phần thông thấp và phần phổ thích nghi của bộ lọc."
+risk = "Rarely changed."
+risk_vi = "Hiếm khi cần đổi."
+typical = "1."
+typical_vi = "1."
+related = ["ps.clap_beta"]
+
+[ps.clap_beta]
+help = "CLAP: exponent of the spectral weighting"
+help_vi = "CLAP: số mũ của trọng số phổ"
+use = "How strongly the dominant spectral components are favoured (as the Goldstein exponent)."
+use_vi = "Mức ưu tiên các thành phần phổ trội (như số mũ Goldstein)."
+risk = "Rarely changed."
+risk_vi = "Hiếm khi cần đổi."
+typical = "0.3."
+typical_vi = "0.3."
+related = ["ps.clap_alpha"]
+
+[ps.gamma_change_convergence]
+help = "Stop iterating when the mean temporal coherence changes less than this"
+help_vi = "Dừng lặp khi độ nhất quán thời gian trung bình thay đổi ít hơn giá trị này"
+use = "Convergence test of step 2."
+use_vi = "Điều kiện hội tụ của bước 2."
+risk = "Smaller values cost iterations for little gain."
+risk_vi = "Giá trị nhỏ hơn tốn thêm vòng lặp mà lợi ích ít."
+typical = "0.005."
+typical_vi = "0.005."
+related = ["ps.gamma_max_iterations"]
+
+[ps.gamma_max_iterations]
+help = "Most iterations of the coherence estimation"
+help_vi = "Số vòng lặp tối đa khi ước lượng độ nhất quán"
+use = "Upper bound on the step 2 iterations."
+use_vi = "Giới hạn trên số vòng lặp của bước 2."
+risk = "Each iteration costs a full pass over the candidates."
+risk_vi = "Mỗi vòng lặp tốn một lượt duyệt toàn bộ ứng viên."
+typical = "3."
+typical_vi = "3."
+related = ["ps.gamma_change_convergence"]
+
+[ps.dem_error_ambiguity]
+help = "y: score the DEM-error fit for ambiguity and regularise it spatially (legacy CSK)"
+help_vi = "y: chấm điểm độ mơ hồ của phép khớp sai số DEM và làm trơn theo không gian (CSK cũ)"
+use = "Legacy CSK addition: flags DEM-error fits with two similar minima and smooths them using neighbours."
+use_vi = "Phần bổ sung của CSK cũ: đánh dấu các phép khớp sai số DEM có hai cực tiểu gần nhau và làm trơn chúng bằng lân cận."
+risk = "Made the phase-linked Hanoi stack worse (2026-10-23 ablation: fit RMSE 4.12 -> 4.81 mm)."
+risk_vi = "Làm stack Hà Nội có liên kết pha tệ hơn (thử bỏ từng phần 2026-10-23: RMSE khớp 4,12 -> 4,81 mm)."
+typical = "n."
+typical_vi = "n."
+related = ["ps.dem_error_amb_q_reject", "ps.dem_error_amb_q_ok"]
+
+[ps.dem_error_amb_auto_threshold]
+help = "Ambiguity thresholds from the data (with dem_error_ambiguity)"
+help_vi = "Ngưỡng độ mơ hồ lấy từ dữ liệu (khi bật dem_error_ambiguity)"
+use = "Takes the reject / ok thresholds from the score distribution instead of the fixed values."
+use_vi = "Lấy ngưỡng loại / chấp nhận từ phân bố điểm số thay vì các giá trị cố định."
+risk = "Only used with dem_error_ambiguity = y."
+risk_vi = "Chỉ dùng khi dem_error_ambiguity = y."
+typical = "y."
+typical_vi = "y."
+related = ["ps.dem_error_ambiguity"]
+
+[ps.dem_error_amb_q_reject]
+help = "Ambiguity score below which the DEM error is rejected"
+help_vi = "Điểm mơ hồ dưới ngưỡng này thì loại sai số DEM"
+use = "Fixed reject threshold of the ambiguity score."
+use_vi = "Ngưỡng loại cố định của điểm mơ hồ."
+risk = "Only used with dem_error_ambiguity = y."
+risk_vi = "Chỉ dùng khi dem_error_ambiguity = y."
+typical = "0.1."
+typical_vi = "0.1."
+related = ["ps.dem_error_ambiguity"]
+
+[ps.dem_error_amb_q_ok]
+help = "Ambiguity score above which the DEM error is trusted"
+help_vi = "Điểm mơ hồ trên ngưỡng này thì tin sai số DEM"
+use = "Fixed accept threshold of the ambiguity score."
+use_vi = "Ngưỡng chấp nhận cố định của điểm mơ hồ."
+risk = "Only used with dem_error_ambiguity = y."
+risk_vi = "Chỉ dùng khi dem_error_ambiguity = y."
+typical = "0.25."
+typical_vi = "0.25."
+related = ["ps.dem_error_ambiguity"]
+
+[ps.dem_error_spatial_lambda]
+help = "Weight of the spatial regularisation of the DEM error"
+help_vi = "Trọng số làm trơn không gian của sai số DEM"
+use = "How strongly ambiguous DEM errors are pulled toward their neighbours."
+use_vi = "Mức kéo các sai số DEM mơ hồ về phía lân cận."
+risk = "Only used with dem_error_ambiguity = y."
+risk_vi = "Chỉ dùng khi dem_error_ambiguity = y."
+typical = "0.5."
+typical_vi = "0.5."
+related = ["ps.dem_error_ambiguity"]
+
+[ps.dem_error_spatial_iters]
+help = "Iterations of the spatial regularisation"
+help_vi = "Số vòng lặp làm trơn không gian"
+use = "Iterations of that regularisation."
+use_vi = "Số vòng lặp của phép làm trơn đó."
+risk = "Only used with dem_error_ambiguity = y."
+risk_vi = "Chỉ dùng khi dem_error_ambiguity = y."
+typical = "5."
+typical_vi = "5."
+related = ["ps.dem_error_ambiguity"]
+
+# ================================================================ 4 · PS step 3 · point selection
+[ps.select_method]
+help = "PERCENT: share of random phase allowed; DENSITY: random points per km²"
+help_vi = "PERCENT: tỷ lệ pha ngẫu nhiên cho phép; DENSITY: số điểm ngẫu nhiên trên mỗi km²"
+use = """How the coherence threshold of each amplitude-dispersion bin is set from the random-phase simulation: as an \
+allowed share of false points, or as an allowed density of false points."""
+use_vi = """Cách đặt ngưỡng độ nhất quán cho từng khoảng DA từ mô phỏng pha ngẫu nhiên: theo tỉ lệ điểm giả cho \
+phép, hoặc theo mật độ điểm giả cho phép."""
+risk = "DENSITY depends on the area of the scene; PERCENT is easier to compare between projects."
+risk_vi = "DENSITY phụ thuộc diện tích cảnh; PERCENT dễ so giữa các dự án hơn."
+typical = "PERCENT."
+typical_vi = "PERCENT."
+related = ["ps.percent_rand", "ps.density_rand"]
+
+[ps.percent_rand]
+help = "PERCENT: % of the selected points allowed to be random phase"
+help_vi = "PERCENT: % số điểm được chọn được phép là pha ngẫu nhiên"
+use = "Higher values lower the coherence threshold: more points, more of them noise (weeding removes part of it)."
+use_vi = "Giá trị cao hạ ngưỡng độ nhất quán: nhiều điểm hơn, nhiều điểm nhiễu hơn (bước lọc loại bớt một phần)."
+risk = "High values on short or decorrelated stacks fill the map with noise."
+risk_vi = "Giá trị cao trên stack ngắn hoặc mất tương quan làm bản đồ đầy nhiễu."
+typical = "80 (default); 92 in the COSMO-SkyMed preset; StaMPS uses 20."
+typical_vi = "80 (mặc định); 92 trong preset COSMO-SkyMed; StaMPS dùng 20."
+related = ["ps.select_method", "ps.weed_standard_dev"]
+
+[ps.density_rand]
+help = "DENSITY: random-phase points per km² allowed"
+help_vi = "DENSITY: số điểm pha ngẫu nhiên cho phép trên mỗi km²"
+use = "Used with select_method = DENSITY."
+use_vi = "Dùng khi select_method = DENSITY."
+risk = "See percent_rand."
+risk_vi = "Xem percent_rand."
+typical = "2; 20 in the COSMO-SkyMed preset."
+typical_vi = "2; 20 trong preset COSMO-SkyMed."
+related = ["ps.select_method"]
+
+[ps.gamma_min_threshold]
+help = "Lowest coherence threshold, whatever the amplitude dispersion"
+help_vi = "Ngưỡng độ nhất quán thấp nhất, bất kể DA"
+use = "A floor under the per-bin thresholds, so no bin accepts very noisy points."
+use_vi = "Mức sàn dưới các ngưỡng theo khoảng DA, để không khoảng nào nhận điểm quá nhiễu."
+risk = "Too high removes most distributed scatterers."
+risk_vi = "Quá cao loại phần lớn điểm phân tán."
+typical = "0.3."
+typical_vi = "0.3."
+related = ["ps.percent_rand"]
+
+[ps.gamma_stdev_reject]
+help = "Drop points whose coherence varies more than this between iterations (0 = off)"
+help_vi = "Loại điểm có độ nhất quán dao động quá giá trị này giữa các vòng lặp (0 = tắt)"
+use = "Removes points whose quality is unstable, a sign of a chance fit."
+use_vi = "Loại điểm có chất lượng không ổn định, dấu hiệu của khớp tình cờ."
+risk = "Can remove real points on noisy stacks."
+risk_vi = "Có thể loại điểm thật trên stack nhiễu."
+typical = "0 (off)."
+typical_vi = "0 (tắt)."
+related = []
+
+[ps.select_nr_scaling]
+help = "How the random-phase histogram is scaled: low_coherence or population (legacy CSK)"
+help_vi = "Cách chuẩn hoá histogram pha ngẫu nhiên: low_coherence hoặc population (CSK cũ)"
+use = "low_coherence scales the simulated random phase to the low-coherence part of the data (StaMPS)."
+use_vi = "low_coherence chuẩn hoá pha ngẫu nhiên mô phỏng theo phần độ nhất quán thấp của dữ liệu (StaMPS)."
+risk = "population made no difference on Hanoi (2026-10-23)."
+risk_vi = "population không tạo khác biệt trên Hà Nội (2026-10-23)."
+typical = "low_coherence."
+typical_vi = "low_coherence."
+related = []
+
+[ps.slc_osf]
+help = "SLC oversampling factor (1 = none)"
+help_vi = "Hệ số lấy mẫu dày của SLC (1 = không)"
+use = "Locates point targets between pixels when the SLC is oversampled."
+use_vi = "Định vị điểm tán xạ giữa các pixel khi SLC được lấy mẫu dày."
+risk = "Must match how the SLC was prepared."
+risk_vi = "Phải khớp với cách SLC được chuẩn bị."
+typical = "1."
+typical_vi = "1."
+related = []
+
+[ps.reest_smoothing_flag]
+help = "Re-estimate the coherence of the selected points with their neighbourhood phase"
+help_vi = "Ước lượng lại độ nhất quán của các điểm đã chọn bằng pha lân cận"
+use = "Each selected point's own phase is left out of its neighbourhood estimate, which avoids self-bias."
+use_vi = "Pha của chính điểm được bỏ ra khỏi ước lượng lân cận của nó, tránh tự thiên lệch."
+risk = "None in practice; slower."
+risk_vi = "Thực tế không có; chậm hơn."
+typical = "y."
+typical_vi = "y."
+related = []
+
+# ================================================================ 4 · PS step 4 · weeding
+[ps.weed_time_win]
+help = "Time window (days) of the smoothing used to judge the phase noise of a point"
+help_vi = "Cửa sổ thời gian (ngày) của phép làm trơn dùng để đánh giá nhiễu pha của một điểm"
+use = "The phase difference with neighbours is smoothed over this window; what remains is counted as noise."
+use_vi = "Hiệu pha với lân cận được làm trơn trong cửa sổ này; phần còn lại được tính là nhiễu."
+risk = "Too long: real non-linear motion (seasonal, accelerating) counts as noise and points are weeded."
+risk_vi = "Quá dài: chuyển động phi tuyến thật (theo mùa, tăng tốc) bị tính là nhiễu và điểm bị loại."
+typical = "730 days."
+typical_vi = "730 ngày."
+related = ["ps.weed_standard_dev"]
+
+[ps.weed_standard_dev]
+help = "Drop points whose phase noise (rad) against their neighbours is above this"
+help_vi = "Loại điểm có nhiễu pha (rad) so với lân cận lớn hơn giá trị này"
+use = "The main noise filter of the point network."
+use_vi = "Bộ lọc nhiễu chính của mạng điểm."
+risk = "Too strict removes points on fast or non-linear motion; inf (off) keeps all."
+risk_vi = "Quá khắt khe loại điểm có chuyển động nhanh hoặc phi tuyến; inf (tắt) giữ tất cả."
+typical = "1.0; inf in the COSMO-SkyMed preset."
+typical_vi = "1.0; inf trong preset COSMO-SkyMed."
+related = ["ps.weed_time_win", "ps.weed_noisy_check"]
+
+[ps.weed_zero_elevation]
+help = "Drop points at zero height (sea, DEM voids)"
+help_vi = "Loại điểm có độ cao bằng 0 (biển, lỗ trống DEM)"
+use = "Removes points over sea and DEM voids."
+use_vi = "Loại điểm trên biển và lỗ trống DEM."
+risk = "Also removes real points on land at 0 m (polders, coastal deltas)."
+risk_vi = "Cũng loại điểm thật trên đất ở độ cao 0 m (vùng trũng, đồng bằng ven biển)."
+typical = "n (deltas are near 0 m)."
+typical_vi = "n (đồng bằng ở gần 0 m)."
+related = ["selection.water_mask"]
+
+[ps.weed_neighbours]
+help = "Of adjacent pixels keep only the best one"
+help_vi = "Trong các pixel liền kề chỉ giữ pixel tốt nhất"
+use = "One strong target often lights up several adjacent pixels (sidelobes); keeping one avoids duplicates."
+use_vi = "Một đối tượng mạnh thường làm sáng nhiều pixel liền kề (búp phụ); giữ một pixel tránh trùng lặp."
+risk = "Fewer points in dense cities."
+risk_vi = "Ít điểm hơn ở đô thị dày."
+typical = "n."
+typical_vi = "n."
+related = ["ps.weed_adjacent_keep_per_group"]
+
+[ps.weed_adjacent_keep_per_group]
+help = "Points kept per group of adjacent pixels"
+help_vi = "Số điểm giữ lại trong mỗi nhóm pixel liền kề"
+use = "With weed_neighbours, how many of a group survive."
+use_vi = "Khi bật weed_neighbours, số điểm còn lại trong mỗi nhóm."
+risk = "Only used with weed_neighbours = y."
+risk_vi = "Chỉ dùng khi weed_neighbours = y."
+typical = "1; 2 in the COSMO-SkyMed preset."
+typical_vi = "1; 2 trong preset COSMO-SkyMed."
+related = ["ps.weed_neighbours"]
+
+[ps.weed_noisy_check]
+help = "Drop points that are noisy against their neighbours"
+help_vi = "Loại các điểm nhiễu so với lân cận"
+use = "Turns the noise test of weed_standard_dev on or off."
+use_vi = "Bật hoặc tắt phép kiểm tra nhiễu theo weed_standard_dev."
+risk = "Off keeps noisy points that can break the unwrapping."
+risk_vi = "Tắt thì giữ điểm nhiễu có thể làm hỏng giải chập."
+typical = "y."
+typical_vi = "y."
+related = ["ps.weed_standard_dev"]
+
+# ================================================================ 4 · PS step 5 · reference area
+[ps.ref_centre_lonlat]
+help = "Centre (lon, lat) of the reference area; 0, 0 = no area (all points, or ref_auto)"
+help_vi = "Tâm (kinh độ, vĩ độ) của vùng tham chiếu; 0, 0 = không đặt vùng (mọi điểm, hoặc ref_auto)"
+use = """Velocities are relative to the mean of the points in this area. A stable area (bedrock, an old building, a \
+GNSS station) makes the map absolute."""
+use_vi = """Vận tốc tính tương đối so với trung bình các điểm trong vùng này. Một vùng ổn định (nền đá, công trình \
+cũ, trạm GNSS) làm bản đồ có ý nghĩa tuyệt đối."""
+risk = """With 0, 0 and ref_radius = inf the mean of the whole scene is zero: in a subsiding city the stable ground \
+then appears to rise."""
+risk_vi = """Với 0, 0 và ref_radius = inf thì trung bình cả cảnh bằng 0: ở thành phố đang lún, nền ổn định khi đó \
+trông như đang nâng lên."""
+typical = "A GNSS station or a known stable district, radius 200-500 m."
+typical_vi = "Một trạm GNSS hoặc một khu vực ổn định đã biết, bán kính 200-500 m."
+related = ["ps.ref_radius", "ps.ref_auto"]
+
+[ps.ref_radius]
+help = "Radius (m) of the reference area around that centre; inf = all points"
+help_vi = "Bán kính (m) của vùng tham chiếu quanh tâm đó; inf = mọi điểm"
+use = "Size of the reference area; enough points to average their noise."
+use_vi = "Cỡ vùng tham chiếu; đủ điểm để trung bình hoá nhiễu của chúng."
+risk = "Too large includes moving ground."
+risk_vi = "Quá lớn thì lấy cả nền đang chuyển động."
+typical = "200-500 m, or inf."
+typical_vi = "200-500 m, hoặc inf."
+related = ["ps.ref_centre_lonlat"]
+
+[ps.ref_auto]
+help = "y: reference = the stable periphery of the scene (when no centre is given)"
+help_vi = "y: tham chiếu = vùng rìa ổn định của cảnh (khi không đặt tâm)"
+use = "Picks the stable edge of the scene as reference when no centre is known."
+use_vi = "Chọn vùng rìa ổn định của cảnh làm tham chiếu khi không biết tâm nào."
+risk = "Wrong where the whole scene moves (a city on a subsiding delta)."
+risk_vi = "Sai khi cả cảnh đều chuyển động (thành phố trên đồng bằng đang lún)."
+typical = "n."
+typical_vi = "n."
+related = ["ps.ref_centre_lonlat"]
+
+# ================================================================ 4 · PS step 6 · unwrapping
+[ps.unwrap_patch_phase]
+help = "n: the grid unwraps the phase of each point (StaMPS default); y: the smoother patch phase, then each point's residual (legacy)"
+help_vi = "n: lưới giải chập pha của chính từng điểm (mặc định StaMPS); y: giải chập pha patch đã làm trơn rồi cộng phần dư của từng điểm (cách cũ)"
+use = "Which phase is put on the unwrapping grid."
+use_vi = "Pha nào được đưa lên lưới giải chập."
+risk = "y smooths across neighbours and can lose cycles of small, fast targets."
+risk_vi = "y làm trơn qua các lân cận và có thể mất chu kỳ của đối tượng nhỏ, chuyển động nhanh."
+typical = "n."
+typical_vi = "n."
+related = ["ps.unwrap_grid_size"]
+
+[ps.unwrap_grid_size]
+help = "Cell (m) of the unwrapping grid (10 m usual; 50 m HCMC)"
+help_vi = "Ô lưới giải chập pha (m) (thường 10 m; TP.HCM 50 m)"
+use = """Points are resampled onto this grid for unwrapping. Small cells keep sharp motion gradients; larger cells \
+join sparse points and lower the noise."""
+use_vi = """Các điểm được đưa lên lưới này để giải chập. Ô nhỏ giữ được gradient chuyển động sắc nét; ô lớn nối các \
+điểm thưa và giảm nhiễu."""
+risk = "Small cells with sparse points leave holes and isolated islands; large cells merge fast and stable ground."
+risk_vi = "Ô nhỏ với điểm thưa để lại lỗ và các đảo rời; ô lớn trộn nền chuyển động nhanh với nền ổn định."
+typical = "10 m (owner's habit; StaMPS 200 m); 50 m for HCMC."
+typical_vi = "10 m (thói quen của chủ dự án; StaMPS 200 m); 50 m cho TP.HCM."
+related = ["ps.unwrap_gold_n_win", "ps.unwrap_grid_filter_sigma", "ps.unwrap_ps_rate"]
+
+[ps.unwrap_prefilter_flag]
+help = "Filter the grid phase before unwrapping"
+help_vi = "Lọc pha lưới trước khi giải chập"
+use = "Lowers the noise of the gridded phase, so there are fewer residues for the unwrapper."
+use_vi = "Giảm nhiễu của pha trên lưới, để bộ giải chập gặp ít điểm dư hơn."
+risk = "The filter is used only to find the cycles; the unfiltered phase is kept."
+risk_vi = "Bộ lọc chỉ dùng để tìm chu kỳ; pha chưa lọc vẫn được giữ."
+typical = "y."
+typical_vi = "y."
+related = ["ps.unwrap_grid_filter"]
+
+[ps.unwrap_grid_filter]
+help = "Grid prefilter: gaussian, goldstein (coherence-adaptive) or none"
+help_vi = "Bộ lọc lưới: gaussian, goldstein (thích nghi theo độ nhất quán) hoặc none"
+use = "The prefilter. gaussian is predictable; goldstein adapts to the local coherence."
+use_vi = "Bộ lọc trước. gaussian dễ đoán; goldstein thích nghi theo độ nhất quán cục bộ."
+risk = "goldstein increased the velocity scatter of nearby PS on Hanoi (1.51 -> 1.67 mm/yr, 2026-10-23)."
+risk_vi = "goldstein làm tăng độ phân tán vận tốc của các PS gần nhau ở Hà Nội (1,51 -> 1,67 mm/năm, 2026-10-23)."
+typical = "gaussian."
+typical_vi = "gaussian."
+related = ["ps.unwrap_grid_filter_sigma", "ps.unwrap_gold_n_win"]
+
+[ps.unwrap_grid_filter_sigma]
+help = "σ of the Gaussian prefilter (m); auto = (unwrap_gold_n_win / 8) × 10 m, the same at any grid size; cells = the legacy σ in cells (grows with the grid)"
+help_vi = "σ của bộ lọc Gauss (m); auto = (unwrap_gold_n_win / 8) × 10 m, như nhau ở mọi cỡ lưới; cells = σ cũ tính theo ô (to lên theo cỡ lưới)"
+use = "Width of the Gaussian prefilter in metres."
+use_vi = "Độ rộng bộ lọc Gauss tính bằng mét."
+risk = "cells makes the filter much wider at 50 m cells than at 10 m."
+risk_vi = "cells làm bộ lọc rộng hơn nhiều khi ô 50 m so với 10 m."
+typical = "auto."
+typical_vi = "auto."
+related = ["ps.unwrap_grid_filter", "ps.unwrap_grid_size"]
+
+[ps.unwrap_grid_filter_unit]
+help = "y: filter the unit phasor of each cell (a cell of many points no longer outweighs its neighbours)"
+help_vi = "y: lọc phasor đơn vị của từng ô (ô có nhiều điểm không còn lấn át ô bên cạnh)"
+use = "Every cell counts equally in the prefilter."
+use_vi = "Mọi ô có trọng số như nhau trong bộ lọc."
+risk = "Noisy cells of one point count as much as good dense cells."
+risk_vi = "Ô nhiễu chỉ có một điểm có trọng số ngang ô dày, tốt."
+typical = "n."
+typical_vi = "n."
+related = ["ps.unwrap_grid_filter"]
+
+[ps.unwrap_gold_n_win]
+help = "Window (cells) of the Goldstein filter; also sets the Gaussian σ in auto"
+help_vi = "Cửa sổ (số ô) của bộ lọc Goldstein; cũng quyết định σ Gauss ở chế độ auto"
+use = "Size of the prefilter window."
+use_vi = "Cỡ cửa sổ của bộ lọc."
+risk = "Large windows smooth local motion away."
+risk_vi = "Cửa sổ lớn làm trơn mất chuyển động cục bộ."
+typical = "16; 64 in the COSMO-SkyMed preset."
+typical_vi = "16; 64 trong preset COSMO-SkyMed."
+related = ["ps.unwrap_grid_filter_sigma"]
+
+[ps.unwrap_gold_alpha]
+help = "Strength of the Goldstein filter (0-1)"
+help_vi = "Độ mạnh của bộ lọc Goldstein (0-1)"
+use = "Exponent of the Goldstein spectral weighting."
+use_vi = "Số mũ của trọng số phổ Goldstein."
+risk = "Only with unwrap_grid_filter = goldstein."
+risk_vi = "Chỉ dùng khi unwrap_grid_filter = goldstein."
+typical = "0.8."
+typical_vi = "0.8."
+related = ["ps.unwrap_grid_filter"]
+
+[ps.unwrap_gold_coh_floor]
+help = "Coherence below which the Goldstein filter acts at full strength"
+help_vi = "Dưới mức độ nhất quán này bộ lọc Goldstein lọc ở độ mạnh tối đa"
+use = "Coherence-adaptive Goldstein: good cells are filtered less."
+use_vi = "Goldstein thích nghi theo độ nhất quán: ô tốt được lọc nhẹ hơn."
+risk = "Only with unwrap_grid_filter = goldstein."
+risk_vi = "Chỉ dùng khi unwrap_grid_filter = goldstein."
+typical = "0.2."
+typical_vi = "0.2."
+related = ["ps.unwrap_grid_filter"]
+
+[ps.unwrap_time_win]
+help = "Time window (days) of the space-time unwrapping; auto = a quarter of the data span (at least 4 sampling intervals, 60-730)"
+help_vi = "Cửa sổ thời gian (ngày) của giải chập không gian–thời gian; auto = một phần tư khoảng thời gian dữ liệu (ít nhất 4 chu kỳ chụp, 60-730)"
+use = "The phase of each grid edge is smoothed in time over this window to predict the cycles of each date."
+use_vi = "Pha của mỗi cạnh lưới được làm trơn theo thời gian trong cửa sổ này để dự đoán chu kỳ của từng ngày."
+risk = "Too long for a short series or for seasonal motion: the smoothing misses the changes and cycles slip."
+risk_vi = "Quá dài với chuỗi ngắn hoặc chuyển động theo mùa: phép làm trơn bỏ lỡ thay đổi và chu kỳ bị trượt."
+typical = "auto (StaMPS 730)."
+typical_vi = "auto (StaMPS 730)."
+related = ["acquire.date_range", "ps.unwrap_edge_velocity"]
+
+[ps.unwrap_la_error_flag]
+help = "Estimate the look-angle (DEM) error in the space-time unwrapping"
+help_vi = "Ước lượng sai số góc nhìn (DEM) trong giải chập không gian–thời gian"
+use = "Removes the baseline-dependent phase of each edge before predicting its cycles."
+use_vi = "Trừ phần pha phụ thuộc baseline của mỗi cạnh trước khi dự đoán chu kỳ."
+risk = "None in practice."
+risk_vi = "Thực tế không có."
+typical = "y."
+typical_vi = "y."
+related = ["ps.max_topo_err"]
+
+[ps.unwrap_edge_velocity]
+help = "Unwrap each grid edge in time by its linear rate first (keeps fast motion)"
+help_vi = "Giải chập từng cạnh lưới theo thời gian bằng tốc độ tuyến tính của nó trước (giữ được chuyển động nhanh)"
+use = "Fits a linear rate to each edge and removes it before the time smoothing; fast subsidence keeps its cycles."
+use_vi = "Khớp tốc độ tuyến tính cho mỗi cạnh và trừ đi trước khi làm trơn theo thời gian; lún nhanh giữ được chu kỳ."
+risk = "A rate search too narrow (unwrap_max_edge_velocity) misses the fastest motion."
+risk_vi = "Khoảng tìm tốc độ quá hẹp (unwrap_max_edge_velocity) bỏ lỡ chuyển động nhanh nhất."
+typical = "y."
+typical_vi = "y."
+related = ["ps.unwrap_max_edge_velocity", "ps.unwrap_model_cycles"]
+
+[ps.unwrap_max_edge_velocity]
+help = "Largest rate searched for an edge (mm/yr, line of sight)"
+help_vi = "Tốc độ lớn nhất được tìm cho một cạnh (mm/năm, theo LOS)"
+use = "Search range of the edge rate."
+use_vi = "Khoảng tìm tốc độ của cạnh."
+risk = "Too high lets noise fit large rates."
+risk_vi = "Quá cao thì nhiễu có thể khớp với tốc độ lớn."
+typical = "100 mm/yr; raise for Mexico City (> 300 mm/yr)."
+typical_vi = "100 mm/năm; tăng cho Mexico City (> 300 mm/năm)."
+related = ["ps.unwrap_edge_velocity"]
+
+[ps.unwrap_model_cycles]
+help = "The IRLS takes the cycle count of each grid step from the edge model"
+help_vi = "IRLS lấy số chu kỳ của từng bước lưới từ mô hình cạnh"
+use = "The spatial unwrapping starts from the cycles the edge rates predict."
+use_vi = "Giải chập không gian bắt đầu từ số chu kỳ mà tốc độ cạnh dự đoán."
+risk = "A wrong edge model propagates its errors."
+risk_vi = "Mô hình cạnh sai thì lan truyền lỗi của nó."
+typical = "y."
+typical_vi = "y."
+related = ["ps.unwrap_edge_velocity"]
+
+[ps.unwrap_ps_rate]
+help = "Linear rate of every point from the point network, removed before the grid and added back (a road faster than its cell keeps its cycles); auto = with >= unwrap_ps_rate_min_ifg interferograms and a reliable network"
+help_vi = "Tốc độ tuyến tính của từng điểm lấy từ mạng điểm, trừ đi trước khi lên lưới rồi cộng lại (một con đường lún nhanh hơn ô của nó không mất chu kỳ); auto = khi có ≥ unwrap_ps_rate_min_ifg giao thoa đồ và mạng đủ tin cậy"
+use = "Keeps the cycles of points that move differently from their cell (new roads, fills, single buildings)."
+use_vi = "Giữ chu kỳ của các điểm chuyển động khác ô của chúng (đường mới, nền đắp, từng toà nhà)."
+risk = "On short series the point rates are unreliable; auto then turns it off."
+risk_vi = "Với chuỗi ngắn tốc độ điểm không tin cậy; khi đó auto tự tắt."
+typical = "auto."
+typical_vi = "auto."
+related = ["ps.unwrap_ps_rate_max_arc", "ps.unwrap_ps_rate_min_ifg"]
+
+[ps.unwrap_ps_rate_max_arc]
+help = "Longest arc (m) between two points of that network"
+help_vi = "Cạnh dài nhất (m) giữa hai điểm của mạng đó"
+use = "Short arcs share the atmosphere, so their rate difference is clean."
+use_vi = "Cạnh ngắn có chung khí quyển nên hiệu tốc độ của chúng sạch."
+risk = "Too short disconnects sparse areas."
+risk_vi = "Quá ngắn làm đứt vùng điểm thưa."
+typical = "500 m."
+typical_vi = "500 m."
+related = ["ps.unwrap_ps_rate"]
+
+[ps.unwrap_ps_rate_min_ifg]
+help = "Fewest interferograms for unwrap_ps_rate = auto"
+help_vi = "Số giao thoa đồ tối thiểu để unwrap_ps_rate = auto được bật"
+use = "The series length from which the point rates are trusted."
+use_vi = "Độ dài chuỗi từ đó tốc độ điểm được tin."
+risk = "See unwrap_ps_rate."
+risk_vi = "Xem unwrap_ps_rate."
+typical = "40."
+typical_vi = "40."
+related = ["ps.unwrap_ps_rate"]
+
+[ps.unwrap_irls_iter]
+help = "Most iterations of the IRLS spatial unwrapping"
+help_vi = "Số vòng lặp tối đa của giải chập không gian IRLS"
+use = "Upper bound on the reweighting iterations of the IRLS solver (the owner's unwrapper, no SNAPHU)."
+use_vi = "Giới hạn trên số vòng lặp đánh lại trọng số của bộ giải IRLS (bộ giải chập của chủ dự án, không dùng SNAPHU)."
+risk = "More iterations cost time; the target RMS usually stops it first."
+risk_vi = "Thêm vòng lặp tốn thời gian; thường RMS mục tiêu dừng nó trước."
+typical = "50."
+typical_vi = "50."
+related = ["ps.unwrap_irls_target_rms"]
+
+[ps.unwrap_irls_target_rms]
+help = "IRLS stops below this residual (rad)"
+help_vi = "IRLS dừng khi phần dư nhỏ hơn giá trị này (rad)"
+use = "Convergence test of the IRLS solver."
+use_vi = "Điều kiện hội tụ của bộ giải IRLS."
+risk = "Smaller values cost iterations."
+risk_vi = "Giá trị nhỏ hơn tốn thêm vòng lặp."
+typical = "0.01; 0.005 in the COSMO-SkyMed preset."
+typical_vi = "0.01; 0.005 trong preset COSMO-SkyMed."
+related = ["ps.unwrap_irls_iter"]
+
+[ps.unwrap_irls_epsilon]
+help = "IRLS weight floor"
+help_vi = "Trọng số tối thiểu của IRLS"
+use = "Keeps the L1-like weights finite where the residual is near zero."
+use_vi = "Giữ trọng số kiểu L1 hữu hạn nơi phần dư gần bằng 0."
+risk = "Rarely changed."
+risk_vi = "Hiếm khi cần đổi."
+typical = "0.001; 0.0005 in the COSMO-SkyMed preset."
+typical_vi = "0.001; 0.0005 trong preset COSMO-SkyMed."
+related = ["ps.unwrap_irls_iter"]
+
+[ps.unwrap_align_constant]
+help = "Align the IRLS constant before snapping to the wrapped phase (avoids one-cycle region slips near ±π)"
+help_vi = "Căn hằng số IRLS trước khi khớp về pha gói (tránh cả vùng lệch một chu kỳ khi pha gần ±π)"
+use = "Shifts the IRLS solution by a constant before rounding to cycles, so a region whose phase sits near ±π does not slip one cycle."
+use_vi = "Dịch nghiệm IRLS một hằng số trước khi làm tròn chu kỳ, để vùng có pha nằm gần ±π không bị lệch một chu kỳ."
+risk = "Not yet assessed against SNAP + StaMPS; kept off until then."
+risk_vi = "Chưa đánh giá so với SNAP + StaMPS; giữ tắt cho đến khi đó."
+typical = "n."
+typical_vi = "n."
+related = ["ps.unwrap_irls_iter"]
+
+# ================================================================ 4 · PS step 7 · DEM error, ramps, atmosphere
+[ps.subtr_tropo]
+help = "Remove the atmosphere (APS) from the velocity: linear in height, or the weather model of [atmosphere]; n on flat deltas, where it can absorb subsidence (v-do)"
+help_vi = "Trừ khí quyển (APS) khỏi vận tốc: tuyến tính theo độ cao, hoặc mô hình thời tiết của [atmosphere]; đặt n ở vùng đồng bằng phẳng, nơi nó có thể nuốt mất lún (v-do)"
+use = "Removes the height-correlated delay (or the weather-model delay) before the velocity is estimated."
+use_vi = "Trừ phần trễ tương quan với độ cao (hoặc trễ từ mô hình thời tiết) trước khi ước lượng vận tốc."
+risk = "On flat deltas a height fit absorbs subsidence (lower ground subsides more)."
+risk_vi = "Ở đồng bằng phẳng phép khớp theo độ cao nuốt mất lún (nền thấp lún nhiều hơn)."
+typical = "n on flat deltas (hcm_d18: every APS check said off); y in relief."
+typical_vi = "n ở đồng bằng phẳng (hcm_d18: mọi kiểm tra APS đều cho thấy nên tắt); y ở vùng có địa hình."
+related = ["atmosphere.method", "sbas.troposphere"]
+
+[ps.scla_deramp]
+help = "Orbit ramps: n = keep, y = remove a plane per interferogram, auto = remove the part that changes between dates"
+help_vi = "Ramp quỹ đạo: n = giữ, y = trừ một mặt phẳng cho mỗi giao thoa đồ, auto = trừ phần thay đổi giữa các ngày"
+use = """Removes planar trends (orbit errors, long-wavelength atmosphere, ionosphere). auto removes the part that \
+changes from date to date and keeps a steady trend unless a stable background spans the frame."""
+use_vi = """Trừ xu hướng dạng mặt phẳng (sai số quỹ đạo, khí quyển bước sóng dài, tầng điện ly). auto trừ phần thay \
+đổi từ ngày này sang ngày khác và giữ xu hướng ổn định, trừ khi có nền ổn định trải khắp khung."""
+risk = "y removes real large-scale motion (a subsidence bowl larger than the frame becomes a plane and is removed)."
+risk_vi = "y trừ mất chuyển động quy mô lớn thật (một phễu lún rộng hơn khung trở thành mặt phẳng và bị trừ)."
+typical = "n (default); y in the COSMO-SkyMed preset; auto under review (D3)."
+typical_vi = "n (mặc định); y trong preset COSMO-SkyMed; auto đang được đánh giá (D3)."
+related = ["ps.ramp_auto_allow_planar", "aoi.bbox"]
+
+[ps.ramp_auto_allow_planar]
+help = "auto may also remove a steady planar trend without a stable area"
+help_vi = "Cho phép auto trừ cả xu hướng mặt phẳng ổn định khi không có vùng ổn định"
+use = "Lets scla_deramp = auto remove the steady trend too, when you know there is no large-scale motion."
+use_vi = "Cho scla_deramp = auto trừ cả xu hướng ổn định, khi biết chắc không có chuyển động quy mô lớn."
+risk = "Same risk as scla_deramp = y."
+risk_vi = "Rủi ro như scla_deramp = y."
+typical = "n."
+typical_vi = "n."
+related = ["ps.scla_deramp"]
+
+# ================================================================ 4 · PS step 8 · SCN
+[ps.scn_time_win]
+help = "Time window (days) of the SCN temporal filter (step 8)"
+help_vi = "Cửa sổ thời gian (ngày) của bộ lọc SCN theo thời gian (bước 8)"
+use = "Spatially correlated noise (atmosphere, orbit residue) is what is smooth in space but not in time; this window separates them."
+use_vi = "Nhiễu tương quan không gian (khí quyển, sai số quỹ đạo còn lại) là phần trơn theo không gian nhưng không trơn theo thời gian; cửa sổ này tách chúng."
+risk = "Too short: real fast changes are taken as noise; too long: atmosphere stays in the series."
+risk_vi = "Quá ngắn: thay đổi nhanh thật bị coi là nhiễu; quá dài: khí quyển còn lại trong chuỗi."
+typical = "365 days."
+typical_vi = "365 ngày."
+related = ["ps.scn_wavelength", "ps.scn_time_fit"]
+
+[ps.scn_wavelength]
+help = "Spatial wavelength (m) of the SCN filter"
+help_vi = "Bước sóng không gian (m) của bộ lọc SCN"
+use = "Noise longer than this wavelength is treated as spatially correlated."
+use_vi = "Nhiễu dài hơn bước sóng này được coi là tương quan không gian."
+risk = "Too short removes local motion as noise."
+risk_vi = "Quá ngắn trừ mất chuyển động cục bộ như nhiễu."
+typical = "100 m."
+typical_vi = "100 m."
+related = ["ps.scn_time_win"]
+
+[ps.scn_time_fit]
+help = "SCN temporal low-pass: linear (keeps the trend) or mean (StaMPS)"
+help_vi = "Lọc thông thấp thời gian của SCN: linear (giữ xu hướng) hoặc mean (StaMPS)"
+use = "linear keeps the trend inside the window, so a steady velocity is not partly taken as noise (ADR-026)."
+use_vi = "linear giữ xu hướng trong cửa sổ, để vận tốc ổn định không bị coi một phần là nhiễu (ADR-026)."
+risk = "mean biases fast linear motion at the ends of the series."
+risk_vi = "mean làm lệch chuyển động tuyến tính nhanh ở hai đầu chuỗi."
+typical = "linear."
+typical_vi = "linear."
+related = ["ps.scn_time_win"]
+
+# ================================================================ 4 · PS · memory and compatibility
+[ps.topofit_chunk_pixels]
+help = "Points per block in step 2 (memory)"
+help_vi = "Số điểm mỗi khối ở bước 2 (bộ nhớ)"
+use = "Lower it when step 2 runs out of memory; the result does not change."
+use_vi = "Giảm khi bước 2 thiếu bộ nhớ; kết quả không đổi."
+risk = "Smaller blocks are slower."
+risk_vi = "Khối nhỏ hơn thì chậm hơn."
+typical = "200000."
+typical_vi = "200000."
+related = []
+
+[ps.ps_select_smooth_chunk_pixels]
+help = "Points per block in step 3 (memory)"
+help_vi = "Số điểm mỗi khối ở bước 3 (bộ nhớ)"
+use = "Lower it when step 3 runs out of memory; the result does not change."
+use_vi = "Giảm khi bước 3 thiếu bộ nhớ; kết quả không đổi."
+risk = "Smaller blocks are slower."
+risk_vi = "Khối nhỏ hơn thì chậm hơn."
+typical = "1024."
+typical_vi = "1024."
+related = []
+
+[ps.weed_noise_ifg_chunk]
+help = "Interferograms per block in step 4 (memory)"
+help_vi = "Số giao thoa đồ mỗi khối ở bước 4 (bộ nhớ)"
+use = "Lower it when step 4 runs out of memory; the result does not change."
+use_vi = "Giảm khi bước 4 thiếu bộ nhớ; kết quả không đổi."
+risk = "Smaller blocks are slower."
+risk_vi = "Khối nhỏ hơn thì chậm hơn."
+typical = "12."
+typical_vi = "12."
+related = []
+
+[ps.legacy_quirks]
+help = "y: reproduce the legacy engine with its bugs (parity tests only)"
+help_vi = "y: tái tạo engine cũ cùng các lỗi của nó (chỉ cho test parity)"
+use = "Only to compare with outputs of the old engine."
+use_vi = "Chỉ để so với kết quả của engine cũ."
+risk = "Known bugs are reproduced on purpose."
+risk_vi = "Các lỗi đã biết được tái tạo có chủ ý."
+typical = "n."
+typical_vi = "n."
+related = []

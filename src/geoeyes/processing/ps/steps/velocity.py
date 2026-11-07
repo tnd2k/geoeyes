@@ -15,6 +15,7 @@ from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator, Regul
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import Delaunay, cKDTree
 
+from geoeyes.core.errors import DataError
 from geoeyes.processing.ps.steps.scla import SclaResult
 
 
@@ -30,14 +31,27 @@ class Velocity:
     t_days: np.ndarray         # (n_sec,) days from the master
 
 
+ROWS = 200_000                 # PS per block: every operation here is per PS or per interferogram, so blocks of
+                               # rows give the same numbers as whole arrays without the (n, n_sec) temporaries
+
+
+def _blocks(n: int):
+    return (slice(r0, min(r0 + ROWS, n)) for r0 in range(0, n, ROWS))
+
+
 def corrected_phase(ph_uw, scla: SclaResult, aps, master_ix, deramp: bool) -> np.ndarray:
     """φ - K·bperp - APS - ramp - C (each NaN treated as 0)."""
-    ph = np.asarray(ph_uw, np.float64) - np.nan_to_num(scla.ph_scla)
-    if aps is not None:
-        ph = ph - np.nan_to_num(np.delete(np.nan_to_num(np.asarray(aps, np.float64), nan=0.0), master_ix, axis=1))
-    if deramp and scla.ph_ramp.size:
-        ph = ph - np.nan_to_num(scla.ph_ramp)
-    return ph - np.nan_to_num(scla.C_uw)[:, None]
+    out = np.empty(ph_uw.shape, np.float64)
+    sec = None if aps is None else np.delete(np.arange(aps.shape[1]), master_ix)
+    C = np.nan_to_num(scla.C_uw)
+    for s in _blocks(ph_uw.shape[0]):
+        ph = np.asarray(ph_uw[s], np.float64) - np.nan_to_num(scla.ph_scla[s])
+        if aps is not None:
+            ph -= np.nan_to_num(np.asarray(aps[s][:, sec], np.float64))
+        if deramp and scla.ph_ramp.size:
+            ph -= np.nan_to_num(scla.ph_ramp[s])
+        out[s] = ph - C[s, None]
+    return out
 
 
 def highpass_gaussian(lon, lat, values, wavelength_m, grid_n=150):
@@ -76,7 +90,7 @@ def highpass_gaussian(lon, lat, values, wavelength_m, grid_n=150):
             g[miss] = fill
         grid[:, :, i] = g.reshape(grid_n, grid_n)
     low = gaussian_filter(grid, sigma=(s_lat / lat_ext * grid_n, s_lon / lon_ext * grid_n, 0))
-    out = values.astype(np.float64).copy()
+    out = values.astype(np.float64)
     pq = np.column_stack([lat, lon])
     for i in range(m):
         lp = RegularGridInterpolator((glat_v, glon_v), low[:, :, i], method="linear", bounds_error=False,
@@ -97,7 +111,7 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
     can keep an offset where the pass-2 unwrapping differs from the pass-1 phase the APS was estimated on."""
     ph = corrected_phase(ph_uw, scla, aps, master_ix, deramp)
     if demean:
-        ph = ph - np.nanmean(ph, axis=0, keepdims=True)
+        ph -= np.nanmean(ph, axis=0, keepdims=True)
     n, n_sec = ph.shape
     rows = ifgday[ifgday[:, 0] != ifgday[:, 1]] if ifgday.shape[0] > n_sec else ifgday
     t_days = (rows[:n_sec, 1] - rows[:n_sec, 0]).astype(np.float64)
@@ -108,10 +122,15 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
         w = np.diag(1.0 / np.maximum(std * np.pi / 180.0, 1e-6) ** 2)
     t = t_days / 365.25
     lam = wavelength / (4.0 * np.pi) * 1000.0
-    disp = -ph * lam
+    disp = ph
+    disp *= -lam                                      # in place: (-φ)·λ and φ·(-λ) are the same number
+    del ph
 
     keep = ~np.all(np.isnan(disp), axis=0)
-    d, tk, wk = disp[:, keep], t[keep], w[np.ix_(keep, keep)]
+    d, tk, wk = (disp if keep.all() else disp[:, keep]), t[keep], w[np.ix_(keep, keep)]
+    if np.unique(tk).size < 2 or np.count_nonzero(np.diag(wk)) < 2:
+        raise DataError(f"velocity: {int(keep.sum())} usable interferogram(s) of {n_sec} (the others have no "
+                        "unwrapped phase): at least 2 at different dates are needed for a rate")
     g = np.column_stack([tk, np.ones_like(tk)])
     v_lin = np.linalg.solve(g.T @ wk @ g, g.T @ wk @ d.T).T[:, 0]
 
@@ -121,10 +140,13 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
     except np.linalg.LinAlgError:
         inv_q = np.linalg.pinv(gq.T @ wk @ gq)
     mq = (inv_q @ gq.T @ wk @ d.T).T
-    res = d - (gq @ mq.T).T
     acc = 2.0 * mq[:, 0]
-    acc_var = 4.0 * float(inv_q[0, 0]) * (res**2 * np.diag(wk)[None, :]).sum(axis=1) / max(1, d.shape[1] - 3)
-    rmse = np.sqrt(np.mean(res**2, axis=1))
+    acc_var, rmse = np.empty(n), np.empty(n)
+    for s in _blocks(n):
+        res = d[s] - (gq @ mq[s].T).T
+        acc_var[s] = 4.0 * float(inv_q[0, 0]) * (res**2 * np.diag(wk)[None, :]).sum(axis=1) / max(1, d.shape[1] - 3)
+        rmse[s] = np.sqrt(np.mean(res**2, axis=1))
+    del res
     bad = ~np.isfinite(v_lin)
     acc[bad] = acc_var[bad] = rmse[bad] = np.nan
 
@@ -139,12 +161,16 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
         ts[:, img] = disp.astype(np.float32)          # a dropped interferogram stays NaN at its own epoch
     ts[:, master_ix] = 0
 
-    resid = (disp - v_lin[:, None] * t[None, :])
+    del d
+    resid = disp                                      # disp is not read again: the residual replaces it
+    for s in _blocks(n):
+        resid[s] -= v_lin[s, None] * t[None, :]
     g_sp = np.column_stack((np.asarray(xy, np.float64)[:, 1:3] / 1000.0, np.ones(n)))
     for k in range(n_sec):
         ok = np.isfinite(resid[:, k])
         if int(ok.sum()) >= g_sp.shape[1] + 10:
             resid[:, k] = resid[:, k] - g_sp @ np.linalg.lstsq(g_sp[ok], resid[ok, k], rcond=None)[0]
+    del disp
     resid = resid.astype(np.float32)
 
     v = v_lin.copy()
@@ -152,7 +178,7 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
         lon, lat = np.asarray(lonlat[:, 0], np.float64), np.asarray(lonlat[:, 1], np.float64)
         wl = max((lat.max() - lat.min()) * 111_320.0,
                  (lon.max() - lon.min()) * 111_320.0 * np.cos(np.radians(lat.mean())))
-        tc = resid.copy()
+        tc = resid                                    # corrected in place: column k only after its own fit
         if hgt is not None:
             h = np.asarray(hgt, np.float64).ravel()
             hf = np.isfinite(h)
@@ -162,10 +188,15 @@ def velocity(*, ph_uw: np.ndarray, scla: SclaResult, aps: np.ndarray | None, ifg
                     continue
                 mh = np.linalg.lstsq(np.column_stack([h[ok], np.ones(ok.sum())]), resid[ok, k], rcond=None)[0]
                 tc[hf, k] -= h[hf] * mh[0] + mh[1]
+        del resid
         resid = highpass_gaussian(lon, lat, tc, wl)
+        del tc
         tc_ = t - float(np.mean(t))
         okc = ~np.all(np.isnan(resid), axis=0)
-        dv = np.linalg.lstsq(np.column_stack([tc_[okc], np.ones(okc.sum())]), resid[:, okc].T, rcond=None)[0][0, :]
+        gc = np.column_stack([tc_[okc], np.ones(okc.sum())])
+        dv = np.empty(n)
+        for s in _blocks(n):
+            dv[s] = np.linalg.lstsq(gc, resid[s][:, okc].T, rcond=None)[0][0, :]
         v = v + dv
     return Velocity(v=v, v_linear=v_lin, acc=acc, acc_var=acc_var, rmse=rmse, ts_mm=ts, residual_mm=resid,
                     t_days=t_days)

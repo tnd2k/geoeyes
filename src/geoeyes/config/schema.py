@@ -27,6 +27,8 @@ class Sensor(StrEnum):
     COSMO_SKYMED = "cosmo_skymed"
     TERRASAR_X = "terrasar_x"
     CAPELLA = "capella"
+    ICEYE = "iceye"
+    UMBRA = "umbra"
     ALOS = "alos"
 
 
@@ -109,11 +111,16 @@ class AcquireSection(_Section):
     date_range: tuple[date, date] | None = None
     max_per_month: int = Field(0, ge=0)        # 0 = no limit
     archive: str = ""                          # shared raw-imagery root ("" = workspace archive)
+    opendata: str = ""                         # open-data stack id (`geoeyes opendata stacks`), e.g. "iceye:x53-..."
+    opendata_margin_m: float | None = Field(None, ge=0)   # around the AOI when the product is cut; None: per source
+                                                          # (ICEYE 500 m, Umbra 50 m: opendata.fetch.MARGIN_M)
 
     @model_validator(mode="after")
     def _order(self):
         if self.date_range and self.date_range[0] > self.date_range[1]:
             raise ValueError("acquire.date_range: start after end")
+        if self.opendata and ":" not in self.opendata:
+            raise ValueError("acquire.opendata: a stack id '<source>:<name>' (see `geoeyes opendata stacks`)")
         return self
 
 
@@ -121,6 +128,9 @@ class SbasNetwork(_Section):
     redundant_pairs: bool = True
     redundant_max_days: int = Field(24, ge=0)
     max_temporal_days: int = Field(0, ge=0)
+    # pairs shorter than this are not used: over crops the shortest pairs carry a phase bias that does not close
+    # (fading signal) and a chain of them flattens a subsidence rate (0 = keep all)
+    min_temporal_days: int = Field(0, ge=0)
 
 
 class NetworkSection(_Section):
@@ -134,7 +144,8 @@ class NetworkSection(_Section):
 class StackSection(_Section):
     engine: Literal["snap", "native"] = "native"          # snap: legacy configs only, not available (blocked)
     geometry: Literal["radar", "map"] | None = None       # None = sensor default (TSX: map; ADR-005)
-    dem: str = "srtm-1"         # srtm-1 | copernicus-30 (both downloaded when missing) | folder of .hgt | GeoTIFF
+    dem: str = "srtm-1"         # srtm-1 | copernicus-30 (both downloaded when missing) | lidar-3dep (USGS lidar DSM
+                                # over the AOI, US only) | folder of .hgt | GeoTIFF
     esd: bool = True
     multilook: tuple[int, int] = (1, 1)
     merge_subswaths: bool = False
@@ -152,6 +163,11 @@ class StackSection(_Section):
     # ionosphere_smooth_m (default), a quadratic surface or a plane over the bursts, or a Gaussian surface
     ionosphere_model: Literal["local", "quadratic", "plane", "smooth"] = "local"
     ionosphere_smooth_m: float = Field(10000.0, gt=0)
+    # stripmap / spotlight (COSMO-SkyMed, Capella, ICEYE): residual offset left by the orbits after the geometric
+    # coregistration, one constant per secondary or "terrain" (a plane in height, line and sample; mountains).
+    # Tenerife ICEYE (1.7 km relief, up to 0.47 lines/km): mean coherence +0.002 only, lower slopes -0.008, so off
+    # by default; the azimuth misregistration of a few tenths of a pixel costs little coherence at ICEYE resolution
+    coreg_model: Literal["constant", "terrain"] = "constant"
     byteswap: int = 1
     options: dict[str, Any] = {}                          # engine/sensor-specific extras
 
@@ -170,11 +186,14 @@ class PhaseLinkingSection(_Section):
     gaussian_sigma: float = Field(0.0, ge=0)              # post-filter; 0 = off
     gaussian_scope: Literal["linked", "all"] = "linked"   # linked pixels only (PS untouched) | all (legacy)
     nlinsar: dict[str, Any] | None = None                 # None = off
+    # date pairs ["YYYY-MM-DD", "YYYY-MM-DD"] whose coherence over the SHP family, |C_ij|, is kept as
+    # pl_pair_coherence (change detection over distributed scatterers); a few pairs: each is one float per pixel
+    store_pairs: tuple[tuple[str, str], ...] = ()
     options: dict[str, Any] = {}
 
 
 class SelectionSection(_Section):
-    da_threshold: float = Field(0.4, gt=0)
+    da_threshold: float = Field(0.42, gt=0)        # 0.42: as the HCMC Sentinel-1 product (2026-10-30)
     robust_da: bool = True
     # distributed scatterers from phase linking: per ds_cell x ds_cell block the pixel of highest linking
     # temporal coherence, if >= ds_coherence_min; None = PS only. Ignored when phase linking is off
@@ -184,6 +203,41 @@ class SelectionSection(_Section):
     mask: str = ""
     water_mask: Literal["none", "model", "static"] = "none"
     water_model: dict[str, Any] = {}
+
+
+class SbasSection(_Section):
+    """``[sbas]``: small-baseline time series on a multilooked grid (``processing.sbas``; used when
+    ``[project] method = "sbas"``). The pair network comes from ``[network]`` (``max_perp_m``, ``max_temporal_days``)
+    and ``[network.sbas]`` (redundant short pairs)."""
+
+    looks_az: int = Field(2, ge=1)                  # Sentinel-1: 2 × 8 looks ≈ 28 × 30 m
+    looks_rg: int = Field(8, ge=1)
+    n_nearest: int = Field(3, ge=1)                 # with max_temporal_days = 0: the next n dates of each date
+    source: Literal["auto", "slc", "linked"] = "auto"   # auto: the phase-linked SLC when phase linking is enabled
+    coherence_window: int = Field(5, ge=1)
+    min_pair_coherence: float = Field(0.2, ge=0, le=1)      # a pixel of a pair below it: no value in that pair
+    goldstein_alpha: float = Field(0.5, ge=0, le=1)
+    goldstein_fft: int = Field(32, ge=8)
+    irls_iter: int = Field(50, ge=1)
+    closure_max_share: float = Field(0.3, ge=0, le=1)       # pairs with more bad-closure pixels are dropped
+    closure_pixel_mask: bool = True                         # mask a pair's value where it closes badly locally
+    # per pair, the phase linear in height (stratified troposphere). "auto": off where the terrain is flat (relief
+    # p5-p95 < troposphere_min_relief_m: nothing to measure, and the fit takes height-correlated subsidence, HCMC);
+    # elsewhere removed without its steady trend over the dates (a real troposphere has none, so it cannot change
+    # the velocities). true: removed as fitted (legacy); false: off
+    troposphere: bool | Literal["auto"] = "auto"
+    troposphere_min_relief_m: float = Field(100.0, ge=0)
+    # per pixel, the DEM error estimated from the series (c + v·t + K·B⊥, Fattahi & Amelung 2013) and its term
+    # K·B⊥ removed: with B⊥ up to max_perp_m and DEM errors of tens of metres (buildings) it otherwise stays in
+    # the series and, where B⊥ drifts with time, in the velocity
+    dem_error: bool = True
+    link_islands: bool = True                               # tie disconnected islands by integer cycles
+    min_pair_fraction: float = Field(0.7, gt=0, le=1)       # a pixel needs this share of the pairs
+    min_mean_coherence: float = Field(0.3, ge=0, le=1)      # output mask: mean pair coherence
+    min_temporal_coherence: float = Field(0.7, ge=0, le=1)  # output mask: Pepe & Lanari temporal coherence
+    # lon, lat of a stable reference (3 × 3 pixels); None: the median of the most coherent 10 % of pixels, a scene
+    # reference that is biased when the deforming area covers much of the scene: set it for real work
+    reference: tuple[float, float] | None = None
 
 
 class PsLiteSection(_Section):
@@ -229,9 +283,19 @@ class PsLiteSection(_Section):
     unwrap_input: Literal["ps", "patch"] = "ps"
 
 
+class PsUpdateSection(_Section):
+    """Incremental ``ps`` (docs/en/guide/incremental.md): acquisitions appended after the last date of the previous
+    run are added to its points instead of running the engine on the whole stack again."""
+
+    enabled: bool = True
+    # a full engine run after this many dates added by updates (the selection, the DEM errors and the APS of the
+    # earlier dates are not re-estimated by an update)
+    full_every: int = Field(4, ge=1)
+
+
 class AtmosphereSection(_Section):
     # APS removed in the second unwrapping pass: none/linear = the engine's linear (topography-correlated)
-    # APS; era5 | gacos = weather model, the linear APS where it has no data
+    # APS; era5 | cerra | gacos = weather model, the linear APS where it has no data (cerra: Europe only)
     method: str = "none"
     # era5/gacos per interferogram: "auto" = only where it explains the pass-1 residual phase better than the
     # linear APS (linear elsewhere); "all" = every interferogram
@@ -240,6 +304,7 @@ class AtmosphereSection(_Section):
     # (total | hydro | wet), pressure_levels, workers (4), fallback_utc ("HH:MM:SS" for stacks without times)
     era5: dict[str, Any] = {}
     gacos: dict[str, Any] = {}            # dir: folder of <YYYYMMDD>.ztd(.rsc|.tif) products
+    cerra: dict[str, Any] = {}            # cache (default <workspace>/cache/cerra); max_wait_min (20) in the CDS queue
 
 
 class PostprocessSection(_Section):
@@ -255,6 +320,8 @@ class PostprocessSection(_Section):
     # docs/en/research/behaviour-and-risk.md
     behaviour: dict[str, Any] = {}
     risk: dict[str, Any] = {}
+    # people and buildings on sinking ground / in an event's flood (Source Cooperative layers): geoeyes.hazard.exposure
+    exposure: dict[str, Any] = {}
     # linear infrastructure and consolidation: geoeyes.ml.lines / geoeyes.ml.consolidation and
     # docs/en/research/lines-and-consolidation.md
     lines: dict[str, Any] = {}
@@ -277,8 +344,9 @@ class ReportSection(_Section):
 
 
 class ExportSection(_Section):
-    # pmtiles: vector tiles (QGIS 3.32+, the web app's tiled mode for large products)
-    formats: tuple[Literal["gpkg", "shp", "csv", "las", "qml", "pmtiles"], ...] = ("gpkg", "pmtiles")
+    # pmtiles: vector tiles (QGIS 3.32+, the web app's tiled mode for large products); kmz: Google Earth;
+    # 3dtiles: 3D Tiles point cloud with a Cesium viewer page
+    formats: tuple[Literal["gpkg", "shp", "csv", "las", "qml", "pmtiles", "kmz", "3dtiles"], ...] = ("gpkg", "pmtiles")
 
 
 class ComputeSection(_Section):
@@ -303,6 +371,8 @@ class ProjectConfig(_Section):
     selection: SelectionSection = SelectionSection()
     ps: dict[str, Any] = {}
     ps_lite: PsLiteSection = PsLiteSection()
+    sbas: SbasSection = SbasSection()
+    ps_update: PsUpdateSection = PsUpdateSection()
     atmosphere: AtmosphereSection = AtmosphereSection()
     postprocess: PostprocessSection = PostprocessSection()
     validation: ValidationSection = ValidationSection()
@@ -327,8 +397,8 @@ class ProjectConfig(_Section):
         if not self.tracks:
             raise ValueError("at least one [[tracks]] entry is required")
         sensors = {t.sensor for t in self.tracks}
-        if self.project.method is Method.PS_LITE and sensors != {Sensor.CAPELLA}:
-            raise ValueError("method 'ps_lite' is the Capella workflow (ADR-020)")
+        if self.project.method is Method.PS_LITE and not sensors <= {Sensor.CAPELLA, Sensor.UMBRA}:
+            raise ValueError("method 'ps_lite' is the short-stack workflow of Capella and Umbra (ADR-020, ADR-029)")
         if Sensor.CAPELLA in sensors and self.project.method is not Method.PS_LITE:
             raise ValueError("Capella projects use method 'ps_lite' (ADR-020)")
         for key in self.overrides:

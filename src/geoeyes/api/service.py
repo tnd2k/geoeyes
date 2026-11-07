@@ -10,6 +10,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,7 @@ from geoeyes.workspace.lock import list_locks
 PHASES = ("acquire", "build_stack", "phase_linking", "ps", "build_product", "export", "report")
 FOLDERS_FILE = ".folders.json"
 WEB_RUN_LOG = "web_run.out"          # stdout/stderr of the last run started from the web app (.state/)
+WEB_RUN_JOB = "web_run.json"         # its process id and start time (running while it plans, before its lock)
 WEB_CR_LOG = "web_cr_report.out"     # same for the last corner reflector report
 
 
@@ -72,8 +75,10 @@ def save_folders(ws: WorkspaceLayout, data: dict) -> dict:
 
 def trash_projects(ws: WorkspaceLayout, names: list[str]) -> list[dict]:
     """Move projects to ``<workspace>/trash/<name>__<time>/`` (recoverable by moving the folder back): a project
-    whose run is in progress is refused, and nothing is moved if any of them is refused."""
-    import shutil
+    whose run is in progress is refused, and nothing is moved if any of them is refused. Only a rename, never a
+    copy: ``shutil.move`` copies the whole project when the rename fails (a file held open, e.g. a served
+    ``.pmtiles``), which filled the disk once (2026-11-03); the move is refused instead."""
+    import os
     from datetime import datetime
     projects = []
     for name in dict.fromkeys(str(n) for n in names):
@@ -88,7 +93,11 @@ def trash_projects(ws: WorkspaceLayout, names: list[str]) -> list[dict]:
     for project in projects:
         dest = ws.root / "trash" / f"{project.name}__{stamp}"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(project.root), str(dest))
+        try:
+            os.rename(project.root, dest)
+        except OSError as e:
+            raise LockedError(f"{project.name}: cannot move it to the trash ({e.strerror}); a file is probably open "
+                              "(map tiles served, a viewer): close it and try again") from e
         out.append({"name": project.name, "trash": str(dest)})
     return out
 
@@ -112,12 +121,30 @@ def _product_brief(project: ProjectLayout, pid: str | None) -> dict | None:
 
 
 def _running(project: ProjectLayout) -> dict | None:
+    """The live run: its lock, or (while it plans, before taking the lock) the run process started from the web
+    app (``stage: "planning"``)."""
     alive = [lk for lk in list_locks(project.locks) if lk["alive"]]
-    if not alive:
-        return None
     runs = sorted(p.name for p in (project.root / "runs").glob("*") if p.is_dir())
-    return {"pid": alive[0].get("pid"), "started": alive[0].get("started_at"),
-            "run_id": runs[-1] if runs else None}
+    if alive:
+        # the lock names its run (older locks: the newest run folder)
+        return {"pid": alive[0].get("pid"), "started": alive[0].get("started_at"),
+                "run_id": alive[0].get("run_id") or (runs[-1] if runs else None), "stage": "running"}
+    job = _read(project.state_dir / WEB_RUN_JOB)
+    from geoeyes.api.jobs import alive as pid_alive
+    if job and pid_alive(job.get("pid"), "run"):
+        started = job.get("started", "")
+        t0 = float(job.get("t", 0))                  # its run folder appears a second after the start
+        recent = [r for r in runs if (project.root / "runs" / r).stat().st_mtime >= t0 - 5]
+        return {"pid": job["pid"], "started": started, "run_id": recent[-1] if recent else None, "stage": "planning"}
+    return None
+
+
+def _net(project: ProjectLayout) -> dict | None:
+    """Download rate of the live run (``core.netrate``): bytes per second over the last seconds, bytes so far."""
+    n = _read(project.state_dir / "net.json")
+    if not n:
+        return None
+    return {**n, "age_s": round(time.time() - float(n.get("updated", 0)), 1)}
 
 
 def project_summary(ws: WorkspaceLayout, name: str) -> dict:
@@ -210,6 +237,7 @@ def project_detail(ws: WorkspaceLayout, name: str) -> dict:
     out["exports"] = {d.name: [f.name for f in sorted(d.iterdir()) if f.is_file()]
                       for d in sorted((project.root / "exports").glob("*")) if d.is_dir()}
     out["web_run_log"] = _tail(project.state_dir / WEB_RUN_LOG, 30)
+    out["net"] = _net(project) if out.get("running") else None
     return out
 
 
@@ -277,24 +305,36 @@ def run_log(project: ProjectLayout, run_id: str, after: int = 0, debug: bool = F
                     continue
                 if not debug and r.get("level") == "DEBUG":
                     continue
-                lines.append({"ts": r.get("ts"), "level": r.get("level"), "phase": r.get("phase"),
-                              "track": r.get("track"), "msg": r.get("msg"), "event": r.get("event")})
+                rec = {"ts": r.get("ts"), "level": r.get("level"), "phase": r.get("phase"),
+                       "track": r.get("track"), "msg": r.get("msg"), "event": r.get("event")}
+                if r.get("event") == "progress" and r.get("total"):      # the card of the running phase fills up
+                    rec.update(done=r.get("done"), total=r.get("total"))
+                lines.append(rec)
     except OSError:
         pass
     return {"run_id": run_id, "lines": lines[-2000:], "next": nxt}
 
 
 # ---------------------------------------------------------------- plan / run
-def plan(ws: WorkspaceLayout, name: str, force: list[str] | None = None) -> list[dict]:
+def plan(ws: WorkspaceLayout, name: str, force: list[str] | None = None, skip: list[str] | None = None) -> list[dict]:
     from geoeyes.controller.pipeline import plan as make_plan
     project = ws.project(name)
     cfg = load(project.config)
-    p = make_plan(cfg, project, ws, force=tuple(force or ()))
+    p = make_plan(cfg, project, ws, force=tuple(force or ()), skip=tuple(skip or ()))
     return [{"track": s.ctx.track_id, "phase": s.phase.name, "action": s.action, "reason": s.reason}
             for s in p.steps]
 
 
-def start_run(ws: WorkspaceLayout, name: str, *, tracks=None, force=None, only=None) -> dict:
+def ps_steps(ws: WorkspaceLayout, name: str) -> dict[str, list[dict]]:
+    """The saved checkpoints of the ps engine, per track: {track: [{step, name, saved}]}."""
+    from geoeyes.processing.ps.checkpoints import status
+    project = ws.project(name)
+    cfg = load(project.config)
+    return {tr.track_id: status(project.ps_run(tr.track_id)) for tr in cfg.tracks}
+
+
+def start_run(ws: WorkspaceLayout, name: str, *, tracks=None, force=None, only=None, from_=None, skip=None,
+              ps_from=None, ps_to=None) -> dict:
     """Start ``geoeyes run`` detached from the server; its output goes to ``.state/web_run.out``."""
     project = ws.project(name)
     load(project.config)                                 # invalid configuration: fail here, not in the subprocess
@@ -305,8 +345,16 @@ def start_run(ws: WorkspaceLayout, name: str, *, tracks=None, force=None, only=N
         argv += ["--track", str(t)]
     for f in force or ():
         argv += ["--force", str(f)]
+    for s in skip or ():
+        argv += ["--skip", str(s)]
+    if ps_from:
+        argv += ["--ps-from", str(int(ps_from))]
+    if ps_to:
+        argv += ["--ps-to", str(int(ps_to))]
     if only:
         argv += ["--only", str(only)]
+    if from_:
+        argv += ["--from", str(from_)]
     return {"pid": _spawn(project, argv, WEB_RUN_LOG), "argv": argv[2:]}
 
 
@@ -319,6 +367,11 @@ def _spawn(project: ProjectLayout, argv: list[str], log_name: str) -> int:
     with (project.state_dir / log_name).open("w", encoding="utf-8") as out:
         proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 cwd=str(project.root), creationflags=flags, start_new_session=os.name != "nt")
+    if log_name == WEB_RUN_LOG:                          # running from the click on, before the run takes its lock
+        (project.state_dir / WEB_RUN_JOB).write_text(
+            json.dumps({"pid": proc.pid, "started": datetime.now(UTC).isoformat(timespec="seconds"),
+                        "t": time.time()}),
+            encoding="utf-8")
     return proc.pid
 
 
@@ -341,9 +394,17 @@ def stop_run(ws: WorkspaceLayout, name: str) -> dict:
         return {"stopped": False}
     try:
         proc = psutil.Process(int(run["pid"]))
-        for p in [*proc.children(recursive=True), proc]:
-            p.terminate()
-        psutil.wait_procs([proc], timeout=10)
     except psutil.NoSuchProcess:
-        pass
+        return {"stopped": True, "pid": run["pid"]}
+    procs = [*proc.children(recursive=True), proc]
+    for p in procs:
+        with contextlib.suppress(psutil.NoSuchProcess):
+            p.terminate()
+    _, alive = psutil.wait_procs(procs, timeout=10)
+    for p in alive:                                      # still there: no second chance
+        with contextlib.suppress(psutil.NoSuchProcess):
+            p.kill()
+    _, alive = psutil.wait_procs(alive, timeout=5)
+    if alive:
+        raise GeoEyesError(f"could not stop process {', '.join(str(p.pid) for p in alive)} of {name}")
     return {"stopped": True, "pid": run["pid"]}

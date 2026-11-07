@@ -18,33 +18,38 @@ export const LEARN: Record<string, string> = {
   Numbers: "Số liệu",
   Window: "Cửa sổ",
   "Side of the area, km": "Cạnh của vùng, km",
-  "Looks (az × rg)": "Số look (phương vị × cự ly)",
-  "Coherence window": "Cửa sổ độ kết hợp",
-  "Coherence threshold": "Ngưỡng độ kết hợp",
+  "Looks (az × rg)": "Số điểm ảnh gộp (phương bay × phương nhìn ngang)",
+  "Coherence window": "Cửa sổ độ nhất quán",
+  "Coherence threshold": "Ngưỡng độ nhất quán",
   "Window (pixels)": "Cửa sổ (pixel)",
   Passes: "Số lượt lọc",
-  "Baseline plot": "Biểu đồ đường đáy",
+  "Baseline plot": "Biểu đồ đường cơ sở",
   "Next click sets scene {n}.": "Lần bấm tiếp theo chọn cảnh {n}.",
   "stack reference": "ảnh tham chiếu của chồng ảnh",
   "chosen pair": "cặp đang chọn",
   "Loading the scene…": "Đang tải cảnh ảnh…",
   "Radar geometry: rows = azimuth, columns = range. {dir}, looking {side}.":
-    "Hình học radar: hàng = phương vị, cột = cự ly. Quỹ đạo {dir}, nhìn về phía {side}.",
+    "Hình học radar: hàng = phương bay, cột = phương nhìn ngang. Quỹ đạo {dir}, nhìn về phía {side}.",
   "Click an image to set the reference point (white circle).": "Bấm vào ảnh để chọn điểm tham chiếu (vòng tròn trắng).",
   "Automatic reference": "Tham chiếu tự động",
   "Use the phase-linked SLCs (less noise, used by the GeoEyes chain for this stack)":
     "Dùng SLC sau liên kết pha (ít nhiễu hơn, là dữ liệu chuỗi xử lý GeoEyes dùng cho chồng ảnh này)",
   "Profile along row {r}": "Mặt cắt theo hàng {r}",
-  wrapped: "pha cuộn",
+  wrapped: "pha chập",
   unwrapped: "pha đã giải chập",
-  "range →": "cự ly →",
+  "range →": "phương nhìn ngang →",
   pixel: "pixel",
-  "median of the most coherent 10 %": "trung vị của 10 % pixel có độ kết hợp cao nhất",
-  "multilooked pixels": "pixel sau multilook",
+  "median of the most coherent 10 %": "trung vị của 10 % pixel có độ nhất quán cao nhất",
+  "multilooked pixels": "điểm ảnh sau khi gộp",
   "Loading the points…": "Đang tải các điểm…",
   "No product with points for this stack yet: run the PS processing first.":
     "Chồng ảnh này chưa có sản phẩm điểm: hãy chạy xử lý PS trước.",
-  "{n} points of {p} in the area.": "{n} điểm của {p} trong vùng.",
+  "(the product shown on the Results map)": "(sản phẩm đang hiển thị ở trang Kết quả)",
+  "(the newest product of this track: add it to the Results map to compare)": "(sản phẩm mới nhất của track này: thêm nó vào bản đồ Kết quả để so sánh)",
+  "{n} {kind} points in this area, out of {total} in the whole product.": "{n} điểm {kind} trong vùng này, trên tổng số {total} điểm của cả sản phẩm.",
+  "(a random sample of the {m} points here)": "(mẫu ngẫu nhiên từ {m} điểm trong vùng)",
+  "Here each point fills one pixel of the image (about {px} m) in a small area seen up close; the Results map shows the whole product, where fields and the river bed have few points or none.":
+    "Ở đây mỗi điểm tô kín một pixel của ảnh (khoảng {px} m) trong một vùng nhỏ được phóng to; bản đồ Kết quả hiển thị toàn bộ sản phẩm, nơi đồng ruộng và lòng sông có rất ít hoặc không có điểm.",
   "Click a point.": "Bấm vào một điểm.",
   "displacement of the point (0 at the first date)": "chuyển dịch của điểm (bằng 0 tại ngày đầu)",
   "line fitted to all dates": "đường thẳng khớp với mọi ngày",
@@ -68,19 +73,19 @@ export const LEARN: Record<string, string> = {
   "An interferogram compares two of them: the first and the second scene of the pair.":
     "Giao thoa đồ so sánh hai cảnh trong số đó: cảnh thứ nhất và cảnh thứ hai của cặp.",
   "Short time between the dates and a small perpendicular baseline (B⊥, the distance between the two orbits) keep the two scenes alike: the result is cleaner.":
-    "Khoảng thời gian ngắn và đường đáy vuông góc nhỏ (B⊥, khoảng cách giữa hai quỹ đạo) giúp hai cảnh giống nhau hơn, nên kết quả sạch hơn.",
-  "Click two points of the baseline plot to form a pair.": "Bấm hai điểm trên biểu đồ đường đáy để tạo một cặp.",
+    "Khoảng thời gian ngắn và đường cơ sở vuông góc nhỏ (B⊥, khoảng cách giữa hai quỹ đạo) giúp hai cảnh giống nhau hơn, nên kết quả sạch hơn.",
+  "Click two points of the baseline plot to form a pair.": "Bấm hai điểm trên biểu đồ đường cơ sở để tạo một cặp.",
   "Click the amplitude image to move the area; the window size sets how much ground you see.":
     "Bấm vào ảnh biên độ để dời vùng; kích thước cửa sổ quyết định diện tích mặt đất được xem.",
 
   // ---------------------------------------------------------------- step 1: scenes
-  "Two single SLC scenes": "Hai cảnh SLC đơn lẻ",
+  "Two single SLC scenes": "Hai ảnh phức gốc (SLC)",
   "See what one radar scene holds: a complex number per pixel, with an amplitude and a phase.":
     "Xem một cảnh radar chứa gì: mỗi pixel là một số phức, gồm biên độ và pha.",
   "Amplitude, scene 1": "Biên độ, cảnh 1",
   "Amplitude, scene 2": "Biên độ, cảnh 2",
   "A single-look complex (SLC) image stores, for each pixel, how strongly the ground echoes the radar (amplitude) and where in its wave cycle the echo comes back (phase).":
-    "Ảnh SLC (single-look complex) lưu cho mỗi pixel độ mạnh của tín hiệu mặt đất phản xạ về (biên độ) và vị trí trong chu kỳ sóng khi tín hiệu quay về (pha).",
+    "Ảnh phức gốc (SLC, single-look complex: mỗi điểm ảnh là một phép đo riêng, chưa gộp với điểm bên cạnh) lưu cho mỗi pixel độ mạnh của tín hiệu mặt đất phản xạ về (biên độ) và vị trí trong chu kỳ sóng khi tín hiệu quay về (pha).",
   "Amplitude shows the scene: bright buildings and corners, dark water and smooth roads. The granular texture is speckle, not noise of the instrument.":
     "Biên độ cho thấy khung cảnh: công trình và góc cạnh sáng, mặt nước và đường nhẵn tối. Vân lấm tấm là nhiễu đốm (speckle), không phải nhiễu của thiết bị.",
   "The phase of one scene alone looks random: it mixes the distance to the satellite with the arrangement of scatterers inside the pixel. It becomes useful only when two scenes are compared.":
@@ -88,21 +93,21 @@ export const LEARN: Record<string, string> = {
   "Both amplitudes look almost the same: the geometry did not change much.":
     "Hai ảnh biên độ gần như giống nhau: hình học thu nhận không thay đổi nhiều.",
   "Images are in radar geometry: rows are azimuth (along the orbit), columns are range (away from the satellite); north is not up.":
-    "Ảnh ở hình học radar: hàng là phương vị (dọc quỹ đạo), cột là cự ly (ra xa vệ tinh); phía trên ảnh không phải hướng bắc.",
+    "Ảnh ở hình học radar: hàng là phương bay (dọc quỹ đạo), cột là phương nhìn ngang (ra xa vệ tinh); phía trên ảnh không phải hướng bắc.",
   Wavelength: "Bước sóng",
   Incidence: "Góc tới",
-  "Pixel (az × ground rg)": "Pixel (phương vị × cự ly mặt đất)",
+  "Pixel (az × ground rg)": "Pixel (phương bay × khoảng cách trên mặt đất)",
 
   // ---------------------------------------------------------------- step 2: coregistration
-  Coregistration: "Đồng đăng ký ảnh",
+  Coregistration: "Khớp ảnh",
   "Make every pixel of scene 2 look at the same ground as the same pixel of scene 1.":
-    "Làm cho mỗi pixel của cảnh 2 nhìn đúng vào cùng mảnh đất với pixel tương ứng của cảnh 1.",
+    "Khớp ảnh (coregistration): làm cho mỗi pixel của cảnh 2 nhìn đúng vào cùng mảnh đất với pixel tương ứng của cảnh 1.",
   "Colour composite": "Ảnh tổ hợp màu",
   "red = scene 1, cyan = scene 2": "đỏ = cảnh 1, lục lam = cảnh 2",
   Blink: "Nhấp nháy",
   "scene 1 ↔ scene 2": "cảnh 1 ↔ cảnh 2",
   "The two orbits differ slightly, so the same building falls on different pixels in the two scenes. Coregistration resamples scene 2 onto the grid of scene 1.":
-    "Hai quỹ đạo lệch nhau một chút, nên cùng một công trình rơi vào các pixel khác nhau ở hai cảnh. Đồng đăng ký lấy mẫu lại cảnh 2 lên lưới của cảnh 1.",
+    "Hai quỹ đạo lệch nhau một chút, nên cùng một công trình rơi vào các pixel khác nhau ở hai cảnh. Khớp ảnh lấy mẫu lại cảnh 2 lên lưới của cảnh 1.",
   "GeoEyes does it geometrically: with the precise orbits and the DEM, it computes where every pixel of scene 1 lies in scene 2, then corrects the remaining offset by matching the images (and, for Sentinel-1, with the enhanced spectral diversity across bursts).":
     "GeoEyes làm việc này bằng hình học: từ quỹ đạo chính xác và DEM, nó tính vị trí của từng pixel cảnh 1 trong cảnh 2, rồi hiệu chỉnh phần lệch còn lại bằng cách khớp ảnh (với Sentinel-1 còn dùng phương pháp phân tập phổ tăng cường ESD giữa các burst).",
   "The accuracy needed is about a tenth of a pixel: worse, and the phases of the two scenes no longer belong to the same scatterers.":
@@ -110,8 +115,8 @@ export const LEARN: Record<string, string> = {
   "In the composite, aligned features are grey; a misalignment would show red and cyan edges.":
     "Trên ảnh tổ hợp, các đối tượng khớp nhau có màu xám; nếu lệch sẽ thấy viền đỏ và lục lam.",
   "In the blink, nothing should jump: only the speckle flickers.": "Khi nhấp nháy, không có gì nhảy vị trí: chỉ nhiễu đốm thay đổi.",
-  "Residual offset after geometry (az, rg)": "Độ lệch còn lại sau hình học (phương vị, cự ly)",
-  "ESD azimuth shift": "Độ dịch phương vị ESD",
+  "Residual offset after geometry (az, rg)": "Độ lệch còn lại sau hình học (phương bay, phương nhìn ngang)",
+  "ESD azimuth shift": "Độ dịch theo phương bay ESD",
   "Reference grid": "Lưới tham chiếu",
 
   // ---------------------------------------------------------------- step 3: raw interferogram
@@ -126,9 +131,9 @@ export const LEARN: Record<string, string> = {
   "The next steps remove the parts we can model, so that the motion remains.":
     "Các bước sau loại bỏ những thành phần mô hình hoá được, để còn lại chuyển dịch.",
   "GeoEyes removes the flat earth and the topography already during coregistration; here they are added back from the stored geometry so that you can see them.":
-    "GeoEyes đã loại bỏ pha mặt đất phẳng và pha địa hình ngay khi đồng đăng ký; ở đây chúng được dựng lại từ hình học đã lưu để bạn nhìn thấy.",
+    "GeoEyes đã loại bỏ pha mặt đất phẳng và pha địa hình ngay khi khớp ảnh; ở đây chúng được dựng lại từ hình học đã lưu để bạn nhìn thấy.",
   "Dense, regular fringes running along the azimuth: mostly the flat-earth phase.":
-    "Các vân dày, đều, chạy dọc phương vị: phần lớn là pha mặt đất phẳng.",
+    "Các vân dày, đều, chạy dọc phương bay: phần lớn là pha mặt đất phẳng.",
   Pair: "Cặp ảnh",
   "Fringes per km (raw)": "Số vân trên km (thô)",
 
@@ -139,7 +144,7 @@ export const LEARN: Record<string, string> = {
   "Flat-earth phase (model)": "Pha mặt đất phẳng (mô hình)",
   "After removing it": "Sau khi loại bỏ",
   "From two orbits a baseline B⊥ apart, the distance to a smooth Earth changes steadily across the swath: regular fringes along range.":
-    "Từ hai quỹ đạo cách nhau một đường đáy B⊥, khoảng cách tới một Trái Đất nhẵn thay đổi đều đặn trên toàn dải quét: tạo các vân đều theo cự ly.",
+    "Từ hai quỹ đạo cách nhau một đường cơ sở B⊥, khoảng cách tới một Trái Đất nhẵn thay đổi đều đặn trên toàn dải quét: tạo các vân đều theo phương nhìn ngang.",
   "Their rate is known from the orbits: the larger B⊥, the denser the fringes.":
     "Mật độ vân biết trước từ quỹ đạo: B⊥ càng lớn, vân càng dày.",
   "The dense regular fringes are gone; what remains follows the relief, the motion and the atmosphere.":
@@ -157,77 +162,77 @@ export const LEARN: Record<string, string> = {
   "A point higher up is seen at a slightly different angle from the two orbits: its phase changes with its height.":
     "Một điểm cao hơn được nhìn từ hai quỹ đạo dưới góc hơi khác nhau: pha của nó thay đổi theo độ cao.",
   "The height of ambiguity is the height difference that makes one fringe: with a large one, the relief hardly shows.":
-    "Độ cao nhập nhằng là chênh lệch độ cao tạo ra một vân: khi giá trị này lớn, địa hình gần như không hiện ra.",
+    "Độ cao ứng với một vân là chênh lệch độ cao tạo ra một vân: khi giá trị này lớn, địa hình gần như không hiện ra.",
   "An error of the DEM (buildings missing from SRTM, for example) leaves a phase proportional to B⊥: GeoEyes estimates it per point later, in the time series.":
     "Sai số DEM (ví dụ SRTM thiếu công trình) để lại một phần pha tỉ lệ với B⊥: GeoEyes ước lượng nó cho từng điểm ở bước sau, trong chuỗi thời gian.",
   "Fringes that followed the hills disappear; on flat ground the change is small.":
     "Các vân bám theo đồi núi biến mất; ở vùng bằng phẳng thay đổi nhỏ.",
   "What remains: motion, atmosphere (smooth, km-scale) and noise.": "Phần còn lại: chuyển dịch, khí quyển (biến đổi mịn, cỡ km) và nhiễu.",
-  "Height of ambiguity": "Độ cao nhập nhằng",
+  "Height of ambiguity": "Độ cao ứng với một vân",
   "DEM range": "Khoảng độ cao DEM",
   "Topographic phase across the area": "Biên độ pha địa hình trong vùng",
   "Fringes per km (differential)": "Số vân trên km (vi phân)",
 
   // ---------------------------------------------------------------- step 6: coherence
-  "Coherence and multilooking": "Độ kết hợp và multilook",
+  "Coherence and multilooking": "Độ nhất quán tín hiệu và gộp điểm ảnh",
   "Measure where the phase can be trusted.": "Đo xem pha đáng tin ở đâu.",
-  Coherence: "Độ kết hợp",
-  "Differential phase, low coherence dimmed": "Pha vi phân, vùng độ kết hợp thấp được làm mờ",
+  Coherence: "Độ nhất quán",
+  "Differential phase, low coherence dimmed": "Pha vi phân, vùng độ nhất quán thấp được làm mờ",
   "Coherence compares the two scenes in a small window: 1 when they are alike, near 0 when the ground changed (vegetation, water, construction) or the scatterers decorrelated.":
-    "Độ kết hợp so sánh hai cảnh trong một cửa sổ nhỏ: bằng 1 khi chúng giống nhau, gần 0 khi mặt đất đã thay đổi (thực vật, mặt nước, xây dựng) hoặc các vật tán xạ mất tương quan.",
+    "Độ nhất quán tín hiệu (coherence) so sánh hai cảnh trong một cửa sổ nhỏ: bằng 1 khi chúng giống nhau, gần 0 khi mặt đất đã thay đổi (thực vật, mặt nước, xây dựng) hoặc các vật tán xạ mất tương quan.",
   "Multilooking averages neighbouring pixels of the interferogram: less noise, coarser pixels.":
-    "Multilook lấy trung bình các pixel lân cận của giao thoa đồ: ít nhiễu hơn, pixel thô hơn.",
+    "Gộp điểm ảnh (multilook) lấy trung bình các pixel lân cận của giao thoa đồ: ít nhiễu hơn, pixel thô hơn.",
   "Low-coherence areas carry no usable phase: they are dimmed here and weigh little in the unwrapping.":
-    "Vùng có độ kết hợp thấp không mang pha dùng được: chúng được làm mờ ở đây và có trọng số nhỏ khi giải chập pha.",
-  "Buildings and roads stay coherent; fields, water and trees do not.": "Công trình và đường sá giữ độ kết hợp cao; ruộng, mặt nước và cây cối thì không.",
+    "Vùng có độ nhất quán thấp không mang pha dùng được: chúng được làm mờ ở đây và có trọng số nhỏ khi giải chập pha.",
+  "Buildings and roads stay coherent; fields, water and trees do not.": "Công trình và đường sá giữ độ nhất quán cao; ruộng, mặt nước và cây cối thì không.",
   "Move the threshold and see which areas survive.": "Kéo ngưỡng để xem vùng nào còn lại.",
-  "Median coherence": "Độ kết hợp trung vị",
+  "Median coherence": "Độ nhất quán trung vị",
   "The threshold chosen here carries on: the filter, the unwrapping and the displacement of the next steps only use the pixels at or above it.":
-    "Ngưỡng chọn ở đây được giữ cho các bước sau: bộ lọc, giải chập pha và chuyển dịch chỉ dùng những pixel có độ kết hợp từ ngưỡng trở lên.",
+    "Ngưỡng chọn ở đây được giữ cho các bước sau: bộ lọc, giải chập pha và chuyển dịch chỉ dùng những pixel có độ nhất quán từ ngưỡng trở lên.",
   "Pixels kept (γ ≥ threshold)": "Pixel được giữ (γ ≥ ngưỡng)",
   "Only the pixels kept at the coherence step are unwrapped. Patches cut off from the rest by low coherence may be off by a whole number of cycles.":
-    "Chỉ những pixel được giữ ở bước độ kết hợp mới được giải chập. Những mảng bị vùng độ kết hợp thấp cắt rời khỏi phần còn lại có thể lệch nhau một số nguyên chu kỳ.",
+    "Chỉ những pixel được giữ ở bước độ nhất quán mới được giải chập. Những mảng bị vùng độ nhất quán thấp cắt rời khỏi phần còn lại có thể lệch nhau một số nguyên chu kỳ.",
 
   // ---------------------------------------------------------------- step 7: filtering
   "Phase filtering (Goldstein)": "Lọc pha (Goldstein)",
   "Reduce the phase noise so that the fringes become continuous.": "Giảm nhiễu pha để các vân trở nên liên tục.",
   "Before filtering": "Trước khi lọc",
   "After the Goldstein filter": "Sau bộ lọc Goldstein",
-  "dots: residues": "chấm: điểm dư pha",
+  "dots: residues": "chấm: thặng dư pha",
   "The Goldstein filter works in small windows of the spectrum: it keeps the dominant fringe pattern and damps the rest; α sets how strongly (0 = no filter, 1 = strong).":
     "Bộ lọc Goldstein làm việc trên phổ của từng cửa sổ nhỏ: giữ lại dạng vân chiếm ưu thế và làm suy giảm phần còn lại; α quyết định mức lọc (0 = không lọc, 1 = lọc mạnh).",
   "A residue is a 2×2 loop whose phase differences do not add up to zero: there, unwrapping is ambiguous. Red = +1, cyan = −1.":
-    "Điểm dư pha là một vòng 2×2 mà tổng các hiệu pha quanh nó khác 0: tại đó việc giải chập pha không xác định duy nhất. Đỏ = +1, lục lam = −1.",
+    "Thặng dư pha (residue) là một vòng 2×2 mà tổng các hiệu pha quanh nó khác 0: tại đó việc giải chập pha không xác định duy nhất. Đỏ = +1, lục lam = −1.",
   "Filtering removes most residues, but too strong a filter also smooths real motion and invents fringes in noise.":
-    "Lọc loại bỏ phần lớn điểm dư pha, nhưng lọc quá mạnh sẽ làm mờ cả chuyển dịch thật và tạo ra vân giả trong vùng nhiễu.",
-  "Residues gather in the noisy, low-coherence areas.": "Điểm dư pha tập trung ở vùng nhiễu, độ kết hợp thấp.",
-  "Compare α = 0.3 and 0.9: fewer residues, but smoother details.": "So sánh α = 0,3 và 0,9: ít điểm dư pha hơn, nhưng chi tiết bị làm mịn hơn.",
-  "Residues, before → after": "Số điểm dư pha, trước → sau",
+    "Lọc loại bỏ phần lớn thặng dư pha, nhưng lọc quá mạnh sẽ làm mờ cả chuyển dịch thật và tạo ra vân giả trong vùng nhiễu.",
+  "Residues gather in the noisy, low-coherence areas.": "Thặng dư pha tập trung ở vùng nhiễu, độ nhất quán thấp.",
+  "Compare α = 0.3 and 0.9: fewer residues, but smoother details.": "So sánh α = 0,3 và 0,9: ít thặng dư pha hơn, nhưng chi tiết bị làm mịn hơn.",
+  "Residues, before → after": "Số thặng dư pha, trước → sau",
   "α · window · passes": "α · cửa sổ · số lượt",
   "Z(u,v) ← Z(u,v) · |S(u,v)|^α  (per window, S = smoothed spectrum)": "Z(u,v) ← Z(u,v) · |S(u,v)|^α  (từng cửa sổ, S = phổ đã làm mịn)",
   "φ_unw = φ_wrapped + 2π·k,  k integer": "φ_unw = φ_cuộn + 2π·k,  k nguyên",
-  "residue = Σ wrap(Δφ) around a 2×2 loop / 2π ∈ {−1, 0, +1}": "điểm dư = Σ wrap(Δφ) quanh vòng 2×2 / 2π ∈ {−1, 0, +1}",
-  "height of ambiguity = 2π / kₕ = λ R sin θ / (2 B⊥)": "độ cao nhập nhằng = 2π / kₕ = λ R sin θ / (2 B⊥)",
+  "residue = Σ wrap(Δφ) around a 2×2 loop / 2π ∈ {−1, 0, +1}": "thặng dư pha = Σ wrap(Δφ) quanh vòng 2×2 / 2π ∈ {−1, 0, +1}",
+  "height of ambiguity = 2π / kₕ = λ R sin θ / (2 B⊥)": "độ cao ứng với một vân = 2π / kₕ = λ R sin θ / (2 B⊥)",
   "1 fringe = λ / 2": "1 vân = λ / 2",
 
   // ---------------------------------------------------------------- step 8: unwrapping
-  "Phase unwrapping": "Giải chập pha (mở pha)",
+  "Phase unwrapping": "Giải chập pha (unwrapping)",
   "Turn the wrapped phase (−π…π) into a continuous phase by adding the right multiple of 2π to each pixel.":
-    "Biến pha cuộn (−π…π) thành pha liên tục bằng cách cộng đúng bội số của 2π vào từng pixel.",
-  "Wrapped (filtered)": "Pha cuộn (đã lọc)",
+    "Biến pha chập (−π…π) thành pha liên tục bằng cách cộng đúng bội số của 2π vào từng pixel.",
+  "Wrapped (filtered)": "Pha chập (đã lọc)",
   Unwrapped: "Pha đã giải chập",
   "The measured phase only knows its value modulo 2π: a jump from +π to −π can be a real step or just the next fringe.":
     "Pha đo được chỉ biết giá trị theo mô-đun 2π: một bước nhảy từ +π xuống −π có thể là thay đổi thật hoặc chỉ là sang vân kế tiếp.",
   "Unwrapping assumes the true phase changes by less than π between neighbours and integrates the phase differences over the image.":
     "Giải chập pha giả định pha thật thay đổi ít hơn π giữa các pixel kề nhau, rồi tích phân các hiệu pha trên toàn ảnh.",
   "GeoEyes uses an iteratively reweighted least-squares solver (IRLS): it finds the continuous surface whose gradients best match the wrapped gradients, trusting coherent pixels more (weights = γ²).":
-    "GeoEyes dùng phương pháp bình phương tối thiểu có trọng số lặp (IRLS): tìm bề mặt liên tục có gradient khớp nhất với gradient của pha cuộn, tin vào pixel có độ kết hợp cao hơn (trọng số = γ²).",
+    "GeoEyes dùng phương pháp bình phương tối thiểu có trọng số lặp (IRLS): tìm bề mặt liên tục có gradient khớp nhất với gradient của pha chập, tin vào pixel có độ nhất quán cao hơn (trọng số = γ²).",
   "The result is relative: a reference point (by default, the median of the most coherent 10 %) is set to zero. Click an image to choose another.":
-    "Kết quả là tương đối: một điểm tham chiếu (mặc định là trung vị của 10 % pixel có độ kết hợp cao nhất) được đặt bằng 0. Bấm vào ảnh để chọn điểm khác.",
+    "Kết quả là tương đối: một điểm tham chiếu (mặc định là trung vị của 10 % pixel có độ nhất quán cao nhất) được đặt bằng 0. Bấm vào ảnh để chọn điểm khác.",
   "The profile below follows the row under the cursor: the sawtooth of the wrapped phase becomes one smooth curve.":
-    "Mặt cắt bên dưới đi theo hàng dưới con trỏ: đường răng cưa của pha cuộn trở thành một đường cong liền.",
+    "Mặt cắt bên dưới đi theo hàng dưới con trỏ: đường răng cưa của pha chập trở thành một đường cong liền.",
   "Where residues were many, the unwrapped surface may contain errors of a whole cycle.":
-    "Ở nơi có nhiều điểm dư pha, kết quả giải chập có thể sai trọn một chu kỳ.",
+    "Ở nơi có nhiều thặng dư pha, kết quả giải chập có thể sai trọn một chu kỳ.",
   Exercise: "Bài tập",
   "Unwrap the raw phase, flat-earth fringes included: the sawtooth becomes a ramp":
     "Giải chập pha thô, còn nguyên vân mặt đất phẳng: đường răng cưa trở thành một đường dốc liền",
@@ -250,7 +255,7 @@ export const LEARN: Record<string, string> = {
     "Trong GeoEyes, dương = về phía vệ tinh (ví dụ nâng lên), âm = ra xa vệ tinh (ví dụ lún).",
   "One pair also holds the atmosphere of both dates: its delay can mimic centimetres of motion over a few kilometres.":
     "Một cặp ảnh còn chứa khí quyển của cả hai ngày chụp: độ trễ khí quyển có thể giống như chuyển dịch vài centimét trên vài kilômét.",
-  "Compare the pattern with the coherence: trust only the coherent areas.": "So sánh hình ảnh với độ kết hợp: chỉ tin vào vùng có độ kết hợp cao.",
+  "Compare the pattern with the coherence: trust only the coherent areas.": "So sánh hình ảnh với độ nhất quán: chỉ tin vào vùng có độ nhất quán cao.",
   "Divide by the time between the dates for a rate, keeping the atmosphere in mind.":
     "Chia cho khoảng thời gian giữa hai ngày để có tốc độ, nhưng luôn nhớ đến ảnh hưởng khí quyển.",
   "1 fringe": "1 vân",
@@ -261,7 +266,7 @@ export const LEARN: Record<string, string> = {
   "Velocity from the time series": "Vận tốc từ chuỗi thời gian",
   "See why GeoEyes uses all the scenes of the stack to estimate a velocity.":
     "Hiểu vì sao GeoEyes dùng toàn bộ cảnh ảnh của chồng ảnh để ước lượng vận tốc.",
-  "PS velocity of the product": "Vận tốc PS của sản phẩm",
+  "Velocity of the product's points": "Vận tốc các điểm của sản phẩm",
   "With N scenes, GeoEyes forms the interferograms of the whole stack, keeps the points whose phase stays reliable over time (persistent scatterers), and unwraps in space and time.":
     "Với N cảnh ảnh, GeoEyes tạo giao thoa đồ cho cả chồng ảnh, giữ lại các điểm có pha ổn định theo thời gian (điểm tán xạ bền vững) và giải chập pha theo cả không gian lẫn thời gian.",
   "It then removes the DEM error of each point and the atmosphere, which is random from one date to the next but smooth in space.":
@@ -612,4 +617,17 @@ export const LEARN: Record<string, string> = {
   "Soft soil: the open grid is a placeholder. A map of the Holocene thickness or the boreholes of the area (geological survey, universities, construction records) are needed before any reading of the relation.": "Đất yếu: lưới mở chỉ là giữ chỗ. Cần bản đồ bề dày Holocen hoặc lỗ khoan của khu vực (cơ quan địa chất, trường đại học, hồ sơ xây dựng) trước khi diễn giải mối quan hệ.",
   "Checks that would make them firmer: GNSS stations with their horizontal velocities, a third geometry (another track or sensor), levelling, and boreholes near the cells that sink fastest.": "Những kiểm chứng giúp kết quả chắc chắn hơn: trạm GNSS với vận tốc ngang, một hình học thứ ba (quỹ đạo hoặc cảm biến khác), đo thuỷ chuẩn, và lỗ khoan gần các ô lún nhanh nhất.",
   "Prefer the decomposed vertical wherever two geometries exist; set a soft-soil map in the project as soon as one is available.": "Ưu tiên thành phần thẳng đứng sau khi tách ở nơi có hai hình học; khai báo bản đồ đất yếu vào dự án ngay khi có.",
+  "Chapter {c} · step {i} of {n}": "Chương {c} · bước {i}/{n}",
+  "Goal of this step": "Mục tiêu của bước này",
+  "The idea": "Ý tưởng",
+  "See it on real data": "Quan sát trên dữ liệu thật",
+  "The formula": "Công thức",
+  "Reading the formula": "Đọc công thức",
+  "Check yourself": "Tự kiểm tra",
+  "Going deeper": "Đi sâu",
+  "derivation, assumptions, parameters, literature": "dẫn giải, giả thiết, tham số, tài liệu",
+  "The whole learning path:": "Toàn bộ lộ trình học:",
+  "perpendicular baseline B⊥ (m)": "đường cơ sở vuông góc B⊥ (m)",
+  "acquisition date": "ngày chụp",
+  "vs reference": "so với ảnh tham chiếu",
 };

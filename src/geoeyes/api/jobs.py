@@ -58,7 +58,8 @@ def start(ws: WorkspaceLayout, name: str, kind: str, pid: str, overrides: dict) 
 _RESULT = {"hazard": "hazard.json", "gnss": "comparison.json", "susceptibility": "susceptibility.json",
            "forecast": "forecast.json", "buildings": "buildings.json", "behaviour": "behaviour.json",
            "risk": "risk.json", "lines": "lines.json", "consolidation": "consolidation.json",
-           "decompose": "decompose.json", "geology": "geology.json"}
+           "decompose": "decompose.json", "geology": "geology.json", "atmosphere": "atmosphere.json",
+           "exposure": "exposure.json"}
 
 
 def activity(ws: WorkspaceLayout) -> list[dict]:

@@ -15,7 +15,7 @@ import numpy as np
 from scipy.signal import lfilter, resample_poly, windows
 
 from geoeyes.processing.ps.ambiguity import DemErrorParams, amb_weight, delaunay_edges, regularize, thresholds
-from geoeyes.processing.ps.clap import clap_filter, low_pass
+from geoeyes.processing.ps.clap import SparseGrid, clap_filter, low_pass
 from geoeyes.processing.ps.topofit import topofit, topofit_full
 
 log = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class EstGammaParams:
 class EstGamma:
     ph_patch: np.ndarray             # (n_ps, n_sec) complex64 unit phasors
     ph_res: np.ndarray               # (n_ps, n_sec) float32 residual angle of the last topofit
-    ph_grid: np.ndarray              # (n_i, n_j, n_sec) complex64
+    ph_grid: SparseGrid              # (n_i, n_j, n_sec) complex64, occupied cells only
     ph_weight: np.ndarray            # (n_ps, n_sec) complex64 (last iteration)
     K: np.ndarray                    # (n_ps,) rad/m, NaN where no interferogram is valid
     C: np.ndarray
@@ -142,21 +142,25 @@ def est_gamma(*, ph: np.ndarray, bperp: np.ndarray, bperp_mat: np.ndarray, maste
     flat = cell[:, 0] * n_j + cell[:, 1]
     lp = low_pass(p.clap_win, p.grid_size, p.clap_low_pass_wavelength)
     edges = None
+    cells = np.unique(flat, return_inverse=True)     # the occupied cells: the grid is kept sparse
+    ph_weight = np.empty((n_ps, n_ifg), np.complex64)
+    chunk = max(10_000, int(p.chunk))
 
     i_loop = 1
     while True:
-        ph_weight = (ph * np.exp(-1j * bperp_mat * (K if p.legacy_nan_k else np.nan_to_num(K, nan=0.0))[:, None])
-                     * weighting.reshape(-1, 1)).astype(np.complex64)
-        grid_flat = np.zeros((n_i * n_j, n_ifg), np.complex64)
-        np.add.at(grid_flat, flat, ph_weight)
-        ph_grid = grid_flat.reshape(n_i, n_j, n_ifg)
-        ph_filt = clap_filter(ph_grid, p.clap_alpha, p.clap_beta, int(p.clap_win * 0.75), int(p.clap_win * 0.25),
-                              lp)
-        ph_patch = np.ascontiguousarray(ph_filt.reshape(-1, n_ifg)[flat, :]).astype(np.complex64)
+        # in chunks: the complex128 temporaries of the whole (n_ps, n_ifg) array are GBs for a city
+        Kw = (K if p.legacy_nan_k else np.nan_to_num(K, nan=0.0))[:, None]
+        wt = weighting.reshape(-1, 1)
+        for s in range(0, n_ps, chunk):
+            e = min(s + chunk, n_ps)
+            ph_weight[s:e] = ph[s:e] * np.exp(-1j * bperp_mat[s:e] * Kw[s:e]) * wt[s:e]
+        # a sparse grid, filtered at the points' cells only: a 10 m grid of a city is several GB dense
+        ph_grid = SparseGrid.accumulate((n_i, n_j, n_ifg), flat, ph_weight, cells)
+        ph_patch = clap_filter(ph_grid, p.clap_alpha, p.clap_beta, int(p.clap_win * 0.75), int(p.clap_win * 0.25),
+                               lp, at=flat)
         nzp = ph_patch != 0
         ph_patch[nzp] = ph_patch[nzp] / np.abs(ph_patch[nzp])
 
-        chunk = max(10_000, int(p.chunk))
         for s in range(0, n_ps, chunk):
             e = min(s + chunk, n_ps)
             z = ph[s:e] * np.conj(ph_patch[s:e])

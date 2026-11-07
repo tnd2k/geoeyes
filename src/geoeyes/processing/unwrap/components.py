@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 from scipy.optimize import Bounds, LinearConstraint, milp
-from scipy.spatial.distance import cdist
+from scipy.spatial import cKDTree
 
 FOUR = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], bool)
 
@@ -50,6 +50,19 @@ def _connections(phase, labeled, comps, gap, link_count, link_size):
     cent, sizes = np.array(cent, float), np.array(sizes, float)
     n = len(comps)
     largest = set(np.argsort(sizes)[::-1][:min(5, n)].tolist())
+    trees: dict[int, cKDTree] = {}
+
+    def closest(i, j):
+        """Closest cells of islands i and j: the smaller one queried against a KD-tree of the larger one (a full
+        distance matrix of two large islands of an SBAS grid needs tens of GB)."""
+        a, b = (i, j) if sizes[i] <= sizes[j] else (j, i)
+        if b not in trees:
+            trees[b] = cKDTree(coords[b])
+        d, idx = trees[b].query(coords[a], k=1)
+        q = int(np.argmin(d))
+        pa, pb = coords[a][q], coords[b][int(idx[q])]
+        return (float(d[q]), pa, pb) if a == i else (float(d[q]), pb, pa)
+
     links = []
     for i in range(n):
         dist = np.sqrt(((cent - cent[i]) ** 2).sum(axis=1))
@@ -61,13 +74,11 @@ def _connections(phase, labeled, comps, gap, link_count, link_size):
         for j in sorted(cand):
             if j <= i or not np.isfinite(dist[j]):
                 continue
-            d = cdist(coords[i], coords[j])
-            a, b = np.unravel_index(int(np.argmin(d)), d.shape)
-            dv = float(d[a, b])
+            dv, pi_, pj_ = closest(i, j)
             if gap is not None and dv > gap:
                 continue
-            k, conf = _offset(phase, labeled, comps[i]["label"], comps[j]["label"], tuple(coords[i][a]),
-                              tuple(coords[j][b]), max(link_size, 1))
+            k, conf = _offset(phase, labeled, comps[i]["label"], comps[j]["label"], tuple(pi_), tuple(pj_),
+                              max(link_size, 1))
             links.append((i, j, k, conf * np.sqrt(min(sizes[i], sizes[j])) / (np.sqrt(dv) + 1.0)))
     return links
 
@@ -129,8 +140,10 @@ def link_components(phase: np.ndarray, min_size: int | None = None, gap: int | N
     k = _solve_offsets(len(comps), links)
     if k is None:
         k = _greedy(len(comps), links)
+    # k_i − k_j ≈ k_ij = (median_i − median_j) / 2π: island i sits k_i cycles too high relative to the anchor, so the
+    # offset is removed (subtracted). Until 2026-11-03 it was added, which doubled every inter-island step.
     out = phase.copy()
     for c, kv in zip(comps, k, strict=True):
         if kv:
-            out[labeled == c["label"]] += kv * 2.0 * np.pi
+            out[labeled == c["label"]] -= kv * 2.0 * np.pi
     return out

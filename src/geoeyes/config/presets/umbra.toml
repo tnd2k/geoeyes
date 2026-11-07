@@ -1,0 +1,9 @@
+# Umbra defaults (X-band spotlight SICD, slant-plane PFA). Raw data: an archive, or an open-data stack
+# ([acquire] opendata, `geoeyes opendata stacks`). Short stacks: method "ps_lite" (as Capella, ADR-020).
+[network]
+# ~1 GHz bandwidth: the critical baseline is tens of km; repeat passes of the open stacks are a few km apart
+max_perp_m = 5000.0
+
+[stack]
+geometry = "radar"
+esd = false

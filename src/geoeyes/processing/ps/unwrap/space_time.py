@@ -6,9 +6,16 @@ Edge phase differences are optionally corrected for an edge look-angle (DEM) err
 smoothed by a Gaussian window in time and re-wrapped around the smooth model (``dph_space_uw`` = model +
 wrapped residual). Where the local spatial phase gradient (FFT peak in a sliding window, interpolated to the
 cells) explains an edge better than the temporal model, that edge takes the spatial estimate instead.
+
+The legacy model is fitted to the *wrapped* edge phase, so it never leaves ±π: an edge whose phase difference
+grows past π (20 mm/yr between its ends crosses λ/4 after ~250 days on Sentinel-1) takes a wrong cycle count at
+the epochs far from the master, and a steady trend is treated as noise. ``rate_max`` > 0 unwraps every edge in
+time first: the linear rate of the edge is found by a periodogram (trial rates, then a weighted least-squares
+refinement), the smooth model is fitted to the phase with that rate removed, and the rate is added back.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,6 +24,8 @@ from scipy.spatial import cKDTree
 
 from geoeyes.processing.ps.unwrap.grid import UwGrid
 from geoeyes.processing.ps.unwrap.interp import UwInterp
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,6 +39,7 @@ class SpaceTime:
     shaky_ix: np.ndarray         # (n_edge,) edges taken from the spatial gradient
     K: np.ndarray                # (n_edge,) edge look-angle error (0 when not estimated)
     coh: np.ndarray
+    rate: np.ndarray | None = None   # (n_edge,) edge phase rate (rad/day) of the temporal unwrapping; None = off
 
 
 def _safe_range(b) -> float:
@@ -122,6 +132,49 @@ def _edge_dem_error(dph_space, G, day, ifgday_ix, bperp, n_trial_wraps, chunk=10
     return K, coh
 
 
+def edge_rates(d: np.ndarray, dt: np.ndarray, rate_max: float, min_coh: float = 0.35, min_gain: float = 0.05,
+               alpha: float = 0.01, with_reliable: bool = False):
+    """Linear phase rate (rad/day) of every edge from its wrapped interferogram phasors ``d`` (n, n_ifg; 0 = no
+    data) and the interferogram time spans ``dt`` (n_ifg, days): the trial rate in [-rate_max, rate_max] that
+    maximises the temporal coherence |Σ d·e^(-i·r·dt)| / Σ|d| (trial step π/4 over the longest span), refined by
+    weighted least squares on the residual phase. A rate is kept only where it is reliable (else 0, the legacy
+    model): coherence ``min_gain`` above the coherence of rate 0, and above what noise reaches by chance. For N
+    random unit phasors P(coherence > x) ≈ e^(-N·x²), so over M trial rates the threshold is
+    max(min_coh, sqrt(ln(M / alpha) / N)): about 0.31 for 98 interferograms, 0.74 for 17 (CSK Hanoi, where a
+    fixed 0.35 let the noise of most edges through). ``with_reliable``: also return the (n,) mask of the edges
+    whose best fit is above chance, with their refined rate in the first array even when it is near 0 (a reliable
+    "same rate" constraint, which the PS rate model needs)."""
+    n = d.shape[0]
+    out = np.zeros(n, np.float32)
+    span = float(np.max(np.abs(dt))) if dt.size else 0.0
+    if n == 0 or span <= 0 or rate_max <= 0:
+        return (out, np.zeros(n, bool)) if with_reliable else out
+    step = np.pi / 4 / span
+    k = int(np.ceil(rate_max / step))
+    trials = np.arange(-k, k + 1) * step                       # includes 0 (index k)
+    tmat = np.exp(-1j * np.outer(dt, trials)).astype(np.complex64)
+    w = np.abs(d).astype(np.float32)
+    norm = w.sum(axis=1).clip(1e-10)
+    coh = np.abs(d.astype(np.complex64) @ tmat) / norm[:, None]
+    best = np.argmax(coh, axis=1)
+    cmax = coh[np.arange(n), best]
+    n_valid = (w > 0).sum(axis=1).clip(1)
+    chance = np.sqrt(np.log(trials.size / alpha) / n_valid)
+    reliable = cmax >= np.maximum(min_coh, chance)
+    ok = reliable & (cmax - coh[:, k] >= min_gain)
+    r0 = trials[best]
+    rph = d * np.exp(-1j * np.outer(r0, dt))
+    ang = np.angle(rph * np.conj(rph.sum(axis=1, keepdims=True)))
+    wb = w * dt[None, :]
+    den = (wb * dt[None, :]).sum(axis=1)
+    r = r0 + np.where(den > 0, (wb * ang).sum(axis=1) / np.where(den > 0, den, 1.0), 0.0)
+    if with_reliable:
+        out[reliable] = r[reliable]
+        return out, reliable
+    out[ok] = r[ok]
+    return out
+
+
 def gradient_filt(ph: np.ndarray, n_win: int, legacy: bool = False):
     """Dominant fringe frequency of every n_win window (step n_win/4) with >= 6 non-zero cells: (ifreq,
     jfreq, centres (row, col), peak/mean |FFT|). ``legacy``: the indices of the C-order flat argmax are
@@ -178,10 +231,12 @@ def _to_cells(centres, values, mask, ij, chunk=100_000):
 
 def space_time(*, grid: UwGrid, ui: UwInterp, day: np.ndarray, ifgday_ix: np.ndarray, bperp: np.ndarray,
                n_trial_wraps: float, time_win: float, prefilt_win: int, la_flag: bool = True,
-               estimate_K: bool = True, scf_flag: bool = True, legacy: bool = False) -> SpaceTime:
+               estimate_K: bool = True, scf_flag: bool = True, legacy: bool = False,
+               rate_max: float = 0.0) -> SpaceTime:
     """``day`` (n_image,) days relative to the master, ``ifgday_ix`` (n_ifg, 2) 0-based, ``bperp`` (n_ifg,).
     ``estimate_K`` is off in the second pass (DEM error already removed with the SCLA). ``legacy``: the
-    master-master row of ``G`` is +1 and ``gradient_filt`` swaps its frequency indices."""
+    master-master row of ``G`` is +1 and ``gradient_filt`` swaps its frequency indices. ``rate_max`` (rad/day,
+    0 = off, the legacy model): largest edge phase rate searched by the temporal unwrapping (``edge_rates``)."""
     ph = grid.ph
     n_cells, n_ifg = ph.shape
     e1, e2 = ui.edgs[:, 1], ui.edgs[:, 2]
@@ -208,18 +263,46 @@ def space_time(*, grid: UwGrid, ui: UwInterp, day: np.ndarray, ifgday_ix: np.nda
         if estimate_K:
             K, coh = _edge_dem_error(dph, G, day, ifgday_ix, bperp, n_trial_wraps)
         K[coh < 0.22] = 0
-        dph = dph * np.exp(-1j * np.outer(K, bperp.T))
 
-    series = np.vstack([np.zeros((1, n_edge)),
-                        np.linalg.lstsq(G[:, 1:].astype(np.float64), np.angle(dph).T.astype(np.float64),
-                                        rcond=None)[0]])
+    # the phase series of each edge (least squares on the interferograms), smoothed in time; the wrapped rest is the
+    # noise. Per edge, a chunk of edges at a time: a 10 m grid of a city has millions of edges, and the float64 /
+    # complex128 copies of all of them are GBs
     wm = np.exp(-((day[:, None] - day[None, :]) ** 2) / (2.0 * time_win**2))
     wm /= wm.sum(axis=1, keepdims=True)
-    smooth_ifg = (G @ (wm @ series).astype(np.float32)).T
-    noise = _wrapped(dph, smooth_ifg)
-    uw = smooth_ifg + noise
-    if la_flag:
-        uw = uw + K[:, None] * bperp[None, :]
+    a = G[:, 1:].astype(np.float64)
+    dt = (G @ day.astype(np.float32)).astype(np.float64)        # time span of every interferogram (days)
+    rate = np.zeros(n_edge, np.float32) if rate_max > 0 else None
+    uw = noise = None
+    for c0 in range(0, n_edge, 200_000):                # c0:c1, a chunk of edges (e1 / e2 are their cells)
+        c1 = min(c0 + 200_000, n_edge)
+        d = dph[c0:c1]
+        if la_flag:
+            d = d * np.exp(-1j * np.outer(K[c0:c1], bperp.T))
+        d_fit = d
+        if rate is not None:                            # temporal unwrapping: the edge's linear rate first
+            rate[c0:c1] = edge_rates(d, dt, rate_max)
+            d_fit = d * np.exp(-1j * np.outer(rate[c0:c1], dt))
+        series = np.vstack([np.zeros((1, c1 - c0)),
+                            np.linalg.lstsq(a, np.angle(d_fit).T.astype(np.float64), rcond=None)[0]])
+        smooth_ifg = (G @ (wm @ series).astype(np.float32)).T
+        if rate is not None:
+            smooth_ifg = smooth_ifg + np.outer(rate[c0:c1], dt).astype(np.float32)
+        nz = _wrapped(d, smooth_ifg)
+        u = smooth_ifg + nz
+        if la_flag:
+            u = u + K[c0:c1, None] * bperp[None, :]
+        if uw is None:
+            uw = np.empty((n_edge, u.shape[1]), u.dtype)
+            noise = np.empty((n_edge, nz.shape[1]), nz.dtype)
+        uw[c0:c1], noise[c0:c1] = u, nz
+    if uw is None:
+        uw = noise = np.zeros((0, n_ifg), np.float32)
+    if rate is not None and n_edge:
+        nz_rate = rate[rate != 0]
+        log.info("space-time: %d of %d edges (%.1f %%) unwrapped in time by a linear rate (|rate| p50 %.2g, p95 %.2g "
+                 "rad/yr)", nz_rate.size, n_edge, 100 * nz_rate.size / n_edge,
+                 365.25 * float(np.median(np.abs(nz_rate))) if nz_rate.size else 0.0,
+                 365.25 * float(np.percentile(np.abs(nz_rate), 95)) if nz_rate.size else 0.0)
 
     ifreq = np.full((n_cells, n_ifg), np.nan, np.float32)
     jfreq = np.full((n_cells, n_ifg), np.nan, np.float32)
@@ -233,19 +316,26 @@ def space_time(*, grid: UwGrid, ui: UwInterp, day: np.ndarray, ifgday_ix: np.nda
             fi, fj, cij, hm = gradient_filt(img, prefilt_win, legacy)
             ifreq[:, i] = _to_cells(cij, fi, ~np.isnan(fi) & (hm / (np.abs(fi) + 1) > 3), grid.ij)
             jfreq[:, i] = _to_cells(cij, fj, ~np.isnan(fj) & (hm / (np.abs(fj) + 1) > 3), grid.ij)
-        di = grid.ij[e2, 0] - grid.ij[e1, 0]
-        dj = grid.ij[e2, 1] - grid.ij[e1, 1]
-        sm_grad = (di[:, None] * 0.5 * (ifreq[e1] + ifreq[e2]) + dj[:, None] * 0.5 * (jfreq[e1] + jfreq[e2])) \
-            .astype(np.float32, copy=False)
-        noise2 = ((uw - sm_grad + np.pi) % (2.0 * np.pi)) - np.pi
-        std1 = np.nanstd(noise, axis=1)
-        std2 = np.nanstd(noise2, axis=1)
-        shaky = np.isnan(std1) | (std1 > std2)
-        s = np.flatnonzero(shaky)
-        n2 = noise2[s].copy()
-        n2[np.nanstd(n2, axis=1) > 1.3, :] = np.nan
-        noise[s] = n2
-        uw[s] = sm_grad[s] + n2
-        spread[s] = (ifreq[e2[s]] - ifreq[e1[s]] + jfreq[e2[s]] - jfreq[e1[s]]).astype(np.float32)
+        # edges noisier than the spatial gradient of the phase take the gradient instead; per edge, a chunk of edges
+        # at a time (millions of edges: each full (n_edge, n_ifg) temporary is most of a GB)
+        shaky = np.zeros(n_edge, bool)
+        for c0 in range(0, n_edge, 200_000):
+            c1 = min(c0 + 200_000, n_edge)
+            a1, a2 = e1[c0:c1], e2[c0:c1]
+            di = grid.ij[a2, 0] - grid.ij[a1, 0]
+            dj = grid.ij[a2, 1] - grid.ij[a1, 1]
+            sm_grad = (di[:, None] * 0.5 * (ifreq[a1] + ifreq[a2]) + dj[:, None] * 0.5 * (jfreq[a1] + jfreq[a2])) \
+                .astype(np.float32, copy=False)
+            noise2 = ((uw[c0:c1] - sm_grad + np.pi) % (2.0 * np.pi)) - np.pi
+            std1 = np.nanstd(noise[c0:c1], axis=1)
+            std2 = np.nanstd(noise2, axis=1)
+            sh = np.isnan(std1) | (std1 > std2)
+            shaky[c0:c1] = sh
+            s = np.flatnonzero(sh)
+            n2 = noise2[s].copy()
+            n2[np.nanstd(n2, axis=1) > 1.3, :] = np.nan
+            noise[c0 + s] = n2
+            uw[c0 + s] = sm_grad[s] + n2
+            spread[c0 + s] = (ifreq[a2[s]] - ifreq[a1[s]] + jfreq[a2[s]] - jfreq[a1[s]]).astype(np.float32)
     return SpaceTime(dph_space_uw=uw, dph_noise=noise, G=G, spread=spread, ifreq_ij=ifreq, jfreq_ij=jfreq,
-                     shaky_ix=shaky, K=K, coh=coh)
+                     shaky_ix=shaky, K=K, coh=coh, rate=rate)

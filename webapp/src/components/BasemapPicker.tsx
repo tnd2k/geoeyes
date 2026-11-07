@@ -38,7 +38,7 @@ function Tile({ b, url, on, size, onClick }: { b: Choice; url: string; on: boole
       onClick={onClick}
       aria-pressed={on}
       title={t(BASES[b].label)}
-      className={`relative flex-none overflow-hidden rounded-lg border-2 bg-[#1a2740] bg-cover bg-center shadow-lg shadow-black/40 transition-transform hover:scale-[1.04] ${on ? "border-accent" : "border-white/80"}`}
+      className={`relative flex-none overflow-hidden rounded-lg border-2 bg-chip bg-cover bg-center shadow-lg shadow-black/40 transition-transform hover:scale-[1.04] ${on ? "border-accent" : "border-white/80"}`}
       style={{ width: size, height: size, backgroundImage: url ? `url("${url}")` : undefined }}
     >
       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1 pt-3 pb-0.5 text-center text-[10.5px] leading-tight font-medium text-white">
@@ -117,7 +117,7 @@ export function BasemapPicker({ map, base, onChange }: { map: RefObject<maplibre
         aria-expanded={open}
         aria-label={t("Base map")}
         title={t("Base map")}
-        className="relative flex-none overflow-hidden rounded-lg border-2 border-white/90 bg-[#1a2740] bg-cover bg-center shadow-lg shadow-black/40"
+        className="relative flex-none overflow-hidden rounded-lg border-2 border-white/90 bg-chip bg-cover bg-center shadow-lg shadow-black/40"
         style={{ width: 64, height: 64, backgroundImage: urls[current] ? `url("${urls[current]}")` : undefined }}
       >
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden className="absolute top-1 left-1 drop-shadow">
