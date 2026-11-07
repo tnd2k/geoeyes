@@ -54,6 +54,10 @@ DEFAULTS: dict[str, Any] = {
     # mm/yr). "auto": only with >= unwrap_ps_rate_min_ifg interferograms and >= half the arcs above chance (CSK
     # Hanoi, 17 ifgs, moved far from its golden with it). Off with legacy_quirks
     "unwrap_ps_rate": "auto", "unwrap_ps_rate_max_arc": 500.0, "unwrap_ps_rate_min_ifg": 40,
+    # unwrap_patch_cycles: after the grid, a region of one interferogram that sits a whole cycle (k × λ/2) off the
+    # time series of all its PS ("oval" patches; HCMC hcm_d18: 49 % of the PS on 2024-02-28) is moved back by k
+    # (unwrap/patch_cycles.py). Off by default and with legacy_quirks; the Sentinel-1 preset turns it on
+    "unwrap_patch_cycles": "n",
     # StaMPS unwrap_patch_phase: "n" (StaMPS default) grids the step-5 phase of the PS (ph_rc) and each PS adds its
     # wrapped residual to its cell; "y" grids the smoother step-4 patch phase and adds ph_rc − patch (the legacy
     # engine; a PS that moves unlike its ~160 m neighbourhood loses cycles). legacy_quirks = "y" keeps "y"
@@ -255,7 +259,8 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
                      "auto" if str(pm["unwrap_ps_rate"]).strip().lower() == "auto" else
                      "y" if _yes(pm["unwrap_ps_rate"]) else "n"),
             ps_rate_max_arc=float(pm["unwrap_ps_rate_max_arc"]),
-            ps_rate_min_ifg=int(pm["unwrap_ps_rate_min_ifg"])),
+            ps_rate_min_ifg=int(pm["unwrap_ps_rate_min_ifg"]),
+            patch_cycles=_yes(pm["unwrap_patch_cycles"]) and not _yes(pm["legacy_quirks"])),
         scla_deramp=deramp_on, two_pass=_yes(pm["subtr_tropo"]),
         scn_time_win=float(pm["scn_time_win"]), scn_wavelength=float(pm["scn_wavelength"]),
         # the legacy engine (parity) has the StaMPS weighted mean

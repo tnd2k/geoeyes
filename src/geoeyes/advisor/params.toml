@@ -1068,6 +1068,17 @@ typical = "auto."
 typical_vi = "auto."
 related = ["ps.unwrap_ps_rate_max_arc", "ps.unwrap_ps_rate_min_ifg"]
 
+[ps.unwrap_patch_cycles]
+help = "After unwrapping, move back regions of one date that sit a whole cycle (k × λ/2: 27.7 mm on Sentinel-1) off the time series of all their points"
+help_vi = "Sau khi giải chập, đưa về đúng các vùng của một ngày lệch nguyên chu kỳ (k × λ/2: 27,7 mm với Sentinel-1) so với chuỗi thời gian của mọi điểm trong vùng"
+use = "Removes the oval patches a whole cycle off on single dates (HCMC: up to half the scene on one date); the series lose most of their outliers."
+use_vi = "Gỡ các mảng hình bầu dục lệch nguyên chu kỳ ở từng ngày (TP.HCM: tới nửa khung ảnh ở một ngày); chuỗi thời gian mất phần lớn điểm ngoại lai."
+risk = "Needs a series long enough for a smooth model of every point (>= 8 dates); a point off alone is left alone, and a lasting offset is not a patch."
+risk_vi = "Cần chuỗi đủ dài để mỗi điểm có mô hình trơn (≥ 8 ngày); điểm lệch một mình được giữ nguyên, và lệch kéo dài không phải là mảng."
+typical = "y for Sentinel-1 (preset)."
+typical_vi = "y với Sentinel-1 (preset)."
+related = ["ps.unwrap_ps_rate", "ps.unwrap_grid_size"]
+
 [ps.unwrap_ps_rate_max_arc]
 help = "Longest arc (m) between two points of that network"
 help_vi = "Cạnh dài nhất (m) giữa hai điểm của mạng đó"

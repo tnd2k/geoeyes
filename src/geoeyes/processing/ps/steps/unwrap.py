@@ -51,6 +51,8 @@ class UnwrapParams:
     ps_rate: str = "n"                         # "y" | "n" | "auto": >= ps_rate_min_ifg and >= half the arcs reliable
     ps_rate_max_arc: float = 500.0
     ps_rate_min_ifg: int = 40
+    # whole-cycle patches of single interferograms removed after the grid (unwrap/patch_cycles.py)
+    patch_cycles: bool = False
 
 
 @dataclass
@@ -70,6 +72,7 @@ class Unwrapped:
     ui: UwInterp
     st: SpaceTime
     sp: SpatialResult
+    cycles: np.ndarray | None = None   # (n, n_sec) int8 whole cycles removed by unwrap_patch_cycles
 
 
 def _with_master(a: np.ndarray, master_ix: int, fill) -> np.ndarray:
@@ -177,6 +180,16 @@ def unwrap(*, ph_patch: np.ndarray, ph_rc: np.ndarray, K: np.ndarray, coh: np.nd
     elif ps_model is not None:
         ph_uw = ph_uw + ps_model.astype(np.float32)
     ph_uw[:, np.setdiff1d(np.arange(n_ifg), idx)] = 0
+    cycles = None
+    if p.patch_cycles and not p.legacy and sec.size >= 8:
+        from geoeyes.processing.ps.unwrap.patch_cycles import fix_patch_cycles
+        t_yr = np.asarray(day, np.float64)[sec] / 365.25
+        fixed, k = fix_patch_cycles(ph_uw[:, sec], t_yr, np.asarray(grid.grid_ij, np.int64) - 1, grid.nzix.shape,
+                                    bp=bp_ps[:, sec])
+        ph_uw[:, sec] = fixed.astype(np.float32)
+        cycles = np.zeros((n, n_ifg), np.int8)
+        cycles[:, sec] = k
     if aps_c is not None:
         ph_uw = ph_uw + aps_c
-    return Unwrapped(ph_uw=np.delete(ph_uw, master_ix, axis=1), msd=msd, grid=grid, ui=ui, st=st, sp=sp)
+    return Unwrapped(ph_uw=np.delete(ph_uw, master_ix, axis=1), msd=msd, grid=grid, ui=ui, st=st, sp=sp,
+                     cycles=None if cycles is None else np.delete(cycles, master_ix, axis=1))

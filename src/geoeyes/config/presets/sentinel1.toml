@@ -15,3 +15,4 @@ max_per_month = 2                  # 6-12 day revisit: 2 dates a month keep the 
 
 [ps]
 max_topo_err = "auto"              # median height of ambiguity / 4 (owner, 2026-11-07; was the StaMPS 20 m)
+unwrap_patch_cycles = "y"          # move back whole-cycle (k × 27.7 mm) patches of single dates (owner, 2026-11-08)

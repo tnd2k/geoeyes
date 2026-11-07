@@ -58,7 +58,7 @@ def test_subswath_override_deep_merges():
                  overrides={"IW1": {"ps": {"weed_noisy_check": "n"}, "selection": {"da_threshold": 0.35}}})
     cfg = load_dict(d)
     iw1 = resolve_subswath(cfg, "IW1")
-    assert iw1.ps == {"weed_noisy_check": "n", "max_topo_err": 20}
+    assert iw1.ps == {"weed_noisy_check": "n", "max_topo_err": 20, "unwrap_patch_cycles": "y"}   # + S1 preset
     assert iw1.selection.da_threshold == 0.35
     assert resolve_subswath(cfg, "IW2") is cfg
 
