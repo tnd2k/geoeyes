@@ -145,6 +145,10 @@ language (code, logs, reports, docs).
 - Notification centre in the web app: analysis warnings and finished runs / analyses go to a bell list (kept per
   browser) with toasts and desktop notifications (browser Notification API, after permission); `/api/activity`
   gives the state of the background analyses.
+- Live state by server-sent events (2026-11-06): `/api/events` pushes `workspace` and `activity`,
+  `/api/projects/{name}/events` pushes `project`, `ps-steps` and, with `?run=&after=`, the run's new `log` lines;
+  each only when its JSON changed (`geoeyes/api/events.py`). The web app (`webapp/src/live.ts`) switches its polls off
+  while a stream is up and falls back to them when it is not (older server, lost connection, hidden tab).
 **Consequences.** Every new user-visible text goes through `t()` with its Vietnamese entry; every new server message
 shown in the web app gets an entry or a pattern in `server.ts`.
 

@@ -8,6 +8,7 @@ Vietnamese translation: [../vi/README.md](../vi/README.md).
 | [research/rainfall-insar-hazard.md](research/rainfall-insar-hazard.md) | Rainfall and InSAR for subsidence and landslide hazard zoning: method, sources, research sequence |
 | [research/gnss-insar-calibration.md](research/gnss-insar-calibration.md) | GNSS (NGL) to validate and calibrate InSAR time series |
 | [research/groundwater-insar.md](research/groundwater-insar.md) | Groundwater storage (NASA GLDAS, GRACE) and InSAR: data access, coupling, limits, research plan |
+| [research/choshui-groundwater.md](research/choshui-groundwater.md) | Measured multi-depth groundwater heads and Sentinel-1 (asc + desc) on the Choshui River alluvial fan, Taiwan: data audit, hypotheses, plan C0–C8 |
 | [research/behaviour-and-risk.md](research/behaviour-and-risk.md) | Kinds of motion of the cells and risk to buildings: method, first results, limits, research plan |
 | [research/lines-and-consolidation.md](research/lines-and-consolidation.md) | InSAR profiles along dykes, railways and main roads; consolidation settlement still to come: method, first results, limits, research plan |
 | [research/two-geometries-and-soft-soil.md](research/two-geometries-and-soft-soil.md) | Vertical and east-west motion from an ascending and a descending product; soft-soil thickness against subsidence: method, first results, limits, research plan |
