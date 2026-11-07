@@ -92,8 +92,18 @@ automatic fitting (too few projects).
   | hanoi_s1_desc | 10.7 m | 0 % | built 30 %, tree 29 %, crop 28 % | 100 % | Cwa, 1852 mm |
   | Nam Tra My (Quang Nam) | 1162 m | 62 % | tree 90 % | 0 % | Af, 4328 mm |
   | Mexico City | 92 m | 1 % | built 72 % | 86 % | Cwb, 789 mm |
-- [ ] **V2** Rules: `rules.toml` + a small evaluator (`advisor/rules.py`), and `geoeyes advise`. First rule set
-  from the owner's current settings; check it reproduces hcm_d18 and hp_maychai.
+- [x] **V2** (done 2026-11-07, rules awaiting the owner's review one by one) Rules: `src/geoeyes/advisor/rules.toml`
+  (16 rules, 3 named regions), evaluator `advisor/rules.py`, `geoeyes advise <project> | --bbox=W,S,E,N [--lang vi]
+  [--json] [--apply]`; tests `tests/unit/advisor/test_rules.py`.
+  - A condition is `<metric> <op> <value>` (no eval); a metric the profile lacks makes the rule "not evaluated".
+  - Later rules win; the replaced value is shown. Notes advise without setting anything.
+  - Against a project: changes, values already as the rules say, and values of project.toml no rule explains.
+  - `--apply` writes the changes through the settings form code (validated, previous file in `.state/`).
+
+  Results (2026-11-07): hcm_d18 and hp_maychai: **no change** (8 and 5 values already as the rules say; left
+  unexplained: `da_threshold` 0.42 = default, the SARPROZ reference of hcm_d18). hanoi_s1_desc: one change,
+  `acquire.max_per_month` 2 -> 0 (soft-urban-subsidence); data rules not evaluated (no stack yet). Nam Tra My:
+  ERA5 + psds + phase linking (ad, adaptive) + DA 0.6 + copernicus-30, notes on tropical convection and asc + desc.
 - [ ] **V3** Web app: Advisor panel in the wizard and the settings form, apply-one / apply-all, en + vi.
 - [ ] **V4** `--learn` report comparing rules with finished projects.
 - [ ] **V5** (optional) local MCP server `geoeyes-advisor` with tools `explain_param`, `site_profile`, `recipe`.

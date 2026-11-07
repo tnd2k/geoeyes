@@ -45,6 +45,7 @@ geoeyes gnss   <project>        # so sánh với trạm GNSS của NGL; hiệu c
 geoeyes catalog search --bbox W,S,E,N    # tìm sản phẩm của mọi dự án trong một khu vực
 geoeyes params unwrap_grid_size          # tham số dùng để làm gì, rủi ro, giá trị thường dùng (--lang vi)
 geoeyes site   <project>                 # hồ sơ khu vực: chênh cao, độ dốc, lớp phủ, địa chất, khí hậu, dữ liệu
+geoeyes advise <project>                 # tham số đề xuất cho khu vực, kèm lý do từng giá trị (--apply)
 geoeyes serve --open            # mở ứng dụng web tại http://localhost:8765
 ```
 

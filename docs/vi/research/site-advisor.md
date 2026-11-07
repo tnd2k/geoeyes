@@ -90,8 +90,18 @@ thực sự đã dùng. Luật được sửa tay từ báo cáo đó; không t�
   | hanoi_s1_desc | 10,7 m | 0 % | đô thị 30 %, cây 29 %, ruộng 28 % | 100 % | Cwa, 1852 mm |
   | Nam Trà My (Quảng Nam) | 1162 m | 62 % | cây 90 % | 0 % | Af, 4328 mm |
   | Mexico City | 92 m | 1 % | đô thị 72 % | 86 % | Cwb, 789 mm |
-- [ ] **V2** Luật: `rules.toml` + bộ đánh giá nhỏ (`advisor/rules.py`), và `geoeyes advise`. Bộ luật đầu tiên lấy từ
-  cài đặt hiện tại của chủ dự án; kiểm tra tái tạo được hcm_d18 và hp_maychai.
+- [x] **V2** (xong 2026-11-07, các luật chờ chủ dự án duyệt từng luật) Luật: `src/geoeyes/advisor/rules.toml` (16
+  luật, 3 vùng đặt tên), bộ đánh giá `advisor/rules.py`, `geoeyes advise <project> | --bbox=W,S,E,N [--lang vi]
+  [--json] [--apply]`; test `tests/unit/advisor/test_rules.py`.
+  - Điều kiện có dạng `<metric> <op> <giá trị>` (không dùng eval); metric hồ sơ không có thì luật "không đánh giá".
+  - Luật sau thắng; giá trị bị thay được hiển thị. Ghi chú chỉ khuyên, không đặt gì.
+  - So với dự án: cần đổi, đã đúng như luật, và các giá trị trong project.toml không luật nào giải thích.
+  - `--apply` ghi thay đổi qua code của form cài đặt (có kiểm tra, file cũ giữ trong `.state/`).
+
+  Kết quả (2026-11-07): hcm_d18 và hp_maychai: **không cần đổi gì** (8 và 5 giá trị đã đúng như luật; còn lại không
+  có luật: `da_threshold` 0.42 = mặc định, điểm tham chiếu SARPROZ của hcm_d18). hanoi_s1_desc: một thay đổi,
+  `acquire.max_per_month` 2 -> 0 (soft-urban-subsidence); luật dữ liệu không đánh giá (chưa có stack). Nam Trà My:
+  ERA5 + psds + liên kết pha (ad, adaptive) + DA 0.6 + copernicus-30, ghi chú về đối lưu nhiệt đới và lên + xuống.
 - [ ] **V3** Web app: bảng Tư vấn trong wizard và form cài đặt, áp dụng từng trường / tất cả, en + vi.
 - [ ] **V4** Báo cáo `--learn` so luật với các dự án đã xong.
 - [ ] **V5** (tuỳ chọn) MCP server cục bộ `geoeyes-advisor` với các công cụ `explain_param`, `site_profile`, `recipe`.

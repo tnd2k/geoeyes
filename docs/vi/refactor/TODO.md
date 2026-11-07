@@ -170,7 +170,7 @@ danh mục, ứng dụng web; đã xoá mã cũ; đã `git init`. Việc còn l�
     phủ, khí hậu, địa chất, dữ liệu) và bộ luật viết tay; không LLM, không tốn token. CLI `geoeyes advise`, bảng
     trong web app, MCP cục bộ tuỳ chọn. Các bước V0 (danh mục) → V1 (hồ sơ) → V2 (luật) → V3 (web) → V4 (học) → V5
     (MCP); duyệt sau mỗi bước. Trạng thái 2026-11-07: xong V0 (`advisor/params.toml`, "vì sao?" trong form,
-    `geoeyes params`); xong V1 (`advisor/profile.py`, `geoeyes site`); tiếp theo V2.
+    `geoeyes params`); xong V1 (`advisor/profile.py`, `geoeyes site`); xong V2 (`advisor/rules.toml`, `geoeyes advise`); tiếp theo V3.
 
 Các mục dưới đây là nhật ký theo từng giai đoạn.
 

@@ -376,6 +376,58 @@ def cmd_site(args) -> int:
     return 0
 
 
+def cmd_advise(args) -> int:
+    """Site advisor: profile of the AOI -> rules -> suggested parameters with their reasons (site advisor V2)."""
+    import json
+    import tomllib
+
+    from geoeyes.advisor import rules
+    from geoeyes.advisor.profile import profile, summary
+    from geoeyes.config.settings import load_settings
+    from geoeyes.workspace import WorkspaceLayout
+    project = cfg = raw = None
+    if args.project:
+        cfg, project, ws = _open(args)
+        raw = tomllib.loads(project.config.read_text(encoding="utf-8"))
+        bbox = list(cfg.aoi.bbox) if cfg.aoi and cfg.aoi.bbox else None
+        dem = cfg.stack.dem or "srtm-1"
+    else:
+        ws = WorkspaceLayout.at(args.workspace) if args.workspace else load_settings().workspace_layout()
+        bbox, dem = None, "copernicus-30"
+    if args.bbox:
+        bbox = [float(v) for v in args.bbox.split(",")]
+    if not bbox or len(bbox) != 4:
+        print("error: give a project with [aoi] bbox, or --bbox W,S,E,N", file=sys.stderr)
+        return 2
+    p = profile(bbox, cache_root=ws.cache, dem=str(dem), project=project, cfg=cfg,
+                progress=lambda m: print(m, file=sys.stderr))
+    advice = rules.evaluate(p)
+    cmp = rules.compare(advice, cfg, raw) if cfg is not None else None
+    if args.json:
+        print(json.dumps({"profile": p, "metrics": advice.metrics, "matched": advice.matched,
+                          "skipped": advice.skipped,
+                          "recipe": {k: {"value": s.value, "rule": s.rule, "replaced": s.replaced}
+                                     for k, s in advice.recipe.items()},
+                          "notes": [{"rule": r, "note": n} for r, n in advice.notes], "compare": cmp},
+                         ensure_ascii=False, indent=1, default=str))
+        return 0
+    print(summary(p, args.lang))
+    print()
+    print(rules.report(advice, cmp, args.lang))
+    if args.apply:
+        if cmp is None:
+            print("error: --apply needs a project", file=sys.stderr)
+            return 2
+        from geoeyes.api import settings
+        todo = {r["path"]: r["suggested"] for r in cmp["changes"]}
+        if not todo:
+            print("\nnothing to apply")
+            return 0
+        settings.apply(project, todo)
+        print(f"\napplied {len(todo)} value(s) to {project.config} (previous file kept in .state/)")
+    return 0
+
+
 def cmd_catalog(args) -> int:
     """Workspace catalog: ``build`` (STAC + DuckDB index) or ``search``."""
     from geoeyes.catalog import build_catalog, search
@@ -930,6 +982,15 @@ def build_parser() -> argparse.ArgumentParser:
     si.add_argument("--json", action="store_true", help="the whole profile as JSON")
     si.add_argument("--refresh", action="store_true", help="read the site parts again (ignore the cache)")
     si.set_defaults(func=cmd_site)
+    av = sub.add_parser("advise", help="site advisor: what an area needs and how to set the parameters, with the "
+                                       "reason of each value (rules in geoeyes/advisor/rules.toml, no AI)")
+    av.add_argument("project", nargs="?")
+    av.add_argument("--bbox", help="west,south,east,north (use --bbox=... when the west is negative)")
+    av.add_argument("--lang", choices=["en", "vi"], default="en")
+    av.add_argument("--json", action="store_true")
+    av.add_argument("--apply", action="store_true", help="write the suggested changes into project.toml "
+                                                         "(validated; the previous file is kept)")
+    av.set_defaults(func=cmd_advise)
     ca = sub.add_parser("catalog", help="workspace catalog: build, search")
     ca.add_argument("action", choices=["build", "search"])
     ca.add_argument("--bbox", help="west,south,east,north")
