@@ -112,6 +112,18 @@ defaults in `processing/ps/params.py`). Eight checkpointed steps:
    `unwrap_gold_n_win = 16`), space-time model with `unwrap_time_win = 730` days (`"auto"`: span / 4, at least 4
    sampling intervals, 60–730 days), refined IRLS (`unwrap_irls_iter = 50`, `unwrap_irls_target_rms = 0.01`,
    `unwrap_irls_epsilon = 0.001`).
+   Since 2026-11-06 every edge of the grid is first unwrapped in time by its linear rate (`unwrap_edge_velocity =
+   "y"`, periodogram up to `unwrap_max_edge_velocity = 100` mm/yr) and the IRLS takes the cycle count of each grid
+   step from that model (`unwrap_model_cycles = "y"`, as the SNAPHU cost offsets of StaMPS). Before, the model was
+   fitted to the wrapped phase and the IRLS followed the wrapped gradients: a cluster whose phase difference to its
+   neighbours passed π (20 mm/yr: after ~250 days on S1) was a whole cycle off at the epochs far from the master.
+   `legacy_quirks = "y"` turns both off.
+   Since 2026-11-07 (HCMC Binh Chanh vs SARPROZ): the Gaussian grid prefilter has σ in metres
+   (`unwrap_grid_filter_sigma = "auto"` = (`unwrap_gold_n_win` // 8) × 10 m, the legacy filter at a 10 m grid; the
+   legacy σ in cells was 100 m at a 50 m grid and flattened the subsidence); and with ≥ 40 interferograms
+   (`unwrap_ps_rate = "auto"`) a linear rate per PS from the PS network (Delaunay arcs ≤ 500 m, periodogram, L1
+   integration) is removed before the grid and added back, so a road or canal bank faster than its cell keeps its
+   cycles. On flat deltas consider `subtr_tropo = "n"` ([aps-selection.md](../research/aps-selection.md)).
 7. Unwrap pass 2 (`subtr_tropo = "y"`) with the pass-1 smoothed look-angle error (`scla_deramp`) and the APS
    removed: the linear phase-height APS (fitted inside `aps_non_defo` when given), or the weather model, per
    interferogram where it explains the pass-1 residual better (`[atmosphere] select = "auto"`).

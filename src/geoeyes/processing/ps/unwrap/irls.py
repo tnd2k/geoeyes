@@ -40,13 +40,28 @@ def _div(dx: np.ndarray, dy: np.ndarray, shape) -> np.ndarray:
     return out
 
 
-def dct_init(phase: np.ndarray) -> np.ndarray:
-    """Least-squares integration of the wrapped gradients (no integer jumps); NaN cells are no-data."""
+def with_model_cycles(g: np.ndarray, model: np.ndarray | None) -> np.ndarray:
+    """Wrapped gradients ``g`` moved by the whole cycles that bring them nearest to an unwrapped ``model`` of the
+    same gradients (NaN = no model: ``g`` as is). The space-time model then decides the cycle count of each grid
+    step, as the cost offsets of StaMPS's SNAPHU input do; the fractional part stays the wrapped data."""
+    if model is None:
+        return g
+    m = np.asarray(model, np.float32)
+    k = np.where(np.isfinite(m), np.round((np.nan_to_num(m) - g) / np.float32(2 * np.pi)), 0)
+    return (g + np.float32(2 * np.pi) * k).astype(np.float32)
+
+
+def dct_init(phase: np.ndarray, model_x: np.ndarray | None = None, model_y: np.ndarray | None = None) -> np.ndarray:
+    """Least-squares integration of the wrapped gradients (no integer jumps; with ``model_x``/``model_y``, the
+    cycle counts of ``with_model_cycles``); NaN cells are no-data."""
     h, w = phase.shape
     valid = np.isfinite(phase)
     p = np.where(valid, phase, 0.0)
     dx = (((p[:, 1:] - p[:, :-1] + np.pi) % (2 * np.pi)) - np.pi) * (valid[:, :-1] & valid[:, 1:])
     dy = (((p[1:, :] - p[:-1, :] + np.pi) % (2 * np.pi)) - np.pi) * (valid[:-1, :] & valid[1:, :])
+    if model_x is not None or model_y is not None:
+        dx = with_model_cycles(dx.astype(np.float32), model_x) * (valid[:, :-1] & valid[:, 1:])
+        dy = with_model_cycles(dy.astype(np.float32), model_y) * (valid[:-1, :] & valid[1:, :])
     rho = _div(dx.astype(np.float32), dy.astype(np.float32), (h, w))
     return _dct_solve(rho, _poisson_eigs(next_fast_len(h), next_fast_len(w)))
 
@@ -57,15 +72,18 @@ def _lower_median(a: np.ndarray) -> np.float32:
 
 
 def irls_unwrap(phase: np.ndarray, row_costs: np.ndarray, col_costs: np.ndarray, init: np.ndarray | None = None,
-                max_iter: int = 50, target_rms: float = 0.01, epsilon: float = 0.001) -> tuple[np.ndarray, float]:
+                max_iter: int = 50, target_rms: float = 0.01, epsilon: float = 0.001,
+                model_x: np.ndarray | None = None, model_y: np.ndarray | None = None) -> tuple[np.ndarray, float]:
     """``phase`` (h, w) wrapped (NaN = no data); ``row_costs`` (h-1, w) / ``col_costs`` (h, w-1) edge variances.
+    ``model_x`` (h, w-1) / ``model_y`` (h-1, w): unwrapped model gradients that set the cycle count of the target
+    gradients (``with_model_cycles``; None = the wrapped gradients, legacy).
     Returns the continuous surface (float32) and the last PCG residual RMS."""
     wx0 = col_costs.astype(np.float32)
     wy0 = row_costs.astype(np.float32)
     sx, sy = _lower_median(wx0[wx0 > 0]), _lower_median(wy0[wy0 > 0])
     wx0 = (1.0 / (1.0 + wx0 / sx)).astype(np.float32)
     wy0 = (1.0 / (1.0 + wy0 / sy)).astype(np.float32)
-    return _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon)
+    return _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon, model_x, model_y)
 
 
 def irls_unwrap_weighted(phase: np.ndarray, weight: np.ndarray, init: np.ndarray | None = None, max_iter: int = 50,
@@ -75,7 +93,8 @@ def irls_unwrap_weighted(phase: np.ndarray, weight: np.ndarray, init: np.ndarray
     return _irls(phase, wgt[:, :-1], wgt[:-1, :], init, max_iter, target_rms, epsilon)
 
 
-def _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon) -> tuple[np.ndarray, float]:
+def _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon, model_x=None, model_y=None
+          ) -> tuple[np.ndarray, float]:
     h, w = phase.shape
     phi = phase.astype(np.float32)
     nan = ~np.isfinite(phi)
@@ -85,6 +104,9 @@ def _irls(phase, wx0, wy0, init, max_iter, target_rms, epsilon) -> tuple[np.ndar
     gx, gy = p[:, 1:] - p[:, :-1], p[1:, :] - p[:-1, :]
     dx_t = np.arctan2(np.sin(gx), np.cos(gx)) * vx
     dy_t = np.arctan2(np.sin(gy), np.cos(gy)) * vy
+    if model_x is not None or model_y is not None:
+        dx_t = with_model_cycles(dx_t, model_x) * vx
+        dy_t = with_model_cycles(dy_t, model_y) * vy
     wx0, wy0 = wx0 * vx, wy0 * vy
     ev = _poisson_eigs(next_fast_len(h), next_fast_len(w))
 

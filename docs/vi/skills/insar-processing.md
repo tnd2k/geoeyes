@@ -114,6 +114,18 @@ trong `processing/ps/params.py`). Tám bước, mỗi bước có điểm lưu (
    `unwrap_gold_n_win = 16`), mô hình không gian – thời gian với `unwrap_time_win = 730` ngày (`"auto"`: một phần tư
    khoảng thời gian, ít nhất 4 bước lấy mẫu, trong 60–730 ngày), IRLS tinh chỉnh (`unwrap_irls_iter = 50`,
    `unwrap_irls_target_rms = 0.01`, `unwrap_irls_epsilon = 0.001`).
+   Từ 06/11/2026, mỗi cạnh của lưới được giải chập theo thời gian trước bằng tốc độ tuyến tính của nó
+   (`unwrap_edge_velocity = "y"`, periodogram tới `unwrap_max_edge_velocity = 100` mm/năm), và IRLS lấy số chu kỳ
+   của từng bước lưới từ mô hình đó (`unwrap_model_cycles = "y"`, như offset trong cost SNAPHU của StaMPS). Trước
+   đó mô hình được khớp trên pha chập và IRLS đi theo gradient chập: một cụm điểm có hiệu pha với lân cận vượt π
+   (20 mm/năm: sau khoảng 250 ngày với S1) bị lệch nguyên một chu kỳ ở các ngày xa ảnh chủ. `legacy_quirks = "y"`
+   tắt cả hai.
+   Từ 07/11/2026 (Bình Chánh, TP.HCM so với SARPROZ): bộ lọc Gauss của lưới có σ tính theo mét
+   (`unwrap_grid_filter_sigma = "auto"` = (`unwrap_gold_n_win` // 8) × 10 m, tức bộ lọc cũ ở lưới 10 m; σ cũ tính
+   theo ô thành 100 m ở lưới 50 m và làm bẹt vùng lún); và khi có ≥ 40 giao thoa đồ (`unwrap_ps_rate = "auto"`),
+   tốc độ tuyến tính của từng PS lấy từ mạng PS (cạnh Delaunay ≤ 500 m, periodogram, tích phân L1) được trừ trước khi
+   lên lưới rồi cộng lại, nên một con đường hay bờ kênh lún nhanh hơn ô của nó không bị mất chu kỳ. Với vùng đồng
+   bằng phẳng nên cân nhắc `subtr_tropo = "n"` ([aps-selection.md](../research/aps-selection.md)).
 7. Giải chập pha lượt 2 (`subtr_tropo = "y"`) sau khi trừ sai số góc nhìn đã làm trơn ở lượt 1 (`scla_deramp`) và
    nhiễu khí quyển (APS): APS tuyến tính pha – độ cao (khớp trong đa giác `aps_non_defo` nếu có), hoặc mô hình thời
    tiết, cho từng giao thoa đồ mà nó giải thích phần dư lượt 1 tốt hơn (`[atmosphere] select = "auto"`).
