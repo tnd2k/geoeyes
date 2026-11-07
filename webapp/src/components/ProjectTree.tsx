@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 import { api, type Folder, type FolderTree, type ProjectSummary, type Workspace } from "../api";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
-import { ask, fmt, StatusDot } from "../ui";
+import { ask, fmt, ListSkeleton, StatusDot } from "../ui";
 
 const OPEN_KEY = "geoeyes.tree.open";
 
@@ -300,7 +300,7 @@ export function ProjectTree({ ws }: { ws: Workspace | undefined }) {
   }, [q, ws]);
 
   if (!ws) {
-    return <div className="p-4 text-[13px] text-muted">{t("Loading workspace…")}</div>;
+    return <ListSkeleton rows={7} />;
   }
   const tree = ws.tree;
   const visibleIn = (f: Folder): boolean => !match || f.projects.some((p) => match.has(p)) || f.folders.some(visibleIn);

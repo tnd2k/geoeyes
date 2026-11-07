@@ -44,7 +44,12 @@ export const LEARN: Record<string, string> = {
   "Loading the points…": "Đang tải các điểm…",
   "No product with points for this stack yet: run the PS processing first.":
     "Chồng ảnh này chưa có sản phẩm điểm: hãy chạy xử lý PS trước.",
-  "{n} points of {p} in the area.": "{n} điểm của {p} trong vùng.",
+  "(the product shown on the Results map)": "(sản phẩm đang hiển thị ở trang Kết quả)",
+  "(the newest product of this track: add it to the Results map to compare)": "(sản phẩm mới nhất của track này: thêm nó vào bản đồ Kết quả để so sánh)",
+  "{n} {kind} points in this area, out of {total} in the whole product.": "{n} điểm {kind} trong vùng này, trên tổng số {total} điểm của cả sản phẩm.",
+  "(a random sample of the {m} points here)": "(mẫu ngẫu nhiên từ {m} điểm trong vùng)",
+  "Here each point fills one pixel of the image (about {px} m) in a small area seen up close; the Results map shows the whole product, where fields and the river bed have few points or none.":
+    "Ở đây mỗi điểm tô kín một pixel của ảnh (khoảng {px} m) trong một vùng nhỏ được phóng to; bản đồ Kết quả hiển thị toàn bộ sản phẩm, nơi đồng ruộng và lòng sông có rất ít hoặc không có điểm.",
   "Click a point.": "Bấm vào một điểm.",
   "displacement of the point (0 at the first date)": "chuyển dịch của điểm (bằng 0 tại ngày đầu)",
   "line fitted to all dates": "đường thẳng khớp với mọi ngày",
@@ -261,7 +266,7 @@ export const LEARN: Record<string, string> = {
   "Velocity from the time series": "Vận tốc từ chuỗi thời gian",
   "See why GeoEyes uses all the scenes of the stack to estimate a velocity.":
     "Hiểu vì sao GeoEyes dùng toàn bộ cảnh ảnh của chồng ảnh để ước lượng vận tốc.",
-  "PS velocity of the product": "Vận tốc PS của sản phẩm",
+  "Velocity of the product's points": "Vận tốc các điểm của sản phẩm",
   "With N scenes, GeoEyes forms the interferograms of the whole stack, keeps the points whose phase stays reliable over time (persistent scatterers), and unwraps in space and time.":
     "Với N cảnh ảnh, GeoEyes tạo giao thoa đồ cho cả chồng ảnh, giữ lại các điểm có pha ổn định theo thời gian (điểm tán xạ bền vững) và giải chập pha theo cả không gian lẫn thời gian.",
   "It then removes the DEM error of each point and the atmosphere, which is random from one date to the next but smooth in space.":

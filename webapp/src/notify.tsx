@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type Workspace } from "./api";
 import { t, ts } from "./i18n";
+import { useWorkspaceLive } from "./live";
 
 export type Level = "info" | "success" | "warning" | "error";
 
@@ -234,7 +235,8 @@ export function ActivityWatcher({ ws }: { ws: Workspace | undefined }) {
   const { notify } = useNotify();
   const running = useRef<Record<string, boolean> | null>(null);
   const seen = useRef<Record<string, string>>(load(SEEN, {}));
-  const act = useQuery({ queryKey: ["activity"], queryFn: api.activity, refetchInterval: 5000 });
+  const live = useWorkspaceLive();  // the workspace stream pushes the activity: no poll then
+  const act = useQuery({ queryKey: ["activity"], queryFn: api.activity, refetchInterval: live ? false : 5000 });
 
   // runs: a project that was running and is not any more
   useEffect(() => {

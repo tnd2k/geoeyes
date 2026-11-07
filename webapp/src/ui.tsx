@@ -131,6 +131,45 @@ export function Panel({ className = "", children }: { className?: string; childr
   return <div className={`rounded-xl border border-line bg-panel ${className}`}>{children}</div>;
 }
 
+/** A grey placeholder of the shape of what loads (no spinner): the page keeps its layout while the data comes.
+ *  The pulse stops for viewers who asked for less motion. */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`rounded-md bg-raised motion-safe:animate-pulse ${className}`} aria-hidden />;
+}
+
+/** A page loading: a title, a row of tiles and a few panels, announced once to screen readers. */
+export function PageSkeleton({ tiles = 4, panels = 2 }: { tiles?: number; panels?: number }) {
+  return (
+    <div className="h-full overflow-hidden" role="status" aria-label={t("Loading…")}>
+      <div className="mx-auto max-w-[1280px] px-6 py-6">
+        <Skeleton className="h-7 w-56" />
+        <Skeleton className="mt-2 h-4 w-80" />
+        {tiles > 0 && (
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {Array.from({ length: tiles }, (_, i) => (
+              <Skeleton key={i} className="h-[76px] rounded-xl" />
+            ))}
+          </div>
+        )}
+        {Array.from({ length: panels }, (_, i) => (
+          <Skeleton key={i} className="mt-4 h-40 rounded-xl" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Rows of a list loading (the project tree, a table). */
+export function ListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-2.5 p-4" role="status" aria-label={t("Loading…")}>
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} className={`h-4 ${i % 3 === 0 ? "w-3/5" : i % 3 === 1 ? "w-4/5" : "w-2/3"}`} />
+      ))}
+    </div>
+  );
+}
+
 export const fmt = {
   int: (v?: number | null) => (v == null ? "–" : v.toLocaleString("en-US")),
   num: (v?: number | null, d = 1) => (v == null ? "–" : v.toFixed(d)),

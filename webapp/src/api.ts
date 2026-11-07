@@ -415,6 +415,10 @@ export interface LearnPoints {
   cols: number[];
   vel: number[];
   vel_range: [number, number] | null;
+  n_total?: number;               // points of the whole product
+  n_crop?: number;                // points of the product in this area (before a sample above 20 000)
+  sampled?: boolean;
+  kinds?: Record<string, number>; // what the points are: PS, DS, SBAS (pixels of a multilooked grid)
 }
 
 export interface LearnSeries {
@@ -872,6 +876,16 @@ export interface VelClass {
   count: number;
 }
 
+/** A StaMPS velocity kind (ps engine): v-do, v-dao or v-dso. */
+export type VelKind = "do" | "dao" | "dso";
+/** Which view of a product layer: calibrated or not (`true`: calibrated), and a velocity kind. */
+export type LayerView = boolean | { cal?: boolean; vel?: VelKind | null };
+function vq(v: LayerView, sep = "?"): string {
+  const o = typeof v === "boolean" ? { cal: v } : v;
+  const q = [o.cal ? "cal=1" : "", o.vel ? `vel=${o.vel}` : ""].filter(Boolean).join("&");
+  return q ? sep + q : "";
+}
+
 export interface LayerMeta {
   tiles: { available: boolean; recommended: boolean; min_zoom?: number; max_zoom?: number };
   hex_sizes?: number[]; // m: hexagon levels of the zoomed-out view
@@ -886,6 +900,11 @@ export interface LayerMeta {
   vel_min: number;
   vel_max: number;
   classes: VelClass[];
+  range?: [number, number];                         // client side: the classes span this chosen range, not min-max
+  velocity_kind?: VelKind | null;                   // the kind shown (null: the product velocity)
+  velocity_kinds?: VelKind[];                       // the kinds the product carries
+  product_kind?: VelKind | null;                    // which kind the product velocity is (when known)
+  legacy_dso?: boolean;                             // v-dso from an older run (APS also removed when it was)
   calibration?: CalibrationBrief | null;            // set on the calibrated layer (cal=1)
   calibration_available?: CalibrationBrief | null;  // the product has one (GNSS, else a tie)
 }
@@ -1286,14 +1305,14 @@ export const api = {
   log: (name: string, run: string, after: number) =>
     request<{ lines: LogLine[]; next: number }>(`${P(name)}/runs/${run}/log?after=${after}`),
   product: (name: string, pid: string) => request<ProductReport>(`${P(name)}/products/${pid}`),
-  layer: (name: string, pid: string, cal = false) => request<LayerMeta>(`${P(name)}/products/${pid}/layer${cal ? "?cal=1" : ""}`),
-  layerHex: async (name: string, pid: string, size: number, cal = false) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}${cal ? "&cal=1" : ""}`);
+  layer: (name: string, pid: string, cal: LayerView = false) => request<LayerMeta>(`${P(name)}/products/${pid}/layer${vq(cal)}`),
+  layerHex: async (name: string, pid: string, size: number, cal: LayerView = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/hex.bin?size=${size}${vq(cal, "&")}`);
     if (!r.ok) throw new Error(`hexagons: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer()); // (dlon, dlat, median mm/yr, count) per hexagon
   },
-  layerPoints: async (name: string, pid: string, cal = false) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin${cal ? "?cal=1" : ""}`);
+  layerPoints: async (name: string, pid: string, cal: LayerView = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/points.bin${vq(cal)}`);
     if (!r.ok) throw new Error(`points: ${r.statusText}`);
     return new Float32Array(await r.arrayBuffer());
   },
@@ -1301,18 +1320,18 @@ export const api = {
     request<{ available: boolean; min_zoom: number; max_zoom: number }>(`${P(name)}/products/${pid}/tiles`, json({})),
   tileUrl: (name: string, pid: string) => `${P(name)}/products/${pid}/tiles/{z}/{x}/{y}.pbf`,
   pmtilesUrl: (name: string, pid: string) => `${P(name)}/products/${pid}/tiles.pmtiles`,
-  point: (name: string, pid: string, i: number, cal = false) =>
-    request<PointInfo>(`${P(name)}/products/${pid}/layer/points/${i}${cal ? "?cal=1" : ""}`),
-  area: (name: string, pid: string, ring: [number, number][], cal = false) =>
-    request<AreaInfo>(`${P(name)}/products/${pid}/layer/area${cal ? "?cal=1" : ""}`, json({ ring })),
-  layerDisp: (name: string, pid: string, cal = false) => request<DispMeta>(`${P(name)}/products/${pid}/layer/disp${cal ? "?cal=1" : ""}`),
-  layerDispFrame: async (name: string, pid: string, k: number, cal = false) => {
-    const r = await fetch(`${P(name)}/products/${pid}/layer/disp/${k}.bin${cal ? "?cal=1" : ""}`);
+  point: (name: string, pid: string, i: number, cal: LayerView = false) =>
+    request<PointInfo>(`${P(name)}/products/${pid}/layer/points/${i}${vq(cal)}`),
+  area: (name: string, pid: string, ring: [number, number][], cal: LayerView = false) =>
+    request<AreaInfo>(`${P(name)}/products/${pid}/layer/area${vq(cal)}`, json({ ring })),
+  layerDisp: (name: string, pid: string, cal: LayerView = false) => request<DispMeta>(`${P(name)}/products/${pid}/layer/disp${vq(cal)}`),
+  layerDispFrame: async (name: string, pid: string, k: number, cal: LayerView = false) => {
+    const r = await fetch(`${P(name)}/products/${pid}/layer/disp/${k}.bin${vq(cal)}`);
     if (!r.ok) throw new Error(`displacement: ${r.statusText}`);
     return new Int16Array(await r.arrayBuffer());
   },
-  layerProfile: (name: string, pid: string, line: [number, number][], halfWidth: number, cal = false) =>
-    request<ProfileData>(`${P(name)}/products/${pid}/layer/profile${cal ? "?cal=1" : ""}`, json({ line, half_width_m: halfWidth })),
+  layerProfile: (name: string, pid: string, line: [number, number][], halfWidth: number, cal: LayerView = false) =>
+    request<ProfileData>(`${P(name)}/products/${pid}/layer/profile${vq(cal)}`, json({ line, half_width_m: halfWidth })),
   stacks: (name: string) =>
     request<{ stacks: { stack_id: string; modified: number; ps_run: string; qc: StackQc | null; unwrap_qc: UnwrapQc | null }[] }>(`${P(name)}/stacks`),
   psrunQcUrl: (name: string, run: string, file: string, v?: string) =>
@@ -1437,8 +1456,11 @@ export const api = {
     meta.layers.forEach((k, i) => (layers[k] = buf.subarray(i * n, (i + 1) * n)));
     return { meta, layers };
   },
-  learnPoints: (name: string, stack: string, p: LearnParams) =>
-    request<LearnPoints>(`${P(name)}/learn/${stack}/points?${new URLSearchParams(Object.entries(p).map(([k, v]) => [k, String(v)])).toString()}`),
+  /** `product`: the one to show (the Results map's); none: the newest product of the stack's track */
+  learnPoints: (name: string, stack: string, p: LearnParams, product?: string) =>
+    request<LearnPoints>(
+      `${P(name)}/learn/${stack}/points?${new URLSearchParams([...Object.entries(p).map(([k, v]) => [k, String(v)]), ...(product ? [["product", product]] : [])]).toString()}`,
+    ),
   learnSeries: (name: string, pid: string, uid: string) =>
     request<LearnSeries>(`${P(name)}/learn/series/${encodeURIComponent(pid)}/${encodeURIComponent(uid)}`),
   learnIonosphere: (name: string, stack: string) => request<LearnIonosphere>(`${P(name)}/learn/${stack}/ionosphere`),

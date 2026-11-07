@@ -9,8 +9,9 @@ import { Gnss } from "../components/Gnss";
 import { StackQc } from "../components/StackQc";
 import { Validation } from "../components/Validation";
 import { t, ts } from "../i18n";
+import { openStream } from "../live";
 import { useApp } from "../state";
-import { ask, Button, Chip, Confidence, fmt, Panel } from "../ui";
+import { ask, Button, Chip, Confidence, fmt, PageSkeleton, Panel } from "../ui";
 
 const PHASES: { name: string; label: string; what: string }[] = [
   { name: "acquire", label: "Acquire", what: "Sentinel-1 bursts from ASF into the archive" },
@@ -33,32 +34,69 @@ const TABS = [
   ["settings", "Settings"],
 ] as const;
 
-function useRunLog(project: string, runId: string | null | undefined, live: boolean) {
+/** The project's live state: its detail and ps checkpoints (into the query cache) and the log of `runId`, pushed by
+ *  the server's project stream; `live`: the run is going (its log grows). While the stream is down (an older server,
+ *  a hidden tab), `onUp(false)` and the log is polled as before. */
+function useProjectLive(project: string, runId: string | null | undefined, live: boolean, onUp: (up: boolean) => void) {
+  const qc = useQueryClient();
   const [lines, setLines] = useState<LogLine[]>([]);
   const next = useRef(0);
   useEffect(() => {
     setLines([]);
     next.current = 0;
-    if (!runId) return;
     let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let up = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stream: ReturnType<typeof openStream> | null = null;
+    // a batch continues the cursor or is dropped (a poll and the stream crossed): true when taken
+    const add = (r: { lines: LogLine[]; next: number }, after: number) => {
+      if (stop || after !== next.current) return false;
+      next.current = r.next;
+      if (r.lines.length) setLines((l) => [...l, ...r.lines].slice(-1500));
+      return true;
+    };
     const pull = async () => {
+      clearTimeout(timer);
+      if (stop || up || !runId || document.hidden) return; // the stream carries the log; a hidden tab waits
+      const after = next.current;
       try {
-        const r = await api.log(project, runId, next.current);
-        if (stop) return;
-        next.current = r.next;
-        if (r.lines.length) setLines((l) => [...l, ...r.lines].slice(-1500));
+        add(await api.log(project, runId, after), after);
       } catch {
         /* run folder not there yet */
       }
-      if (!stop && live) timer = setTimeout(pull, 2000);
+      if (!stop && !up && live) timer = setTimeout(pull, 2000);
     };
-    pull();
+    const onShow = () => {
+      if (!document.hidden && !up) pull();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    (async () => {
+      await pull(); // the log so far, then the stream from its end
+      if (stop) return;
+      stream = openStream(
+        () => `/api/projects/${encodeURIComponent(project)}/events${runId && live ? `?run=${encodeURIComponent(runId)}&after=${next.current}` : ""}`,
+        {
+          project: (d: never) => qc.setQueryData(["project", project], d),
+          "ps-steps": (d: never) => qc.setQueryData(["ps-steps", project], d),
+          log: (d: { lines: LogLine[]; next: number; after: number }) => {
+            if (!add(d, d.after)) stream?.reopen(); // out of step: reconnect from our cursor
+          },
+        },
+        (u) => {
+          up = u;
+          onUp(u);
+          if (!u && live) timer = setTimeout(pull, 2000);
+        },
+      );
+    })();
     return () => {
       stop = true;
       clearTimeout(timer);
+      stream?.close();
+      document.removeEventListener("visibilitychange", onShow);
+      onUp(false);
     };
-  }, [project, runId, live]);
+  }, [project, runId, live, qc, onUp]);
   return lines;
 }
 
@@ -332,10 +370,12 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
   const qc = useQueryClient();
   // from the click until the server sees the run (it first searches the data servers for new scenes)
   const [starting, setStarting] = useState(false);
+  // the project stream is up: it pushes the detail, the checkpoints and the log (no polls then)
+  const [streamUp, setStreamUp] = useState(false);
   const q = useQuery({
     queryKey: ["project", name],
     queryFn: () => api.project(name),
-    refetchInterval: (query) => ((query.state.data as ProjectDetail | undefined)?.running || starting ? 2000 : 15000),
+    refetchInterval: (query) => (streamUp ? false : (query.state.data as ProjectDetail | undefined)?.running || starting ? 2000 : 15000),
   });
   // phases switched off for the runs started here ("track/phase"), remembered per project in this browser
   const skipKey = `geoeyes.skip.${name}`;
@@ -400,7 +440,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
   }, [name]);
 
   const p = q.data;
-  const psSteps = useQuery({ queryKey: ["ps-steps", name], queryFn: () => api.psSteps(name), refetchInterval: p?.running ? 5000 : 30_000 });
+  const psSteps = useQuery({ queryKey: ["ps-steps", name], queryFn: () => api.psSteps(name), refetchInterval: streamUp ? false : p?.running ? 5000 : 30_000 });
   useEffect(() => {
     if (!starting) return;
     if (p?.running) return setStarting(false);
@@ -409,7 +449,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
   }, [starting, p?.running]);
   const liveRun = p?.running?.run_id ?? null;
   const shownRun = logRun ?? liveRun ?? p?.runs[0]?.id ?? null;
-  const lines = useRunLog(name, shownRun, !!liveRun && shownRun === liveRun);
+  const lines = useProjectLive(name, shownRun, !!liveRun && shownRun === liveRun, setStreamUp);
   // latest progress (done / total) of each phase of the live run: the water level of its card
   const progress: Record<string, number> = {};
   if (liveRun && shownRun === liveRun)
@@ -423,7 +463,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
   });
 
   if (q.error) return <div className="p-8 text-bad">{(q.error as Error).message}</div>;
-  if (!p) return <div className="p-8 text-muted">{t("Loading…")}</div>;
+  if (!p) return <PageSkeleton tiles={0} panels={3} />;
   const toRun = plan.data?.steps.filter((s) => s.action === "run").length ?? null;
 
   return (

@@ -8,7 +8,7 @@ import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t, ts } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { BEH_CLASSES, BEH_LABELS, BEH_RGB, CellChart, LEVEL_RGB, LEVELS, NA_RGB, rgb, type Behaviour, type Cells } from "./Hazard";
+import { BEH_CLASSES, BEH_LABELS, BEH_RGB, CellChart, LEVEL_RGB, LEVELS, NA_RGB, rgb, type Behaviour, type Cells } from "../components/hazardKit";
 import { CellMap } from "./LearnHazard";
 import { themeColor } from "../theme";
 

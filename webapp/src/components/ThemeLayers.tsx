@@ -10,8 +10,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, type GridMeta, type HazardCellsMeta, type HazardSummary } from "../api";
 import type { LegendSpec } from "../legend";
+import { binaryData } from "../map";
 import { t } from "../i18n";
-import { DIVERGING, ForecastChart, ramp } from "../pages/Ai";
+import { DIVERGING, ForecastChart, ramp } from "./aiKit";
 import {
   BEH_CLASSES,
   BEH_LABELS,
@@ -39,7 +40,7 @@ import {
   type Consolidation,
   type Geology,
   type View,
-} from "../pages/Hazard";
+} from "./hazardKit";
 import { fmt } from "../ui";
 
 export type ThemeKind = "hazard" | "behaviour" | "consolidation" | "geology" | "decompose" | "susceptibility" | "forecast" | "risk" | "lines";
@@ -356,7 +357,7 @@ export function themeLayers(themes: Theme[], data: Record<string, ThemeData | un
         const p = d.points;
         return new ScatterplotLayer({
           ...common,
-          data: { length: p.n, attributes: { getPosition: { value: p.pos, size: 2 }, getFillColor: { value: p.col, size: 4, normalized: true }, getRadius: { value: p.rad, size: 1 } } } as never,
+          data: binaryData(p.pos, p.col, () => ({ length: p.n, attributes: { getPosition: { value: p.pos, size: 2 }, getFillColor: { value: p.col, size: 4, normalized: true }, getRadius: { value: p.rad, size: 1 } } })) as never,
           radiusUnits: "meters",
           radiusMinPixels: 1.5,
         });
@@ -365,7 +366,7 @@ export function themeLayers(themes: Theme[], data: Record<string, ThemeData | un
         const s = d.segments;
         return new LineLayer({
           ...common,
-          data: { length: s.n, attributes: { getSourcePosition: { value: s.src, size: 2 }, getTargetPosition: { value: s.dst, size: 2 }, getColor: { value: s.col, size: 4, normalized: true }, getWidth: { value: s.wid, size: 1 } } } as never,
+          data: binaryData(s.src, s.col, () => ({ length: s.n, attributes: { getSourcePosition: { value: s.src, size: 2 }, getTargetPosition: { value: s.dst, size: 2 }, getColor: { value: s.col, size: 4, normalized: true }, getWidth: { value: s.wid, size: 1 } } })) as never,
           widthUnits: "pixels",
         });
       }

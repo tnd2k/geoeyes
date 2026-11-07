@@ -8,7 +8,7 @@ import { ChapterNav, Lesson } from "../components/LearnKit";
 import { lang, t } from "../i18n";
 import { href } from "../state";
 import { Button, fmt } from "../ui";
-import { CONS_RGB, ConsolidationChart, LINE_KINDS, LINE_RGB, NA_RGB, ProfileChart, rgb, type Cells, type Consolidation, type RGB } from "./Hazard";
+import { CONS_RGB, ConsolidationChart, LINE_KINDS, LINE_RGB, NA_RGB, ProfileChart, rgb, type Cells, type Consolidation, type RGB } from "../components/hazardKit";
 import { CellMap } from "./LearnHazard";
 import { themeColor } from "../theme";
 

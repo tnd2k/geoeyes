@@ -8,7 +8,7 @@ import { api, type Workspace } from "../api";
 import { degLabel, drawSheet, graticuleStep, layout, metresPerPixel, PAPERS, pdfFromJpeg, type Options, type SheetData } from "../compose";
 import { floodFeatures, floodLayers } from "../components/FloodReports";
 import { COMPOSE_SUBJECT, loadTheme, themeLayers, themeLegendSpec, themeTitle, useThemes, type ThemeData } from "../components/ThemeLayers";
-import { BASES, loadLayer, mapStyle, productLayer, type Base, type LayerData } from "../map";
+import { BASES, loadLayer, mapStyle, productLayer, withRange, type Base, type LayerData } from "../map";
 import { t, ts } from "../i18n";
 import { useApp } from "../state";
 import { Button, fmt, Panel, usePersisted } from "../ui";
@@ -164,15 +164,20 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
 
   const data = useQueries({
     queries: visible.map((l) => ({
-      queryKey: ["layer", l.key, l.mode ?? "auto"],
-      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto"),
+      // the velocity kind chosen on the results map (same cache entry as there, uncalibrated)
+      queryKey: ["layer", l.key, l.mode ?? "auto", { cal: false, vel: l.vel === undefined ? "default" : l.vel }],
+      queryFn: () => loadLayer(l.project, l.product, l.mode ?? "auto", false, l.vel),
       staleTime: Infinity,
       gcTime: 10 * 60_000,
     })),
   });
   const byKey = useMemo(() => {
     const m: Record<string, LayerData | undefined> = {};
-    visible.forEach((l, i) => (m[l.key] = data[i]?.data));
+    // the colour range chosen on the results map
+    visible.forEach((l, i) => {
+      const d = data[i]?.data;
+      m[l.key] = d && withRange(d, l.range);
+    });
     return m;
   }, [visible, data]);
   const firstData = first ? byKey[first.key] : undefined;
