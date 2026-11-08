@@ -66,6 +66,7 @@ method = "era5"                   # none (linear APS) | era5 | gacos
 | `[ps]` | StaMPS parameter names | e.g. `unwrap_grid_size` (10 m default), `max_topo_err`, `scla_deramp`, reference box `ref_lon`/`ref_lat` |
 | `[atmosphere]` | `method`, `select`, `era5`, `gacos` | `select = "auto"`: weather model only where it beats the linear APS |
 | `[export]` | `formats` | `["gpkg"]`, add `"csv"` |
+| `[product]` | `spatial_filter`, `spatial_filter_radius_m`, `_k`, `_min_neighbours`, `_dv_min`, `_z` | on by default: a point whose velocity is off the median of its neighbours (30 nearest within 200 m) by more than max(10 mm/yr, 4 × MAD) is left out (listed in `spatial_outliers.parquet`) |
 | `[report]` | `copy_to` | also copy the PDF report to this folder |
 | `[validation.corner_reflector]` | `points`, `setup`, `timezone`, `edge_m` | see §4 |
 

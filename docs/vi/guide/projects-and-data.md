@@ -68,6 +68,7 @@ method = "era5"                   # none (APS tuyến tính) | era5 | gacos
 | `[ps]` | tên tham số StaMPS | ví dụ `unwrap_grid_size` (mặc định 10 m), `max_topo_err`, `scla_deramp`, hộp tham chiếu `ref_lon`/`ref_lat` |
 | `[atmosphere]` | `method`, `select`, `era5`, `gacos` | `select = "auto"`: chỉ dùng mô hình thời tiết ở nơi nó tốt hơn APS tuyến tính |
 | `[export]` | `formats` | `["gpkg"]`, thêm `"csv"` nếu cần |
+| `[product]` | `spatial_filter`, `spatial_filter_radius_m`, `_k`, `_min_neighbours`, `_dv_min`, `_z` | mặc định bật: điểm có vận tốc lệch khỏi trung vị của các điểm lân cận (30 điểm gần nhất trong 200 m) quá max(10 mm/năm, 4 × MAD) bị loại khỏi sản phẩm (danh sách trong `spatial_outliers.parquet`) |
 | `[report]` | `copy_to` | chép thêm báo cáo PDF vào thư mục này |
 | `[validation.corner_reflector]` | `points`, `setup`, `timezone`, `edge_m` | xem §4 |
 

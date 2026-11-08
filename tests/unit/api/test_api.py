@@ -1,3 +1,4 @@
+import functools
 import json
 
 import numpy as np
@@ -12,7 +13,11 @@ from geoeyes.api import create_app  # noqa: E402
 from geoeyes.controller.phase import ProjectState  # noqa: E402
 from geoeyes.io.manifest import InputRef, Manifest  # noqa: E402
 from geoeyes.io.points import write_points, write_timeseries  # noqa: E402
-from geoeyes.products.builder import build_product  # noqa: E402
+from geoeyes.products.builder import build_product as _build_product  # noqa: E402
+from geoeyes.products.spatial_filter import SpatialFilter  # noqa: E402
+
+# the points here are scattered white noise (every point traceable by its row): no spatial filter
+build_product = functools.partial(_build_product, spatial=SpatialFilter(enabled=False))
 from geoeyes.workspace import WorkspaceLayout  # noqa: E402
 
 TOML = """schema = "geoeyes.project/1"

@@ -349,6 +349,17 @@ class ExportSection(_Section):
     formats: tuple[Literal["gpkg", "shp", "csv", "las", "qml", "pmtiles", "kmz", "3dtiles"], ...] = ("gpkg", "pmtiles")
 
 
+class ProductSection(_Section):
+    # spatial outliers left out of the product: |v - median of the neighbours| > max(dv_min, z x MAD), the
+    # neighbours being the k nearest points within radius_m (geoeyes.products.spatial_filter)
+    spatial_filter: bool = True
+    spatial_filter_radius_m: float = Field(200.0, gt=0)
+    spatial_filter_k: int = Field(30, ge=3)
+    spatial_filter_min_neighbours: int = Field(8, ge=3)
+    spatial_filter_dv_min: float = Field(10.0, ge=0)        # mm/yr
+    spatial_filter_z: float = Field(4.0, gt=0)
+
+
 class ComputeSection(_Section):
     backend: Literal["auto", "numpy", "cupy"] = "auto"
     workers: int = Field(0, ge=0)          # 0 = auto
@@ -378,6 +389,7 @@ class ProjectConfig(_Section):
     validation: ValidationSection = ValidationSection()
     report: ReportSection = ReportSection()
     export: ExportSection = ExportSection()
+    product: ProductSection = ProductSection()
     compute: ComputeSection = ComputeSection()
     pipeline: PipelineSection = PipelineSection()
     overrides: dict[str, dict[str, Any]] = {}     # per subswath, deep-merged (resolve_subswath)

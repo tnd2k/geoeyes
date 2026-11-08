@@ -6,6 +6,7 @@
                          date; ``zero_reference``)
     rasters/velocity.tif rasters/ps_density.tif    COG, EPSG:4326, mean LOS velocity / points per cell
     item.json            STAC 1.0 Item
+    spatial_outliers.parquet   points left out by the spatial filter (point_uid, lon, lat, velocities), if any
     manifest.json
 
 Every product of a track is a new version (``..._v<N>``); the time-series statistics (velocity standard error,
@@ -24,10 +25,12 @@ from geoeyes.core.errors import DataError
 from geoeyes.io.manifest import InputRef, Manifest, atomic_write_json
 from geoeyes.io.points import read_points, read_timeseries, write_points, write_timeseries
 from geoeyes.products.schema import COLUMNS, EXTRA_PREFIX, SCHEMA
+from geoeyes.products.spatial_filter import SpatialFilter, spatial_outliers
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-product/3"          # /2: timeseries.parquet also carries disp_scn_mm (ps engine)
+ENGINE = "geoeyes-product/4"          # /2: timeseries.parquet also carries disp_scn_mm (ps engine)
                                       # /3: series zero at the first date (were zero at the stack reference date)
+                                      # /4: spatial outliers left out ([product] spatial_filter)
 _EXTRA = {"vel_los_scn_mm_yr": "vel_scn_mm_yr", "vel_linear_mm_yr": "vel_linear_mm_yr",
           "spectral_diversity": "spectral_diversity", "phase_std_rad": "phase_std_rad",
           # the StaMPS velocity kinds (ps engine), chosen on the map
@@ -192,10 +195,25 @@ def _scn_series(ps_run: Path, ts, gdf, dates) -> np.ndarray | None:
 
 
 def build_product(ps_run: str | Path, products_root: str | Path, *, project: str, track_id: str,
-                  run_id: str = "") -> dict:
-    """Product from the PS run of a track (subswaths are merged in the stack, before point processing)."""
+                  run_id: str = "", spatial: SpatialFilter | None = None) -> dict:
+    """Product from the PS run of a track (subswaths are merged in the stack, before point processing).
+    ``spatial``: the spatial outlier filter (default on, ``SpatialFilter()``); the points left out are listed in
+    ``spatial_outliers.parquet``."""
     ps_run, products_root = Path(ps_run), Path(products_root)
     p, dates, disp, src, attrs, disp_scn = _load_run(ps_run, track_id)
+    spatial = SpatialFilter() if spatial is None else spatial
+    dropped = None
+    if spatial.enabled:
+        vcols = ["vel_los_mm_yr", *(EXTRA_PREFIX + c for c in ("vel_do_mm_yr", "vel_dao_mm_yr", "vel_dso_mm_yr",
+                                                                "vel_scn_mm_yr") if EXTRA_PREFIX + c in p)]
+        bad = spatial_outliers(p["lon"].to_numpy(), p["lat"].to_numpy(), [p[c].to_numpy(np.float64) for c in vcols],
+                               spatial)
+        if bad.any():
+            dropped = p.loc[bad, ["point_uid", "lon", "lat", *vcols]].reset_index(drop=True)
+            p = p.loc[~bad].reset_index(drop=True)
+            disp = disp[~bad]
+            disp_scn = None if disp_scn is None else disp_scn[~bad]
+        log.info("spatial filter: %d of %d points left out (%.2f %%)", int(bad.sum()), bad.size, 100 * bad.mean())
     st = timeseries_stats(disp, dates)
     p["vel_std_mm_yr"] = p["vel_std_mm_yr"].where(p["vel_std_mm_yr"].notna(), pd.Series(st["vel_std"]))
     p["acc_los_mm_yr2"] = p["acc_los_mm_yr2"].where(p["acc_los_mm_yr2"].notna(), pd.Series(st["acc"]))
@@ -219,13 +237,18 @@ def build_product(ps_run: str | Path, products_root: str | Path, *, project: str
                "vel_p98_mm_yr": float(np.nanpercentile(v, 98)),
                "vel_std_median_mm_yr": float(np.nanmedian(p["vel_std_mm_yr"])),
                "coherence_median": float(np.nanmedian(p["temporal_coherence"])),
-               "reference": src.metrics.get("reference", ""), "aps": src.metrics.get("aps", "")}
+               "reference": src.metrics.get("reference", ""), "aps": src.metrics.get("aps", ""),
+               "n_spatial_outliers": 0 if dropped is None else len(dropped)}
     write_points(out / "points.parquet", out_gdf, metadata={"schema": SCHEMA, "product_id": pid,
                                                             "sign_convention": "LOS + toward the satellite",
                                                             "reference_date": src.metrics.get("reference_date"),
                                                             "time_zero": "first date"})
     write_timeseries(out / "timeseries.parquet", p["point_uid"].to_numpy(), dates, zero_reference(disp),
                      disp_scn_mm=zero_reference(disp_scn))
+    extra_out = []
+    if dropped is not None:
+        dropped.to_parquet(out / "spatial_outliers.parquet", index=False)
+        extra_out.append("spatial_outliers.parquet")
     rasters = _rasters(out / "rasters", p["lon"].to_numpy(), p["lat"].to_numpy(), v)
     bbox = [float(p["lon"].min()), float(p["lat"].min()), float(p["lon"].max()), float(p["lat"].max())]
     item = {"type": "Feature", "stac_version": "1.0.0", "id": pid, "bbox": bbox,
@@ -253,7 +276,8 @@ def build_product(ps_run: str | Path, products_root: str | Path, *, project: str
                  inputs=[InputRef("ps_run", str(ps_run), next((o.sha256 for o in src.outputs
                                                                if o.path == "points.parquet"), ""))],
                  metrics=metrics)
-    m.add_outputs(out, ["points.parquet", "timeseries.parquet", "item.json", *(r.relative_to(out) for r in rasters)])
+    m.add_outputs(out, ["points.parquet", "timeseries.parquet", "item.json", *extra_out,
+                        *(r.relative_to(out) for r in rasters)])
     m.write(out)
     log.info("product %s: %d points (%d DS), %s..%s", pid, len(p), metrics["n_ds"], d0, d1)
     return {"product_id": pid, "path": str(out), **metrics}

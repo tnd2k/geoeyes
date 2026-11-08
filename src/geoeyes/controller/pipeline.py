@@ -243,7 +243,8 @@ class BuildProduct(Phase):
     def fingerprint(self, ctx):
         from geoeyes.products.builder import ENGINE
         from geoeyes.products.schema import SCHEMA
-        return sha256_params({"ps": PointEngine().fingerprint(ctx), "schema": SCHEMA, "builder": ENGINE})
+        return sha256_params({"ps": PointEngine().fingerprint(ctx), "schema": SCHEMA, "builder": ENGINE,
+                              "product": ctx.cfg.product.model_dump()})
 
     def outputs_exist(self, ctx):
         pid = _last_result(ctx, self.name).get("product_id")
@@ -251,8 +252,13 @@ class BuildProduct(Phase):
 
     def run(self, ctx):
         from geoeyes.products.builder import build_product
+        from geoeyes.products.spatial_filter import SpatialFilter
+        pc = ctx.cfg.product
+        spatial = SpatialFilter(enabled=pc.spatial_filter, radius_m=pc.spatial_filter_radius_m, k=pc.spatial_filter_k,
+                                min_neighbours=pc.spatial_filter_min_neighbours, dv_min=pc.spatial_filter_dv_min,
+                                z=pc.spatial_filter_z)
         return build_product(PointEngine().out_dir(ctx), ctx.project.root / "products", project=ctx.cfg.project.name,
-                             track_id=ctx.track_id, run_id=ctx.run_id)
+                             track_id=ctx.track_id, run_id=ctx.run_id, spatial=spatial)
 
 
 class Export(Phase):
