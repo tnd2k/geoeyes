@@ -33,7 +33,7 @@ from geoeyes.api import (
     settings,
 )
 from geoeyes.config.loader import load
-from geoeyes.core.errors import ConfigError, GeoEyesError, LockedError
+from geoeyes.core.errors import ConfigError, DataError, GeoEyesError, LockedError
 from geoeyes.workspace import WorkspaceLayout
 
 STATIC = Path(__file__).parent / "static"
@@ -415,6 +415,42 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
 
     def _json(data, max_age_s: int) -> JSONResponse:
         return SafeJSONResponse(data, headers={"Cache-Control": f"private, max-age={max_age_s}"})
+
+    def _bbox_arg(bbox: str) -> list[float]:
+        try:
+            b = [float(x) for x in bbox.split(",")]
+        except ValueError:
+            b = []
+        if len(b) != 4:
+            raise HTTPException(400, "bbox: west,south,east,north")
+        return b
+
+    @app.get("/api/hydro/rivers")
+    def hydro_rivers(bbox: str):
+        """OSM waterways (rivers, canals, streams, drains) over the view (``ancillary.hydro.rivers``)."""
+        from geoeyes.ancillary import hydro
+        try:
+            b = hydro.snap(_bbox_arg(bbox))
+            key = "_".join(f"{x:.2f}" for x in b)
+            data = _cached_json(ws.cache_dir("hydro") / f"rivers_{key}.json", "rivers/1",
+                                lambda: hydro.rivers(b, ws.cache_dir("hydro")))
+        except DataError as e:
+            raise HTTPException(422, str(e)) from e
+        return _json(data, 86400)
+
+    @app.get("/api/hydro/basins")
+    def hydro_basins(bbox: str, level: int = 12):
+        """HydroBASINS watersheds over the view (``ancillary.hydro.basins``)."""
+        from geoeyes.ancillary import hydro
+        lev = min(max(int(level), 1), 12)
+        try:
+            b = hydro.snap(_bbox_arg(bbox))
+            key = "_".join(f"{x:.2f}" for x in b)
+            data = _cached_json(ws.cache_dir("hydro") / f"basins{lev}_{key}.json", "basins/1",
+                                lambda: hydro.basins(b, ws.cache_dir("hydro"), lev))
+        except DataError as e:
+            raise HTTPException(422, str(e)) from e
+        return _json(data, 86400)
 
     @app.get("/api/floods")
     def floods():

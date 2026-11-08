@@ -280,4 +280,20 @@ export const EXPLORER: Record<string, string> = {
   "Points with a temporal coherence below this are hidden (0: all points)":
     "Ẩn các điểm có temporal coherence thấp hơn ngưỡng này (0: hiện mọi điểm)",
   "{n} pts ({p} %)": "{n} điểm ({p} %)",
+  "Rivers and watersheds": "Sông ngòi và lưu vực",
+  "River network (OpenStreetMap) and watersheds (HydroBASINS level 12) under the products":
+    "Mạng sông, kênh, rạch (OpenStreetMap) và lưu vực (HydroBASINS cấp 12) dưới các sản phẩm",
+  "Zoom in: rivers and watersheds are shown over views up to 6°": "Phóng to: sông ngòi và lưu vực chỉ hiện khi khung nhìn nhỏ hơn 6°",
+  "Reading the rivers and watersheds of the view… (a minute the first time)":
+    "Đang đọc sông ngòi và lưu vực của khung nhìn… (lần đầu mất khoảng một phút)",
+  river: "sông",
+  canal: "kênh",
+  "tidal channel": "lạch triều",
+  stream: "rạch, suối",
+  drain: "mương thoát nước",
+  ditch: "mương",
+  "(unnamed)": "(không tên)",
+  Watershed: "Lưu vực",
+  "{a} km² · upstream {u} km²": "{a} km² · lưu vực thượng nguồn {u} km²",
+  coastal: "ven biển",
 };

@@ -9,6 +9,7 @@ import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type Co
 import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
 import { calibrationSource } from "../components/Calibration";
 import { FloodHub, LEVEL_COLOR } from "../components/FloodHub";
+import { hydroLayers, hydroTooltip, useHydro } from "../components/Hydro";
 import { floodBounds, floodFeatures, floodLayers, floodTooltip } from "../components/FloodReports";
 import { ProfileChart } from "../components/Profile";
 import { TimeBar } from "../components/TimeBar";
@@ -494,6 +495,9 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     return Object.entries(areas).sort(([, a], [, b]) => Math.hypot(a.centre[0] - c[0], a.centre[1] - c[1]) - Math.hypot(b.centre[0] - c[0], b.centre[1] - c[1]))[0]?.[0] ?? null;
   }, [outlookQ.data, floodSel, floodsQ.data, mapCentre]);
   const floodShown = useMemo(() => (floodsOn ? floodFeatures(floodsQ.data, false) : []), [floodsOn, floodsQ.data]);
+  // river network and watersheds under the products (current view)
+  const [hydroOn, setHydroOn] = usePersisted("explorer.hydro", false);
+  const hydro = useHydro(map, mapReady, hydroOn);
   const pickFlood = (id: string, fly = false) => {
     setFloodSel(id);
     setDockOpen(false);
@@ -745,6 +749,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     const ov = overlay.current;
     if (!ov) return;
     const deckLayers: unknown[] = three ? [terrainLayer(base, exag)] : [];
+    if (hydroOn && (hydro.rivers || hydro.basins))
+      deckLayers.push(...hydroLayers(hydro.rivers?.features ?? [], hydro.basins?.features ?? [], { three, extensions: terrainOn }));
     const m = map.current;
     let splitLon = 0;
     if (comparing && cmp.mode === "swipe" && m) {
@@ -902,6 +908,10 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           const f = (object as { f?: FloodFeature }).f ?? (object as FloodFeature);
           return { text: floodTooltip(f, floodStats.data), style: { ...style, fontFamily: "var(--font-sans)", maxWidth: "360px", whiteSpace: "pre-wrap" } };
         }
+        if (layer.id.startsWith("hydro-") && object) {
+          const text = hydroTooltip(layer.id, object);
+          return text ? { text, style: { ...style, fontFamily: "var(--font-sans)", whiteSpace: "pre-wrap" } } : null;
+        }
         if (layer.id.startsWith("diff") && diff.data && index >= 0) {
           const b = diff.data.buf;
           return { text: `B − A ${fmt.vel(b[index * 5 + 2])} mm/yr\nA ${fmt.vel(b[index * 5 + 3])} · B ${fmt.vel(b[index * 5 + 4])}`, style };
@@ -923,7 +933,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick, three, exag, base, anim?.key, frameColors, frameQ.data, disp.data, frame, line, profiling, halfWidth, hoverDist, floodShown, floodSel, floodStats.data, floodRiskColors, outlookQ.data, hexQueries.map((q) => q.dataUpdatedAt).join(), zoom, hexOn, th.themes, themeQueries.map((q) => q.dataUpdatedAt).join(), themeSel]);
+  }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick, three, exag, base, anim?.key, frameColors, frameQ.data, disp.data, frame, line, profiling, halfWidth, hoverDist, floodShown, floodSel, floodStats.data, floodRiskColors, outlookQ.data, hydroOn, hydro.rivers, hydro.basins, hexQueries.map((q) => q.dataUpdatedAt).join(), zoom, hexOn, th.themes, themeQueries.map((q) => q.dataUpdatedAt).join(), themeSel]);
 
   // the time-series panel shows the series with the residual atmosphere (SCN) removed (StaMPS v-dso, as SARPROZ's
   // APS-corrected series); products without it fall back to the raw series. The map keeps its velocity-kind choice.
@@ -1038,6 +1048,21 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
             active={floodsOn}
             onClick={() => (setFloodsOn((v) => !v), setFloodSel(null))}
             icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="M8 2.5S4 7 4 9.5a4 4 0 0 0 8 0C12 7 8 2.5 8 2.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>}
+          />
+          <Tool
+            label={t("Rivers and watersheds")}
+            hint={
+              hydro.tooWide
+                ? t("Zoom in: rivers and watersheds are shown over views up to 6°")
+                : hydro.error
+                  ? ts(hydro.error.message)
+                  : hydro.loading
+                    ? t("Reading the rivers and watersheds of the view… (a minute the first time)")
+                    : t("River network (OpenStreetMap) and watersheds (HydroBASINS level 12) under the products")
+            }
+            active={hydroOn}
+            onClick={() => setHydroOn((v) => !v)}
+            icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="M2 3.5c2.5 0 2.5 3 5 3s2.5 3 5 3M7 6.5c0 2.5-2 3-2 6M12 9.5c0 1.5 1 2 2 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
           />
         </div>
         {drawing && (

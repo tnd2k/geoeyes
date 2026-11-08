@@ -750,6 +750,21 @@ export interface FloodFeature {
     located: FloodLocated;
   };
 }
+/** River network (OSM waterways) or watersheds (HydroBASINS) over a view (`/api/hydro/*`). */
+export interface HydroFeature {
+  type: "Feature";
+  id: string;
+  properties: { kind?: string; name?: string; hybas_id?: number; area_km2?: number; up_area_km2?: number; coast?: number };
+  geometry: { type: "LineString"; coordinates: number[][] } | { type: "Polygon"; coordinates: number[][][] } | { type: "MultiPolygon"; coordinates: number[][][][] };
+}
+export interface HydroCollection {
+  type: "FeatureCollection";
+  bbox: number[];
+  source: string;
+  level?: number;
+  features: HydroFeature[];
+}
+
 export interface FloodCollection {
   type: "FeatureCollection";
   regions: { region: string; n: number; stale: boolean }[];
@@ -1454,6 +1469,8 @@ export const api = {
   rainfall: (name: string, pid: string) =>
     request<{ source: string; months: { month: string; mm: number | null }[] }>(`${P(name)}/products/${pid}/rainfall`),
   floods: () => request<FloodCollection>("/api/floods"),
+  hydroRivers: (bbox: number[]) => request<HydroCollection>(`/api/hydro/rivers?bbox=${bbox.map((x) => x.toFixed(3)).join(",")}`),
+  hydroBasins: (bbox: number[]) => request<HydroCollection>(`/api/hydro/basins?bbox=${bbox.map((x) => x.toFixed(3)).join(",")}`),
   floodOutlook: (project?: string, product?: string, radius = 100) =>
     request<FloodOutlook>(`/api/floods/outlook${project && product ? `?project=${encodeURIComponent(project)}&product=${encodeURIComponent(product)}&radius=${radius}` : ""}`),
   productFloods: (name: string, pid: string, radius = 100) => request<FloodStats>(`${P(name)}/products/${pid}/floods?radius=${radius}`),
