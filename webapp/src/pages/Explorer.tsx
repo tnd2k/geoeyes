@@ -95,7 +95,7 @@ export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes"
                 <span className="h-1.5 flex-1 overflow-hidden rounded bg-chip">
                   <span className="block h-full rounded bg-faint" style={{ width: `${Math.max(1, (100 * c.count) / total)}%` }} />
                 </span>
-                <span className="w-11 text-right font-mono text-[11px] text-muted">{c.count > 0 && (100 * c.count) / total < 0.05 ? "<0.1" : ((100 * c.count) / total).toFixed(1)}%</span>
+                <span className="w-11 text-right font-mono text-[11px] text-muted">{((100 * c.count) / total).toFixed(1)}%</span>
               </>
             )}
           </div>
