@@ -19,11 +19,12 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from geoeyes.core.errors import StoreError
-from geoeyes.export.styles import CLASSES, jet_r, marker_size_m, pretty_breaks
+from geoeyes.export.styles import class_bounds, jet_r, marker_size_m
 from geoeyes.io.points import timeseries_arrays
 from geoeyes.products.builder import zero_reference
 
-CACHE_VERSION = 6                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+CACHE_VERSION = 7                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+                                  # /7: class breaks over P0.1-P99.9 (end classes to min / max)
                                   # /6: meta lists the velocity kinds (v-do, v-dao, v-dso)
 ATTRS = ("vel_std_mm_yr", "temporal_coherence", "height_m", "acc_los_mm_yr2", "seasonal_amp_mm", "dem_err_m")
 _locks: dict[str, threading.Lock] = {}
@@ -36,11 +37,10 @@ def _lock(key: str) -> threading.Lock:
 
 
 def classes(vel: np.ndarray) -> list[dict]:
-    """Velocity classes as in QGIS and the report: Pretty Breaks over min-max, jet_r colours."""
+    """Velocity classes as in QGIS and the report (``class_bounds``: Pretty Breaks over P0.1–P99.9, end classes to
+    min / max), jet_r colours."""
     v = vel[np.isfinite(vel)]
-    lo, hi = float(v.min()), float(v.max())
-    uppers = pretty_breaks(lo, hi, CLASSES)
-    lowers = [lo, *uppers[:-1]]
+    lowers, uppers = class_bounds(v)
     idx = np.clip(np.searchsorted(uppers, v, side="left"), 0, len(uppers) - 1)
     counts = np.bincount(idx, minlength=len(uppers))
     return [{"lo": a, "hi": b, "color": [int(c) for c in rgb.split(",")], "count": int(k)}
@@ -324,7 +324,7 @@ DISP_SCALE = 10.0                # displacement frames: int16 in 0.1 mm (±3.2 m
 
 
 def disp_meta(folder: Path) -> dict:
-    """Dates and classes of the cumulative displacement over all points and dates (full range, Pretty Breaks)."""
+    """Dates and classes of the cumulative displacement over all points and dates (``classes``)."""
     f = folder / "disp.json"
     if f.exists() and f.stat().st_mtime >= (folder / "ts.npy").stat().st_mtime:
         return json.loads(f.read_text(encoding="utf-8"))

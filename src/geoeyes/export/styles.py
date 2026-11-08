@@ -1,8 +1,9 @@
 """QGIS styles (QML) for point products: graduated LOS velocity.
 
-Classification: QGIS "Pretty Breaks", 10 classes requested, over the full value range (min–max, no clipping);
-the breaks are those QGIS computes (``pretty_breaks`` ports ``QgsSymbolLayerUtils::prettyBreaks``), so
-reclassifying in QGIS gives the same classes. Colours: jet reversed (red = away from the satellite, e.g.
+Classification: QGIS "Pretty Breaks", 10 classes requested, over P0.1–P99.9 of the values, the first class
+reaching down to the minimum and the last up to the maximum (every point keeps a colour; a few extreme PS no
+longer leave a row of empty classes); the breaks are those QGIS computes (``pretty_breaks`` ports
+``QgsSymbolLayerUtils::prettyBreaks``). Colours: jet reversed (red = away from the satellite, e.g.
 subsidence; blue = toward it). Markers: circles without stroke, sized in metres on the ground from the point
 spacing so neighbours do not cover each other at any zoom, kept between ``MIN_MM`` and ``MAX_MM`` on screen.
 """
@@ -13,8 +14,9 @@ from xml.sax.saxutils import quoteattr
 
 import numpy as np
 
-STYLE = "pretty10-jet_r-ground/2"  # in the export fingerprint: a new style re-runs the export
+STYLE = "pretty10-p0.1-99.9-jet_r-ground/3"  # in the export fingerprint: a new style re-runs the export
 CLASSES = 10
+CLIP_PCT = (0.1, 99.9)             # the class breaks span these percentiles; the end classes reach min / max
 MIN_MM, MAX_MM = 0.3, 3.0          # on-screen size limits of the ground-sized markers
 FILL = 0.9                         # marker diameter / median nearest-neighbour distance
 
@@ -87,11 +89,27 @@ def jet_r(n: int) -> list[str]:
     return [",".join(str(int(round(c * 255))) for c in cmap(x)[:3]) for x in np.linspace(0, 1, n)]
 
 
-def velocity_classes(values) -> tuple[np.ndarray, np.ndarray]:
-    """(upper bounds (k,), RGB (k, 3) uint8) of the velocity classes: Pretty Breaks over min-max, jet_r."""
+def class_bounds(values) -> tuple[list[float], list[float]]:
+    """(lower bounds, upper bounds) of the velocity classes: Pretty Breaks over the P0.1–P99.9 range, the first
+    class reaching down to the true minimum and the last up to the true maximum. A handful of extreme points
+    (single PS) then sit in the end classes instead of spreading the scale over classes that hold 0.0 % of the
+    points; no point is hidden and the true min / max are still the ends of the scale."""
     v = np.asarray(values, np.float64)
     v = v[np.isfinite(v)]
-    uppers = np.asarray(pretty_breaks(float(v.min()), float(v.max()), CLASSES))
+    vmin, vmax = float(v.min()), float(v.max())
+    lo, hi = (float(x) for x in np.percentile(v, CLIP_PCT))
+    if not hi > lo:
+        lo, hi = vmin, vmax
+    uppers = pretty_breaks(lo, hi, CLASSES)
+    if not uppers:
+        return [vmin], [vmax]
+    uppers[-1] = vmax
+    return [vmin, *uppers[:-1]], uppers
+
+
+def velocity_classes(values) -> tuple[np.ndarray, np.ndarray]:
+    """(upper bounds (k,), RGB (k, 3) uint8) of the velocity classes (``class_bounds``), jet_r."""
+    uppers = np.asarray(class_bounds(values)[1])
     rgb = np.array([[int(c) for c in s.split(",")] for s in jet_r(len(uppers))], np.uint8)
     return uppers, rgb
 
@@ -140,11 +158,10 @@ def _ramp() -> str:
 
 
 def velocity_qml(values, field: str = "vel_los_mm_yr", size_m: float = 10.0) -> str:
-    """Graduated QML for ``field``: Pretty Breaks (10 classes) over min–max, jet_r, ground-sized markers."""
+    """Graduated QML for ``field``: Pretty Breaks (``class_bounds``), jet_r, ground-sized markers."""
     v = np.asarray(values, np.float64)
     lo_v, hi_v = float(np.nanmin(v)), float(np.nanmax(v))
-    uppers = pretty_breaks(lo_v, hi_v, CLASSES)
-    lowers = [lo_v, *uppers[:-1]]
+    lowers, uppers = class_bounds(v)
     colors = jet_r(len(uppers))
     step = (uppers[1] - uppers[0]) if len(uppers) > 2 else (hi_v - lo_v) or 1.0
     prec = max(0, 1 - math.floor(math.log10(abs(step)))) if step else 1     # step 50 -> 0 decimals, 2 -> 1
