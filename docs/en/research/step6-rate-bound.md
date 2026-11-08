@@ -55,7 +55,7 @@ Do not search the same ±100 mm/yr for every edge. Bound or penalise the rate *f
 ## S0 result (2026-11-08): hypothesis rejected
 
 I reran hcm_d18 steps 6–8 with v6 settings and recorded every periodogram decision
-(`ps_exp/S0/s0_rates.npz`).
+(`ps_exp/S0/s0_rates.npz`, deleted after the review).
 
 - **The grid edges do not make the tail.** Only 2.6 % of the 110k edges get a rate at all. 23 edges are above
   40 mm/yr.

@@ -55,7 +55,7 @@ Không dùng cùng một khoảng ±100 mm/năm cho mọi cạnh, mà giới h�
 ## Kết quả S0 (2026-11-08): giả thuyết bị bác
 
 Tôi chạy lại bước 6–8 của `hcm_d18` với cấu hình v6 và ghi lại mọi quyết định của periodogram
-(`ps_exp/S0/s0_rates.npz`).
+(`ps_exp/S0/s0_rates.npz`, đã xóa sau khi duyệt).
 
 - **Các cạnh lưới không tạo ra đuôi.** Chỉ 2,6 % trong 110 nghìn cạnh được nhận một vận tốc. Chỉ 23 cạnh có vận
   tốc trên 40 mm/năm.
