@@ -296,4 +296,7 @@ export const EXPLORER: Record<string, string> = {
   Watershed: "Lưu vực",
   "{a} km² · upstream {u} km²": "{a} km² · lưu vực thượng nguồn {u} km²",
   coastal: "ven biển",
+  "rivers and watersheds": "sông ngòi và lưu vực",
+  "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013)":
+    "Sông ngòi: OpenStreetMap (ODbL) · Lưu vực: HydroBASINS (Lehner & Grill 2013)",
 };

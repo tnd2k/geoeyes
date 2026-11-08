@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api, type Workspace } from "../api";
 import { degLabel, drawSheet, graticuleStep, layout, metresPerPixel, PAPERS, pdfFromJpeg, type Options, type SheetData } from "../compose";
 import { floodFeatures, floodLayers } from "../components/FloodReports";
+import { HYDRO_CREDIT, hydroLayers, useHydro } from "../components/Hydro";
 import { COMPOSE_SUBJECT, loadTheme, themeLayers, themeLegendSpec, themeTitle, useThemes, type ThemeData } from "../components/ThemeLayers";
 import { BASES, loadLayer, mapStyle, productLayer, withRange, type Base, type LayerData } from "../map";
 import { t, ts } from "../i18n";
@@ -117,6 +118,8 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   const [floodsOn, setFloodsOn] = usePersisted("explorer.floods", false);
   const floodsQ = useQuery({ queryKey: ["floods"], queryFn: api.floods, enabled: floodsOn, staleTime: 60_000 });
   const floodShown = useMemo(() => (floodsOn ? floodFeatures(floodsQ.data, false) : []), [floodsOn, floodsQ.data]);
+  // river network and watersheds under the products (the same switch as on the results map)
+  const [hydroOn, setHydroOn] = usePersisted("explorer.hydro", false);
   const [subjectKey, setSubjectKey] = useState(() => {
     try {
       return sessionStorage.getItem(COMPOSE_SUBJECT) ?? "";
@@ -215,6 +218,8 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   const map = useRef<maplibregl.Map | null>(null);
   const overlay = useRef<MapboxOverlay | null>(null);
   const [tick, setTick] = useState(0);
+  const hydro = useHydro(map, tick > 0, hydroOn);
+  const hydroShown = hydroOn && !!(hydro.rivers?.features.length || hydro.basins?.features.length);
   useEffect(() => {
     if (!mapEl.current) return;
     const m = new maplibregl.Map({
@@ -263,6 +268,10 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
   const deckLayers = useCallback(
     (pixelScale = 1) =>
       [
+        // rivers and watersheds at the bottom, under the points
+        ...(hydroShown
+          ? hydroLayers(hydro.rivers?.features ?? [], hydro.basins?.features ?? [], { three: false, extensions: [], pixelScale, idPrefix: `c${pixelScale}-` })
+          : []),
         ...[...visible].reverse().flatMap((l) => {
           const d = byKey[l.key];
           return d ? [productLayer(l, d, { pickable: false, pixelScale, idPrefix: `c${pixelScale}-` })] : [];
@@ -272,7 +281,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
         ...(floodShown.length ? floodLayers(floodShown, { selected: null, onPick: () => {}, three: false, extensions: [] }) : []),
       ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visible, byKey, themesOn.map((x) => `${x.key}${x.view}${x.horizon}${x.opacity}`).join(), themeQ.map((q) => q.dataUpdatedAt).join(), floodShown],
+    [visible, byKey, themesOn.map((x) => `${x.key}${x.view}${x.horizon}${x.opacity}`).join(), themeQ.map((q) => q.dataUpdatedAt).join(), floodShown, hydroShown, hydro.rivers, hydro.basins],
   );
   useEffect(() => {
     overlay.current?.setProps({ layers: deckLayers() as never });
@@ -301,6 +310,7 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
               ...visible.filter((l) => l.key !== subjectProduct?.key).map((l) => `${t("LOS velocity")} · ${l.project}`),
               ...themesOn.filter((x) => x.key !== subjectTheme?.key).map((x) => `${themeTitle(x)} · ${x.project}`),
               ...(floodShown.length ? [t("{n} reported flood locations", { n: floodShown.length })] : []),
+              ...(hydroShown ? [t("rivers and watersheds")] : []),
             ];
             return others.length ? ([[t("Also shown"), others.join(", ")]] as [string, string][]) : [];
           })(),
@@ -342,11 +352,11 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
       ticks,
       geometry,
       meta,
-      credits: `GeoEyes · ${new Date().toISOString().slice(0, 10)}${credit ? ` · ${credit}` : ""}${basemap}`,
+      credits: `GeoEyes · ${new Date().toISOString().slice(0, 10)}${credit ? ` · ${credit}` : ""}${basemap}${hydroShown ? ` · ${t(HYDRO_CREDIT)}` : ""}`,
       metresPerUnit,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, sp, summary, first?.key, visible, base, firstData, o.frame, subjectTheme?.key, subjectTheme?.view, subjectTheme?.horizon, themeQ.map((q) => q.dataUpdatedAt).join(), hazardQ.map((q) => q.dataUpdatedAt).join(), floodShown.length, themesOn.length]);
+  }, [L, sp, summary, first?.key, visible, base, firstData, o.frame, subjectTheme?.key, subjectTheme?.view, subjectTheme?.horizon, themeQ.map((q) => q.dataUpdatedAt).join(), hazardQ.map((q) => q.dataUpdatedAt).join(), floodShown.length, themesOn.length, hydroShown]);
 
   // preview canvas over the live map (map rectangle transparent)
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -489,6 +499,12 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
             );
           })}
           <Toggle label={t("Reported flood locations")} on={floodsOn} set={setFloodsOn} />
+          <Toggle label={t("Rivers and watersheds")} on={hydroOn} set={setHydroOn} />
+          {hydroOn && (hydro.loading || hydro.error || hydro.tooWide) && (
+            <div className={`text-[11px] ${hydro.error ? "text-bad" : "text-muted"}`}>
+              {hydro.tooWide ? t("Zoom in: rivers and watersheds are shown over views up to 6°") : hydro.error ? ts(hydro.error.message) : t("Reading the rivers and watersheds of the view… (a minute the first time)")}
+            </div>
+          )}
           <button type="button" className="text-[12px] text-accent hover:underline" onClick={() => go({ page: "explorer" })}>
             {t("Add layers on the results map")} →
           </button>

@@ -26,6 +26,7 @@ const KIND_LABEL: Record<string, string> = {
 const BASIN_LINE: [number, number, number, number] = [124, 92, 214, 210];
 const BASIN_FILL: [number, number, number, number] = [124, 92, 214, 16];
 const MAX_SPAN = 6; // degrees: the server refuses larger views
+export const HYDRO_CREDIT = "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013)";
 
 /** The view's bounds (w, s, e, n) while ``on``, updated after every move; null when off or too large. */
 function useViewBounds(map: RefObject<maplibregl.Map | null>, ready: boolean, on: boolean) {
@@ -60,9 +61,16 @@ export function useHydro(map: RefObject<maplibregl.Map | null>, ready: boolean, 
 
 type Ring = { f: HydroFeature; path: number[][] };
 
-/** Deck layers: watershed fill and outlines, then the rivers (widths by kind, a light casing under them). */
-export function hydroLayers(rivers: HydroFeature[], basins: HydroFeature[], opts: { three: boolean; extensions: unknown[] }) {
+/** Deck layers: watershed fill and outlines, then the rivers (widths by kind, a light casing under them).
+ * ``pixelScale``: line widths for an export at print resolution (Compose); ``idPrefix``: distinct layer ids there. */
+export function hydroLayers(
+  rivers: HydroFeature[],
+  basins: HydroFeature[],
+  opts: { three: boolean; extensions: unknown[]; pixelScale?: number; idPrefix?: string },
+) {
   const sfx = opts.three ? "-3d" : "";
+  const k = opts.pixelScale ?? 1;
+  const id = (name: string) => `${opts.idPrefix ?? ""}hydro-${name}${sfx}`;
   const ext = opts.extensions as never;
   const polys: { f: HydroFeature; polygon: number[][][] }[] = [];
   const rings: Ring[] = [];
@@ -78,45 +86,47 @@ export function hydroLayers(rivers: HydroFeature[], basins: HydroFeature[], opts
   const style = (f: HydroFeature) => RIVER[f.properties.kind ?? ""] ?? RIVER.stream;
   return [
     new SolidPolygonLayer<{ f: HydroFeature; polygon: number[][][] }>({
-      id: `hydro-basin-fill${sfx}`,
+      id: id("basin-fill"),
       extensions: ext,
       data: polys,
       getPolygon: (d) => d.polygon as never,
       getFillColor: BASIN_FILL,
-      pickable: true,
+      pickable: !opts.idPrefix,
     }),
     new PathLayer<Ring>({
-      id: `hydro-basin-line${sfx}`,
+      id: id("basin-line"),
       extensions: ext,
       data: rings,
       getPath: (d) => d.path as never,
       getColor: BASIN_LINE,
-      getWidth: 1.6,
+      getWidth: 1.6 * k,
       widthUnits: "pixels",
       jointRounded: true,
     }),
     new PathLayer<Ring>({
-      id: `hydro-river-casing${sfx}`,
+      id: id("river-casing"),
       extensions: ext,
       data: lines,
       getPath: (d) => d.path as never,
       getColor: [255, 255, 255, 150],
-      getWidth: (d) => style(d.f).w + 1.6,
+      getWidth: (d) => (style(d.f).w + 1.6) * k,
       widthUnits: "pixels",
       capRounded: true,
       jointRounded: true,
+      updateTriggers: { getWidth: k },
     }),
     new PathLayer<Ring>({
-      id: `hydro-river${sfx}`,
+      id: id("river"),
       extensions: ext,
       data: lines,
       getPath: (d) => d.path as never,
       getColor: (d) => [...style(d.f).c, 235],
-      getWidth: (d) => style(d.f).w,
+      getWidth: (d) => style(d.f).w * k,
       widthUnits: "pixels",
       capRounded: true,
       jointRounded: true,
-      pickable: true,
+      pickable: !opts.idPrefix,
+      updateTriggers: { getWidth: k },
     }),
   ];
 }
