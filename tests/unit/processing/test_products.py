@@ -69,6 +69,19 @@ def test_qgis_style_pretty_breaks_jet_r_ground_sized_markers():
     assert 9 < marker_size_m(lon, lat) < 10.5                     # 0.9 x nearest-neighbour distance
 
 
+def test_velocity_scale_symmetric_from_the_data():
+    from geoeyes.export.styles import velocity_scale
+    rng = np.random.default_rng(1)
+    v = np.r_[rng.normal(-2, 3, 20000), rng.uniform(-40, -20, 800), -93.0, 26.0]    # subsidence + a few extremes
+    lo, hi, col = velocity_scale(v)
+    assert lo[0] == -93.0 and hi[-1] == 26.0                        # true min / max are the ends
+    assert hi[0] == -20 and lo[-1] == 15                            # +/-20 in 5 mm/yr classes; no class for 1 PS > 20
+    assert all(b - a == 5 for a, b in zip(lo[1:-1], hi[1:-1]))
+    assert 0.0 in hi and col[0] == "128,0,0"                        # zero is a break; dark red below -20
+    lo2, hi2, _ = velocity_scale(rng.normal(0, 2, 5000))            # a stable scene: +/-4 in 1 mm/yr classes
+    assert hi2[0] == -4 and lo2[-1] == 4 and len(hi2) == 10        # both sides beyond 4 hold > 0.1 %: end classes
+
+
 def test_report_uses_the_parameters_of_the_run_not_the_current_config():
     from types import SimpleNamespace as NS
 

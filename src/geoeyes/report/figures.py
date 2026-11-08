@@ -93,13 +93,13 @@ def velocity_map(pts, out: Path, *, reference=None, heading=None, look_side="rig
     # the classes and colours of QGIS and the web app (Pretty Breaks over min-max, jet_r): one map, one reading
     from matplotlib.colors import BoundaryNorm, ListedColormap
 
-    from geoeyes.export.styles import class_bounds, jet_r
+    from geoeyes.export.styles import velocity_scale
     vmin, vmax = float(np.nanmin(v)), float(np.nanmax(v))
-    lowers, uppers = class_bounds(v)
+    lowers, uppers, rgbs = velocity_scale(v)
     bounds = [lowers[0], *uppers]
     if len(bounds) < 2 or bounds[-1] <= bounds[0]:
-        bounds = [vmin - lim * 1e-3, vmax + lim * 1e-3]
-    colors = [tuple(int(c) / 255 for c in rgb.split(",")) for rgb in jet_r(len(bounds) - 1)]
+        bounds, rgbs = [vmin - lim * 1e-3, vmax + lim * 1e-3], rgbs[:1]
+    colors = [tuple(int(c) / 255 for c in rgb.split(",")) for rgb in rgbs]
     sc = ax.scatter(lon[order], lat[order], c=v[order], s=size, cmap=ListedColormap(colors),
                     norm=BoundaryNorm(bounds, len(colors)), linewidths=0, rasterized=True)
     ax.set_aspect(aspect)

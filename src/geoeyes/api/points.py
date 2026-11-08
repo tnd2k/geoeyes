@@ -19,12 +19,12 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from geoeyes.core.errors import StoreError
-from geoeyes.export.styles import class_bounds, jet_r, marker_size_m
+from geoeyes.export.styles import marker_size_m, velocity_scale
 from geoeyes.io.points import timeseries_arrays
 from geoeyes.products.builder import zero_reference
 
-CACHE_VERSION = 7                 # /5: series zero at the first date (products before geoeyes-product/3 too)
-                                  # /7: class breaks over P0.1-P99.9 (end classes to min / max)
+CACHE_VERSION = 8                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+                                  # /8: classes symmetric about 0 from P97.5 of |v| (styles.velocity_scale)
                                   # /6: meta lists the velocity kinds (v-do, v-dao, v-dso)
 ATTRS = ("vel_std_mm_yr", "temporal_coherence", "height_m", "acc_los_mm_yr2", "seasonal_amp_mm", "dem_err_m")
 _locks: dict[str, threading.Lock] = {}
@@ -37,14 +37,14 @@ def _lock(key: str) -> threading.Lock:
 
 
 def classes(vel: np.ndarray) -> list[dict]:
-    """Velocity classes as in QGIS and the report (``class_bounds``: Pretty Breaks over P0.1–P99.9, end classes to
-    min / max), jet_r colours."""
+    """Velocity classes as in QGIS and the report (``velocity_scale``: symmetric about 0 from P97.5 of |v|, end
+    classes to min / max), jet_r colours."""
     v = vel[np.isfinite(vel)]
-    lowers, uppers = class_bounds(v)
+    lowers, uppers, colors = velocity_scale(v)
     idx = np.clip(np.searchsorted(uppers, v, side="left"), 0, len(uppers) - 1)
     counts = np.bincount(idx, minlength=len(uppers))
     return [{"lo": a, "hi": b, "color": [int(c) for c in rgb.split(",")], "count": int(k)}
-            for a, b, rgb, k in zip(lowers, uppers, jet_r(len(uppers)), counts, strict=True)]
+            for a, b, rgb, k in zip(lowers, uppers, colors, counts, strict=True)]
 
 
 def calibration_sig(calib: dict | None) -> str | None:
