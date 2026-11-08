@@ -17,7 +17,7 @@ import { TimeSeries } from "../components/TimeSeries";
 import { loadTheme, ThemeCard, ThemeDetail, themeLayers, themeTooltip, THEME_LABEL, useAvailable, useThemes, type ThemeData, type ThemeKind, type ThemeSel } from "../components/ThemeLayers";
 import { t, ts } from "../i18n";
 import { binaryData, colorize, colorizeFrame, hexLayer, hexSize, loadLayer, pickedVelocity, pointAlong, productLayer, segmentLengths, TERRAIN, TERRAIN_ATTRIBUTION, terrainLayer, terrainProfile, withRange, type LayerData } from "../map";
-import { useApp, type MapLayer } from "../state";
+import { FIXED_RANGE, layerRange, useApp, type MapLayer } from "../state";
 import { Button, ColumnToggle, Confidence, fmt, Fold, usePersisted } from "../ui";
 
 type CompareMode = "off" | "swipe" | "diff";
@@ -155,12 +155,14 @@ function LayerLegend({
   confidence,
   defaultOpen,
   onRange,
+  fixed,
 }: {
   meta: LayerMeta;
   hex?: number;
   confidence?: string | null;
   defaultOpen: boolean;
   onRange: (r: [number, number] | null) => void;
+  fixed: FixedRange;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -175,7 +177,7 @@ function LayerLegend({
       {open && (
         <div className="mt-1.5">
           <Legend meta={meta} title="" />
-          <RangeEditor meta={meta} onRange={onRange} />
+          <RangeEditor meta={meta} onRange={onRange} fixed={fixed} />
           {meta.calibration && (
             <div className="mt-1 text-[11px] text-warn-ink">
               {t("Calibrated velocities")}: {calibrationSource(meta.calibration)}, {fmt.vel(meta.calibration.rate_offset_mm_yr)} mm/yr
@@ -192,8 +194,13 @@ function LayerLegend({
   );
 }
 
-/** The colour range of a layer: the product's full min-max (default) or two values the user types. */
-function RangeEditor({ meta, onRange }: { meta: LayerMeta; onRange: (r: [number, number] | null) => void }) {
+/** The project's fixed colour range: on (every product of ``project`` over ±FIXED_RANGE), ``own``: this layer has a
+ * range typed on its card, which wins. */
+type FixedRange = { on: boolean; own: boolean; project: string; set: (on: boolean) => void };
+
+/** The colour range of a layer: the product's full min-max (default), the project's fixed ±30, or two values the
+ * user types. */
+function RangeEditor({ meta, onRange, fixed }: { meta: LayerMeta; onRange: (r: [number, number] | null) => void; fixed: FixedRange }) {
   const cur = meta.range ?? [meta.vel_min, meta.vel_max];
   const show = (v: number) => String(Math.round(v * 10) / 10);
   const [lo, setLo] = useState(show(cur[0]));
@@ -225,11 +232,15 @@ function RangeEditor({ meta, onRange }: { meta: LayerMeta; onRange: (r: [number,
       <button type="button" disabled={!valid || !(m > 0)} onClick={() => onRange([-m, m])} title={t("The same range on both sides of zero")} className="text-accent hover:underline disabled:opacity-40">
         ±{show(m)}
       </button>
-      {meta.range && (
-        <button type="button" onClick={() => onRange(null)} title={t("Back to the product's min–max")} className="text-accent hover:underline">
-          {t("full range")}
+      {meta.range && (!fixed.on || fixed.own) && (
+        <button type="button" onClick={() => onRange(null)} title={fixed.on ? t("Back to the project's ±{r} mm/yr", { r: FIXED_RANGE }) : t("Back to the product's min–max")} className="text-accent hover:underline">
+          {fixed.on ? `±${FIXED_RANGE}` : t("full range")}
         </button>
       )}
+      <label className="flex w-full cursor-pointer items-center gap-1.5" title={t("The same classes and colours for every product and run of the project, so they compare; the legend keeps the true min and max")}>
+        <input type="checkbox" className="accent-accent" checked={fixed.on} onChange={(e) => fixed.set(e.target.checked)} />
+        {t("±{r} mm/yr for the whole project ({p})", { r: FIXED_RANGE, p: fixed.project })}
+      </label>
     </form>
   );
 }
@@ -365,7 +376,7 @@ function ThemeChips({ project, product, on, toggle }: { project: string; product
 }
 
 export function Explorer({ ws }: { ws: Workspace | undefined }) {
-  const { layers, setOpacity, setMode, setCalibrated, setRange, setVel, setCohMin, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct } = useApp();
+  const { layers, setOpacity, setMode, setCalibrated, setRange, setVel, setCohMin, toggleLayer, removeLayer, focus, setFocus, selection, select, go, showProduct, fixedRange, setFixedRange } = useApp();
   // 3D view: terrain draped with the base map, the points on it; heights exaggerated (flat deltas)
   const [three, setThree] = usePersisted("explorer.3d", false);
   // in 3D the base map is the texture of the terrain (deck.gl), MapLibre only draws the background
@@ -445,10 +456,10 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     // a range chosen on the layer card: its classes and colours everywhere (map, hexagons, legend, profile)
     layers.forEach((l, i) => {
       const d = data[i]?.data;
-      m[l.key] = d && withRange(d, l.range);
+      m[l.key] = d && withRange(d, layerRange(l, fixedRange));
     });
     return m;
-  }, [layers, data]);
+  }, [layers, data, fixedRange]);
   // the view of a layer the other requests (hexagons, point, area, profile, animation) ask for: the velocity kind the
   // layer was loaded with
   const lv = (l: MapLayer | undefined): { cal: boolean; vel: VelKind | null } => ({
@@ -1438,7 +1449,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                       <CalibrationToggle cal={d.meta.calibration_available} on={!!l.calibrated} onChange={(on) => setCalibrated(l.key, on)} />
                     )}
                     {d && l.visible && !(cmp.mode === "diff" && comparing) && (
-                      <LayerLegend meta={d.meta} hex={hexByKey[l.key]?.size} confidence={tr?.product?.confidence} defaultOpen={l.key === top?.key} onRange={(r) => setRange(l.key, r)} />
+                      <LayerLegend meta={d.meta} hex={hexByKey[l.key]?.size} confidence={tr?.product?.confidence} defaultOpen={l.key === top?.key} onRange={(r) => setRange(l.key, r)}
+                        fixed={{ on: !!fixedRange[l.project], own: !!l.range, project: l.project, set: (on) => setFixedRange(l.project, on) }} />
                     )}
                     <ThemeChips project={l.project} product={l.product} on={(k) => th.themes.some((x) => x.key === `${l.project}/${l.product}#${k}`)} toggle={(k) => th.toggle(l.project, l.product, k)} />
                     {th.themes

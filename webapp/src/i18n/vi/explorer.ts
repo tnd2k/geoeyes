@@ -274,6 +274,10 @@ export const EXPLORER: Record<string, string> = {
   "Highest value of the colour range (mm/yr)": "Giá trị cao nhất của dải màu (mm/năm)",
   "The same range on both sides of zero": "Dải đối xứng hai bên số 0",
   "Back to the product's min–max": "Trở về min–max của sản phẩm",
+  "Back to the project's ±{r} mm/yr": "Trở về ±{r} mm/năm của dự án",
+  "±{r} mm/yr for the whole project ({p})": "±{r} mm/năm cho toàn dự án ({p})",
+  "The same classes and colours for every product and run of the project, so they compare; the legend keeps the true min and max":
+    "Cùng phân lớp và màu cho mọi sản phẩm và mọi lần chạy của dự án để so sánh được; chú thích vẫn giữ min và max thật",
   "full range": "toàn dải",
   "Chosen colour range: values beyond it take the end colours.": "Dải màu tự chọn: các giá trị nằm ngoài dải mang màu ở hai đầu.",
   "Min coherence": "Coherence tối thiểu",

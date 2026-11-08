@@ -11,7 +11,7 @@ import { HYDRO_CREDIT, hydroLayers, useHydro } from "../components/Hydro";
 import { COMPOSE_SUBJECT, loadTheme, themeLayers, themeLegendSpec, themeTitle, useThemes, type ThemeData } from "../components/ThemeLayers";
 import { BASES, loadLayer, mapStyle, productLayer, withRange, type Base, type LayerData } from "../map";
 import { t, ts } from "../i18n";
-import { useApp } from "../state";
+import { layerRange, useApp } from "../state";
 import { Button, fmt, Panel, usePersisted } from "../ui";
 
 const field = "h-8 w-full rounded-md border border-line-2 bg-sunken px-2 text-[13px] text-ink focus:border-accent focus:outline-none";
@@ -99,7 +99,7 @@ function download(blob: Blob, name: string) {
 }
 
 export function Compose({ ws }: { ws: Workspace | undefined }) {
-  const { layers, go, toggleLayer } = useApp();
+  const { layers, go, toggleLayer, fixedRange } = useApp();
   const visible = layers.filter((l) => l.visible);
   // every output on the results map: the products, their thematic layers (analyses, machine learning), the reported
   // flood locations; one of them is the map's subject (title and legend)
@@ -179,10 +179,10 @@ export function Compose({ ws }: { ws: Workspace | undefined }) {
     // the colour range chosen on the results map
     visible.forEach((l, i) => {
       const d = data[i]?.data;
-      m[l.key] = d && withRange(d, l.range);
+      m[l.key] = d && withRange(d, layerRange(l, fixedRange));
     });
     return m;
-  }, [visible, data]);
+  }, [visible, data, fixedRange]);
   const firstData = first ? byKey[first.key] : undefined;
 
   // the subtitle (sensor, period) follows the subject's product until it is edited; a thematic subject: no "LOS velocity"

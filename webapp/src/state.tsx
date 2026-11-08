@@ -89,6 +89,8 @@ interface AppState {
   setVel: (key: string, vel: VelKind | null) => void;
   setCohMin: (key: string, cohMin: number) => void;
   removeLayer: (key: string) => void;
+  fixedRange: Record<string, boolean>;  // per project: every product's colours over ±FIXED_RANGE (comparable)
+  setFixedRange: (project: string, on: boolean) => void;
   focus: string | null;   // layer to zoom to
   setFocus: (key: string | null) => void;
   selection: Selection | null;
@@ -98,6 +100,25 @@ interface AppState {
 const Ctx = createContext<AppState | null>(null);
 
 const STORE = "geoeyes.layers";
+const FIXED_STORE = "geoeyes.fixedRange";
+
+/** The fixed colour range of a project (mm/yr): the same classes and colours for all its products and runs. */
+export const FIXED_RANGE = 30;
+
+/** The colour range a layer is drawn with: one chosen on its card, else the project's fixed ±30, else none (the
+ * product's own min–max). */
+export function layerRange(l: Pick<MapLayer, "project" | "range">, fixed: Record<string, boolean>): [number, number] | null {
+  return l.range ?? (fixed[l.project] ? [-FIXED_RANGE, FIXED_RANGE] : null);
+}
+
+function loadFixed(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(localStorage.getItem(FIXED_STORE) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
 
 function loadLayers(): MapLayer[] {
   try {
@@ -113,6 +134,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [layers, setLayers] = useState<MapLayer[]>(loadLayers);
   const [focus, setFocus] = useState<string | null>(null);
   const [selection, select] = useState<Selection | null>(null);
+  const [fixedRange, setFixed] = useState<Record<string, boolean>>(loadFixed);
+  useEffect(() => {
+    try {
+      localStorage.setItem(FIXED_STORE, JSON.stringify(fixedRange));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [fixedRange]);
+  const setFixedRange = useCallback((project: string, on: boolean) => {
+    setFixed((f) => ({ ...f, [project]: on }));
+    // switched on: the project's range wins over ranges typed on its layer cards
+    if (on) setLayers((ls) => ls.map((l) => (l.project === project && l.range ? { ...l, range: null } : l)));
+  }, []);
 
   useEffect(() => {
     // #/map/<project>/<product>: link that shows a product on the map
@@ -170,12 +204,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLayers((ls) => ls.filter((l) => l.key !== key));
         select((s) => (s?.layer === key ? null : s));
       },
+      fixedRange,
+      setFixedRange,
       focus,
       setFocus,
       selection,
       select,
     }),
-    [route, go, layers, showProduct, focus, selection],
+    [route, go, layers, showProduct, focus, selection, fixedRange, setFixedRange],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

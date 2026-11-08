@@ -234,6 +234,10 @@ export function withRange(d: LayerData, range: [number, number] | null | undefin
   let r = m.get(key);
   if (!r) {
     const classes = rangeClasses(range[0], range[1], d.kind === "points" ? { buf: d.buf, stride: 3, at: 2 } : undefined);
+    // the end classes reach the product's true min and max (points beyond the range take their colours)
+    if (classes.length && Number.isFinite(d.meta.vel_min) && d.meta.vel_min < classes[0].lo) classes[0] = { ...classes[0], lo: d.meta.vel_min };
+    const n = classes.length - 1;
+    if (n >= 0 && Number.isFinite(d.meta.vel_max) && d.meta.vel_max > classes[n].hi) classes[n] = { ...classes[n], hi: d.meta.vel_max };
     const meta = { ...d.meta, classes, range };
     r = d.kind === "points" ? { ...d, meta, colors: colorize(d.buf, 3, 2, classes) } : { ...d, meta };
     m.clear(); // one chosen range at a time per layer
