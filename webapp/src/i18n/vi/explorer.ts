@@ -281,8 +281,8 @@ export const EXPLORER: Record<string, string> = {
     "Ẩn các điểm có temporal coherence thấp hơn ngưỡng này (0: hiện mọi điểm)",
   "{n} pts ({p} %)": "{n} điểm ({p} %)",
   "Rivers and watersheds": "Sông ngòi và lưu vực",
-  "River network (OpenStreetMap) and watersheds (HydroBASINS level 12) under the products":
-    "Mạng sông, kênh, rạch (OpenStreetMap) và lưu vực (HydroBASINS cấp 12) dưới các sản phẩm",
+  "River network (OpenStreetMap) and watersheds (HydroBASINS level 12) on the relief, under the products":
+    "Mạng sông, kênh, rạch (OpenStreetMap) và lưu vực (HydroBASINS cấp 12) trên nền địa hình, dưới các sản phẩm",
   "Zoom in: rivers and watersheds are shown over views up to 6°": "Phóng to: sông ngòi và lưu vực chỉ hiện khi khung nhìn nhỏ hơn 6°",
   "Reading the rivers and watersheds of the view… (a minute the first time)":
     "Đang đọc sông ngòi và lưu vực của khung nhìn… (lần đầu mất khoảng một phút)",
@@ -297,6 +297,6 @@ export const EXPLORER: Record<string, string> = {
   "{a} km² · upstream {u} km²": "{a} km² · lưu vực thượng nguồn {u} km²",
   coastal: "ven biển",
   "rivers and watersheds": "sông ngòi và lưu vực",
-  "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013)":
-    "Sông ngòi: OpenStreetMap (ODbL) · Lưu vực: HydroBASINS (Lehner & Grill 2013)",
+  "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013) · Relief: Mapzen Terrain Tiles":
+    "Sông ngòi: OpenStreetMap (ODbL) · Lưu vực: HydroBASINS (Lehner & Grill 2013) · Địa hình: Mapzen Terrain Tiles",
 };

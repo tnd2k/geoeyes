@@ -1058,7 +1058,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                   ? ts(hydro.error.message)
                   : hydro.loading
                     ? t("Reading the rivers and watersheds of the view… (a minute the first time)")
-                    : t("River network (OpenStreetMap) and watersheds (HydroBASINS level 12) under the products")
+                    : t("River network (OpenStreetMap) and watersheds (HydroBASINS level 12) on the relief, under the products")
             }
             active={hydroOn}
             onClick={() => setHydroOn((v) => !v)}

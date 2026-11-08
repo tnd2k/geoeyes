@@ -6,6 +6,7 @@ import type maplibregl from "maplibre-gl";
 import { useEffect, useState, type RefObject } from "react";
 import { api, type HydroFeature } from "../api";
 import { t } from "../i18n";
+import { TERRAIN_TILES } from "../map";
 
 const RIVER: Record<string, { w: number; c: [number, number, number] }> = {
   river: { w: 3.2, c: [29, 110, 214] },
@@ -23,10 +24,57 @@ const KIND_LABEL: Record<string, string> = {
   drain: "drain",
   ditch: "ditch",
 };
-const BASIN_LINE: [number, number, number, number] = [124, 92, 214, 210];
-const BASIN_FILL: [number, number, number, number] = [124, 92, 214, 16];
+const BASIN_LINE: [number, number, number, number] = [92, 62, 170, 230];
+// soft categorical fills, one per watershed (by its id), so the basins read apart over the relief
+const BASIN_COLORS: [number, number, number][] = [
+  [141, 211, 199], [190, 186, 218], [251, 128, 114], [128, 177, 211], [253, 180, 98], [179, 222, 105],
+  [252, 205, 229], [188, 128, 189], [204, 235, 197], [255, 237, 111],
+];
+const basinColor = (f: HydroFeature): [number, number, number, number] => [...BASIN_COLORS[(f.properties.hybas_id ?? 0) % BASIN_COLORS.length], 70];
 const MAX_SPAN = 6; // degrees: the server refuses larger views
-export const HYDRO_CREDIT = "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013)";
+export const HYDRO_CREDIT = "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013) · Relief: Mapzen Terrain Tiles";
+const DEM_SRC = "hydro-dem";
+const SHADE = "hydro-hillshade";
+
+/** Relief (hillshade of the Terrarium elevation tiles, as the 3D view) under the watersheds while ``on``; added
+ * again after a base-map change (a new style drops it), below the first label layer. */
+function useHillshade(map: RefObject<maplibregl.Map | null>, ready: boolean, on: boolean) {
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const add = () => {
+      if (!on || !m.isStyleLoaded() || m.getLayer(SHADE)) return;
+      if (!m.getSource(DEM_SRC))
+        m.addSource(DEM_SRC, { type: "raster-dem", tiles: [TERRAIN_TILES], tileSize: 256, maxzoom: 14, encoding: "terrarium" });
+      const label = m.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+      m.addLayer(
+        { id: SHADE, type: "hillshade", source: DEM_SRC, paint: { "hillshade-exaggeration": 0.55, "hillshade-shadow-color": "#3b3b52", "hillshade-highlight-color": "#ffffff", "hillshade-accent-color": "#5a5a70" } },
+        label,
+      );
+    };
+    const remove = () => {
+      if (m.getLayer(SHADE)) m.removeLayer(SHADE);
+      if (m.getSource(DEM_SRC)) m.removeSource(DEM_SRC);
+    };
+    if (on) {
+      add();
+      m.on("styledata", add);
+      return () => {
+        m.off("styledata", add);
+        try {
+          remove();
+        } catch {
+          /* map already removed */
+        }
+      };
+    }
+    try {
+      remove();
+    } catch {
+      /* style not loaded */
+    }
+  }, [map, ready, on]);
+}
 
 /** The view's bounds (w, s, e, n) while ``on``, updated after every move; null when off or too large. */
 function useViewBounds(map: RefObject<maplibregl.Map | null>, ready: boolean, on: boolean) {
@@ -52,6 +100,7 @@ function useViewBounds(map: RefObject<maplibregl.Map | null>, ready: boolean, on
 
 export function useHydro(map: RefObject<maplibregl.Map | null>, ready: boolean, on: boolean) {
   const bbox = useViewBounds(map, ready, on);
+  useHillshade(map, ready, on);
   const key = bbox?.join(",");
   const rivers = useQuery({ queryKey: ["hydroRivers", key], queryFn: () => api.hydroRivers(bbox!), enabled: !!bbox, staleTime: Infinity, retry: 1 });
   const basins = useQuery({ queryKey: ["hydroBasins", key], queryFn: () => api.hydroBasins(bbox!), enabled: !!bbox, staleTime: Infinity, retry: 1 });
@@ -90,7 +139,7 @@ export function hydroLayers(
       extensions: ext,
       data: polys,
       getPolygon: (d) => d.polygon as never,
-      getFillColor: BASIN_FILL,
+      getFillColor: (d) => basinColor(d.f),
       pickable: !opts.idPrefix,
     }),
     new PathLayer<Ring>({
@@ -99,7 +148,7 @@ export function hydroLayers(
       data: rings,
       getPath: (d) => d.path as never,
       getColor: BASIN_LINE,
-      getWidth: 1.6 * k,
+      getWidth: 2 * k,
       widthUnits: "pixels",
       jointRounded: true,
     }),
