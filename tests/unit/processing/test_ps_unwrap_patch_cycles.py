@@ -36,6 +36,22 @@ def test_oval_patch_moved_back_and_lone_ps_kept():
     assert np.abs(np.median(fixed[oval, 20] - truth[oval, 20])) < 0.3
 
 
+def test_patch_found_under_arbitrary_epoch_constants():
+    # the IRLS result of every interferogram carries its own constant until the reference step
+    rng, xy, t, ij, shape = _scene(seed=2)
+    n, m = xy.shape[0], t.size
+    const = rng.uniform(-3, 3, m)
+    clean = -TWO_PI * 0.5 * t[None, :] + const[None, :] + rng.normal(0, 0.5, (n, m))
+    ph = clean.copy()
+    oval = ((xy[:, 0] - 900) / 500) ** 2 + ((xy[:, 1] - 1000) / 350) ** 2 < 1      # ~30 % of the scene
+    ph[oval, 10] -= TWO_PI
+    fixed, k = fix_patch_cycles(ph, t, ij, shape)
+    assert np.mean(k[oval, 10] == -1) > 0.97
+    k[oval, 10] = 0
+    assert np.mean(k != 0) < 1e-3
+    assert np.allclose(np.median(fixed[oval, 10] - clean[oval, 10]), 0, atol=0.3)
+
+
 def test_fast_trend_without_patches_untouched():
     rng, xy, t, ij, shape = _scene(seed=1)
     rate = np.where(xy[:, 0] > 1000, -TWO_PI * 3.0, 0.0)      # half the scene at ~-80 mm/yr: a step in rate

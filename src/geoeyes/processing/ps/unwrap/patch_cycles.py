@@ -7,7 +7,9 @@ on 2024-02-28, 3.9 % of all PS-epochs, about 28 % of the PS with >= 5 such epoch
 ~9 mm/yr past SARPROZ).
 
 Each PS has a smooth model in time (offset, rate, annual sine/cosine, look-angle error × B⊥) fitted robustly
-(Huber), so the patch epochs barely pull it. Per epoch:
+(Huber), so the patch epochs barely pull it, and every epoch a constant (the IRLS result of an interferogram
+carries an arbitrary one until the reference step: residuals of ~2 rad on hcm_d18, which hid every patch), the
+mode of the residuals of all PS, fitted alternately with the models. Per epoch:
 
 1. every PS proposes k = round(residual / 2π) when its residual is within ``tol`` of that multiple;
 2. every grid cell takes the k of a clear majority (>= ``vote``) of its PS, else 0;
@@ -59,6 +61,25 @@ def robust_fit(ph: np.ndarray, t: np.ndarray, bp: np.ndarray | None, delta: floa
     return out
 
 
+def epoch_offsets(R: np.ndarray, bin_w: float = 0.1, smooth: int = 3) -> np.ndarray:
+    """(m,) constant of every epoch: the mode of the residuals ``R`` (n, m) of all PS (histogram peak), so the
+    majority of the scene defines 0 (the IRLS result of an interferogram carries an arbitrary constant until the
+    reference step; a median would fall between two halves a cycle apart)."""
+    from scipy.ndimage import uniform_filter1d
+    out = np.zeros(R.shape[1])
+    edges = np.arange(-4 * np.pi, 4 * np.pi + bin_w, bin_w)
+    for e in range(R.shape[1]):
+        r = R[:, e]
+        r = r[np.isfinite(r)]
+        if r.size == 0:
+            continue
+        c0 = float(np.median(r))
+        h, _ = np.histogram(r - c0, bins=edges)
+        h = uniform_filter1d(h.astype(np.float64), smooth)
+        out[e] = c0 + edges[int(np.argmax(h))] + bin_w / 2
+    return out
+
+
 def _cell_votes(kp: np.ndarray, ok: np.ndarray, cell: np.ndarray, n_cells: int, vote: float) -> np.ndarray:
     """k of every cell for one epoch: the k of >= ``vote`` of its PS (ok ones), else 0."""
     out = np.zeros(n_cells, np.int8)
@@ -88,8 +109,12 @@ def fix_patch_cycles(ph: np.ndarray, t: np.ndarray, cell_ij: np.ndarray, shape: 
     occ = occupied.reshape(n_i, n_j)
     dist, (ii, jj) = ndimage.distance_transform_edt(~occ, return_indices=True)
     near = dist <= gap_cells
+    c = np.zeros(m)
     for _ in range(passes):
-        R = ph - robust_fit(ph, t, bp)
+        for _ in range(2):                                   # the PS models and the epoch constants, alternately
+            fit = robust_fit(ph - c[None, :], t, bp)
+            c = epoch_offsets(ph - fit)
+        R = ph - fit - c[None, :]
         kp = np.rint(R / TWO_PI)
         ok = np.abs(R - TWO_PI * kp) < tol
         kp = np.clip(kp, -127, 127).astype(np.int8)
