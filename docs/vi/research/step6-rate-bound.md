@@ -52,6 +52,35 @@ Không dùng cùng một khoảng ±100 mm/năm cho mọi cạnh, mà giới h�
   định. Kiểm tra ca golden CSK Hà Nội (17 ifg) và `hanoi_s1_desc`.
 - **S4.** Chọn mặc định, cập nhật docs và advisor, ghi kết quả vào đây.
 
+## Kết quả S0 (2026-11-08): giả thuyết bị bác
+
+Tôi chạy lại bước 6–8 của `hcm_d18` với cấu hình v6 và ghi lại mọi quyết định của periodogram
+(`ps_exp/S0/s0_rates.npz`).
+
+- **Các cạnh lưới không tạo ra đuôi.** Chỉ 2,6 % trong 110 nghìn cạnh được nhận một vận tốc. Chỉ 23 cạnh có vận
+  tốc trên 40 mm/năm.
+- **Mô hình ps_rate quyết định vận tốc của đuôi.** Với 95 % số PS nhanh hơn −40 mm/năm, vận tốc cuối cùng lệch
+  dưới 10 mm/năm so với vận tốc mô hình ps_rate của chính PS đó (tương quan trên toàn bộ PS là −0,988, ngược dấu
+  vì tính theo pha).
+- **Các cung nối tới PS nhanh nhất không phải đỉnh ngẫu nhiên.** 57 % số cung chạm một PS nhanh hơn −60 mm/năm
+  có vận tốc trên 20 mm/năm, trong khi tỷ lệ này trên mọi cung chỉ là 0,42 %. Độ kết hợp periodogram của các cung
+  này cao hơn ngưỡng ngẫu nhiên 0,17. Nó cũng **cao hơn 0,21 so với vận tốc tốt nhất trong khoảng ±20 mm/năm**,
+  nên periodogram có phạt (ý tưởng B) sẽ không thay đổi chúng.
+- **Các PS nhanh đi thành cụm chặt.** 48 PS nhanh hơn −60 mm/năm tạo thành 17 cụm (nối nhau trong 60 m), mỗi cụm
+  3–6 PS có vận tốc gần như bằng nhau. Ví dụ:
+  - 6 PS tại 106,6972 E, 10,6833 N, −93 … −78 mm/năm;
+  - 5 PS tại 106,6821 E, 10,6951 N, −68 … −65 mm/năm.
+
+  Chỉ 2 trong 48 PS đứng riêng lẻ. 629 PS nhanh hơn −40 mm/năm tạo thành 133 cụm, cụm lớn nhất có 28 PS.
+
+**Kết luận.** Chính pha cuộn cho thấy các PS này chuyển động nhanh hơn các PS xung quanh một cách nhất quán: đó
+là từng công trình hoặc từng khối nhà nhỏ, nhiều khả năng mới xây trên nền đất yếu. Bước 6 không tự tạo ra chúng,
+và chặn vận tốc ở bước 6 sẽ xóa mất tín hiệu thật. Vì vậy các ý tưởng A–C không được cài đặt.
+
+Đuôi được xử lý ở các bước sau:
+- bộ lọc không gian của sản phẩm loại các PS đứng riêng lẻ (0,55 % tổng số PS);
+- các lớp chú giải trải trên khoảng P0.1–P99.9.
+
 ## Rủi ro
 
 Chuyển động cục bộ nhanh thật (một công trình trên nền đất mới đắp) tự nó có gradient dốc. B chỉ giữ chuyển

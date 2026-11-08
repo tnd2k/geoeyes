@@ -52,6 +52,34 @@ Do not search the same ±100 mm/yr for every edge. Bound or penalise the rate *f
   NMAD. Check the CSK Hanoi golden case (17 ifg) and hanoi_s1_desc.
 - **S4.** Decide the default, update the docs and the advisor, and note the result here.
 
+## S0 result (2026-11-08): hypothesis rejected
+
+I reran hcm_d18 steps 6–8 with v6 settings and recorded every periodogram decision
+(`ps_exp/S0/s0_rates.npz`).
+
+- **The grid edges do not make the tail.** Only 2.6 % of the 110k edges get a rate at all. 23 edges are above
+  40 mm/yr.
+- **The PS rate model sets the tail velocity.** For 95 % of the PS faster than −40 mm/yr, the final velocity is
+  within 10 mm/yr of their ps_rate model rate (correlation over all PS −0.988, sign of phase).
+- **The arcs behind the fastest PS are not chance peaks.** 57 % of the arcs touching a PS faster than −60 mm/yr
+  carry a rate above 20 mm/yr, against 0.42 % of all arcs. Their periodogram coherence is 0.17 above chance. It
+  is also **0.21 above the best rate within ±20 mm/yr**, so a penalised periodogram (idea B) would not change
+  them.
+- **The fast PS come in tight groups.** The 48 PS faster than −60 mm/yr form 17 groups (links up to 60 m), of 3–6
+  PS each with nearly the same rate. Examples:
+  - 6 PS at 106.6972 E, 10.6833 N, −93 … −78 mm/yr;
+  - 5 PS at 106.6821 E, 10.6951 N, −68 … −65 mm/yr.
+
+  Only 2 of the 48 PS are alone. The 629 PS faster than −40 mm/yr form 133 groups, the largest of 28 PS.
+
+**Conclusion.** The wrapped phase itself says these PS move coherently faster than the PS around them: single
+structures or small blocks, likely new building on soft ground. Step 6 is not inventing them, and bounding the
+rates in step 6 would remove real signal. Ideas A–C are therefore not implemented.
+
+The tail is handled downstream instead:
+- the product's spatial filter removes the isolated PS (0.55 % of all PS);
+- the legend classes span P0.1–P99.9.
+
 ## Risk
 
 Real fast local motion (a single building on new fill) has a steep gradient by nature. B keeps it only when it
