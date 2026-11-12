@@ -128,3 +128,16 @@ def test_unwrap_grid_qc_writes_the_grid_phase_and_its_jumps(tmp_path):
     assert jf["2020-01-13"] < 0.05 and 0.35 < jf["2020-01-25"] < 0.65
     assert (tmp_path / "uw_2020-01-13.png").exists() and (tmp_path / "uw_qc.json").exists()
     assert "2020-01-01" not in jf                                       # the master is not an interferogram
+
+
+def test_unwrap_grid_image_north_up_when_the_frame_is_turned():
+    """The load step may turn the points' frame by ~168° (ascending S1): north then sits at the first grid row and
+    east at the first column; the image is reversed both ways. Unturned frame: rows only (row 0 = south)."""
+    from geoeyes.processing.stack.qc import grid_map_flips
+    rng = np.random.default_rng(0)
+    lon, lat = 105 + rng.random(500) * 0.1, 20.6 + rng.random(500) * 0.1
+    turned = np.column_stack([1 + (20.7 - lat) * 1000, 1 + (105.1 - lon) * 1000])    # row grows south, col west
+    assert grid_map_flips(turned, np.column_stack([lon, lat])) == (False, True)
+    plain = np.column_stack([1 + (lat - 20.6) * 1000, 1 + (lon - 105) * 1000])
+    assert grid_map_flips(plain, np.column_stack([lon, lat])) == (True, False)
+    assert grid_map_flips(plain, None) == (True, False)

@@ -91,6 +91,10 @@ DEFAULTS: dict[str, Any] = {
     # "y" reproduces the legacy bugs kept for the parity tests (docs/en/refactor/TODO.md, Phase 4, port log of
     # the ps engine)
     "legacy_quirks": "n",
+    # height above the DEM at which a PS is geolocated (moved dh/tan θ away from the sensor) and its height_m:
+    # "local" = the estimated DEM error minus its plane over the scene (ps.geometry.geolocation_dh), "full" = as
+    # estimated (legacy_quirks keeps it), "off" = the pixel at the DEM height
+    "geolocate_dem_error": "local",
 }
 # keys read only when present (no default): with DEFAULTS, every key of [ps] the engine reads
 OPTIONAL: frozenset[str] = frozenset({"weed_arc_edge_chunk_cap", "drop_ifg_index", "deramp_non_defo",
@@ -179,6 +183,7 @@ class EngineParams:
     deramp_auto: bool = False        # scla_deramp = "auto" (scla_deramp is then True)
     deramp_non_defo: tuple | None = None   # lon/lat polygon of the stable area for "auto"
     deramp_allow_planar: bool = False      # "auto": remove a planar trend without a stable area
+    geolocate: str = "local"               # geolocate_dem_error: local | full | off
 
 
 def _polygon(v) -> tuple | None:
@@ -271,4 +276,5 @@ def engine_params(table: dict[str, Any] | None, *, wavelength: float, rho: float
         aps_non_defo=_polygon(pm["aps_non_defo"]),
         legacy=_yes(pm["legacy_quirks"]),
         deramp_auto=mode == "auto", deramp_non_defo=_polygon(pm.get("deramp_non_defo")),
-        deramp_allow_planar=_yes(pm.get("ramp_auto_allow_planar", "n")))
+        deramp_allow_planar=_yes(pm.get("ramp_auto_allow_planar", "n")),
+        geolocate="full" if _yes(pm["legacy_quirks"]) else str(pm["geolocate_dem_error"]).strip().lower())

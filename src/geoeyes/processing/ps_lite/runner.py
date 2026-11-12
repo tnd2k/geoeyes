@@ -39,7 +39,7 @@ from geoeyes.processing.ps_lite import ps as psmod
 from geoeyes.processing.ps_lite import unwrap as uwmod
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-ps_lite/3"         # /2: height-error geolocation moves away from the sensor (sign fixed)
+ENGINE = "geoeyes-ps_lite/4"       # /2: height-error geolocation moves away from the sensor (sign fixed)
 #                                      /3: island linking of the unwrapped grid subtracts its 2π offsets (was adding)
 SIGN = 1.0          # flattened stack, SLC phase exp(-j 4 pi R / lambda) (stack attr phase_convention)
 
@@ -278,7 +278,10 @@ def run(store, out_dir: str | Path, params: PsLiteSection | None = None, *, run_
              np.median(res.rmse_mm), good.sum(), len(pset), p.tcoh_min, p.phase_std_max, int((wk == 0).sum()))
 
     # ---------------------------------------------------------------- outputs
-    lat, lon = _ps_geolocate(inp, pset.line, pset.sample, res.dh_m)
+    from geoeyes.processing.ps.geometry import geolocation_dh
+    lat0, lon0 = _ps_geolocate(inp, pset.line, pset.sample, np.zeros(len(pset)))
+    lat, lon = _ps_geolocate(inp, pset.line, pset.sample,       # /4: local height error ([ps_lite] geolocate_dem_error)
+                             geolocation_dh(res.dh_m, lat0, lon0, p.geolocate_dem_error))
     disp = np.zeros((len(pset), len(epochs)), np.float32)
     for k, g in enumerate(ifgs):
         disp[:, g.sec] = res.disp_mm[:, k]

@@ -20,6 +20,9 @@ from geoeyes.core.hashing import sha256_params
 
 log = logging.getLogger(__name__)
 FINGERPRINT_ATTR = "build_fingerprint"
+# sensors whose stack builder takes [stack] resample_kernel (stripmap builder; TOPS and SICD: K2 of
+# docs/en/research/resampling-kernel.md)
+STRIPMAP_KERNEL_SENSORS = (Sensor.COSMO_SKYMED, Sensor.CAPELLA, Sensor.ICEYE)
 SIGNATURES_ATTR = "scene_signatures"
 _DATE_DIR = re.compile(r"^(\d{8})")
 
@@ -192,6 +195,9 @@ def problem(ctx) -> str | None:
         return "[stack] engine = 'snap' is not available in GeoEyes (set engine = 'native')"
     if ctx.cfg.aoi.bbox is None:
         return "[aoi] bbox is required to build a native stack"
+    from geoeyes.geometry.corridor import problem as corridor_problem
+    if p := corridor_problem(ctx.cfg, ctx.project.root):
+        return p
     if ctx.track.sensor not in (Sensor.SENTINEL1, Sensor.CAPELLA, Sensor.COSMO_SKYMED, Sensor.ICEYE, Sensor.UMBRA):
         return f"no native stack builder for {ctx.track.sensor.value} yet"
     return None
@@ -215,13 +221,22 @@ def scene_signature(folder: Path, burst_ids: set[str] | None = None) -> str:
     return sha256_params(files)[:16]
 
 
+def _corridor(ctx):
+    """The project corridor polygon (``[aoi] corridor``), read once per track, or None."""
+    if "corridor" not in ctx.cache:
+        from geoeyes.geometry.corridor import of_project
+        ctx.cache["corridor"] = of_project(ctx.cfg, ctx.project.root)
+    return ctx.cache["corridor"]
+
+
 def stack_burst_ids(ctx) -> set[str] | None:
     """Sentinel-1 bursts of the stack (those of the reference acquisition over the AOI, in the track's subswaths)."""
     if ctx.track.sensor is not Sensor.SENTINEL1 or ctx.cfg.aoi.bbox is None:
         return None
     from geoeyes.core.types import BBox
     t = target(ctx)
-    ids = aoi_burst_ids(t["scenes"][t["reference"]], BBox.from_sequence(list(ctx.cfg.aoi.bbox)))
+    ids = aoi_burst_ids(t["scenes"][t["reference"]], BBox.from_sequence(list(ctx.cfg.aoi.bbox)),
+                        corridor=_corridor(ctx))
     if ctx.track.subswaths:
         ids = [i for i in ids if any(i.endswith(sw) or f"_{sw}" in i for sw in ctx.track.subswaths)]
     return set(ids)
@@ -257,8 +272,13 @@ def signatures(ctx) -> dict[str, str]:
 def _fingerprint(ctx, sigs: dict[str, str]) -> str:
     p = {"sensor": ctx.track.sensor.value, "scenes": sigs, "reference": str(target(ctx)["reference"]),
          "aoi": list(ctx.cfg.aoi.bbox), "dem": ctx.cfg.stack.dem, "subswaths": list(ctx.track.subswaths)}
+    if (corr := _corridor(ctx)) is not None:         # stacks without a corridor keep their fingerprint
+        from geoeyes.geometry.corridor import digest
+        p["corridor"] = digest(corr)
     if ctx.cfg.stack.coreg_model != "constant":      # stacks built before the option keep their fingerprint
         p["coreg_model"] = ctx.cfg.stack.coreg_model
+    if ctx.cfg.stack.resample_kernel != "spline" and ctx.track.sensor in STRIPMAP_KERNEL_SENSORS:
+        p["resample"] = [ctx.cfg.stack.resample_kernel, ctx.cfg.stack.resample_radius]
     if ctx.track.sensor is Sensor.UMBRA:              # a coregistration change of the SICD engine rebuilds its stacks
         from geoeyes.processing.stack.native.sicd_stack import ENGINE
         p["engine"] = ENGINE
@@ -369,8 +389,9 @@ def run(ctx) -> dict:
             "reused": len(keep & set(t["scenes"])), "signatures": signatures(ctx)}
 
 
-def aoi_burst_ids(reference_scene: Path, aoi, margin_deg: float = 0.01) -> list[str]:
-    """Bursts of the reference acquisition that cover the AOI (footprints from ``bursts.json``).
+def aoi_burst_ids(reference_scene: Path, aoi, margin_deg: float = 0.01, corridor=None) -> list[str]:
+    """Bursts of the reference acquisition that cover the AOI (footprints from ``bursts.json``); with ``corridor``
+    (shapely polygon), only those that also touch it.
 
     The archive is shared: a scene folder can hold bursts another project downloaded (another AOI, another
     subswath); taking every burst found would make the dates without them look incomplete and drop them."""
@@ -379,13 +400,15 @@ def aoi_burst_ids(reference_scene: Path, aoi, margin_deg: float = 0.01) -> list[
     from shapely import wkt
     from shapely.geometry import box
 
+    from geoeyes.geometry.corridor import footprint_hits
     from geoeyes.processing.stack.native.s1_stack import datatake_slices
     area = box(*aoi.as_tuple()).buffer(margin_deg)
     # the reference date can lie in two slices of its datatake: their bursts together
     bursts = [b for d in datatake_slices(reference_scene)
               for b in json.loads((d / "bursts.json").read_text())]
     ids = sorted({b["full_burst_id"] for b in bursts
-                  if not b.get("footprint_wkt") or wkt.loads(b["footprint_wkt"]).intersects(area)})
+                  if (not b.get("footprint_wkt") or wkt.loads(b["footprint_wkt"]).intersects(area))
+                  and (corridor is None or footprint_hits(b.get("footprint_wkt"), corridor))})
     if not ids:
         raise DataError(f"{reference_scene.name}: no burst of the reference acquisition covers the AOI")
     return ids
@@ -396,7 +419,7 @@ def _build(ctx, t, dem, aoi, out, prev, keep):
         from geoeyes.config.settings import load_settings
         from geoeyes.processing.stack.native.s1_stack import build_s1_stack
         from geoeyes.sensors.sentinel1.orbits import PoeorbProvider
-        ids = aoi_burst_ids(t["scenes"][t["reference"]], aoi)
+        ids = aoi_burst_ids(t["scenes"][t["reference"]], aoi, corridor=_corridor(ctx))
         if ctx.track.subswaths:
             ids = [i for i in ids if any(i.endswith(sw) or f"_{sw}" in i for sw in ctx.track.subswaths)]
         orbits = PoeorbProvider(ctx.workspace.cache_dir("orbits"), token=load_settings().earthdata_token or None)
@@ -438,7 +461,8 @@ def _build(ctx, t, dem, aoi, out, prev, keep):
         raise DataError(f"{ctx.track_id}: the reference scene {t['reference']} is a {r.pass_direction} pass, the track "
                         f"is declared {ctx.track.direction.value}: check [[tracks]] direction or the scene folders")
     return build_stripmap_stack(scenes, t["reference"], dem, out, aoi=aoi, track_id=ctx.track_id, overwrite=True,
-                                previous=prev, reuse_dates=keep, coreg_model=ctx.cfg.stack.coreg_model)
+                                previous=prev, reuse_dates=keep, coreg_model=ctx.cfg.stack.coreg_model,
+                                kernel=ctx.cfg.stack.resample_kernel, radius=ctx.cfg.stack.resample_radius)
 
 
 def outputs_exist(ctx) -> bool:
