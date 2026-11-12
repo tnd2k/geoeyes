@@ -125,13 +125,36 @@ def _png(path: Path, img: np.ndarray, cmap: str, vmin: float, vmax: float) -> No
     plt.imsave(path, np.ma.masked_invalid(img), cmap=cmap, vmin=vmin, vmax=vmax)
 
 
-def unwrap_grid_qc(grid, epoch_dates: list[str], master_ix: int, idx, out: Path, *, label: str = "") -> dict:
+def grid_map_flips(grid_ij: np.ndarray, lonlat: np.ndarray | None) -> tuple[bool, bool]:
+    """(rows, columns) of an unwrapping grid to reverse so that its image reads like a map (north up, east right).
+    The grid axes are the local frame of the points, which the load step may turn by about 180° - heading (StaMPS:
+    ascending Sentinel-1 then has north at the first row and west at the last column). Measured from the points:
+    ``grid_ij`` (n, 2) 1-based [row, col] cell of each point, ``lonlat`` (n, 2) its position. None: rows only."""
+    if lonlat is None or len(lonlat) != len(grid_ij) or len(grid_ij) < 3:
+        return True, False
+    r, c = grid_ij[:, 0].astype(float), grid_ij[:, 1].astype(float)
+    ll = np.asarray(lonlat, float)
+    ok = np.isfinite(ll).all(axis=1)
+    A = np.column_stack([np.ones(ok.sum()), r[ok], c[ok]])
+    (_, lon_r, lon_c), *_ = np.linalg.lstsq(A, ll[ok, 0], rcond=None)
+    (_, lat_r, lat_c), *_ = np.linalg.lstsq(A, ll[ok, 1], rcond=None)
+    # image row 0 must be the northern edge: flip when north grows with the row; columns: flip when east falls
+    north_by_row = lat_r if abs(lat_r) >= abs(lat_c) else lat_c
+    east_by_col = lon_c if abs(lon_c) >= abs(lon_r) else lon_r
+    return bool(north_by_row > 0), bool(east_by_col < 0)
+
+
+def unwrap_grid_qc(grid, epoch_dates: list[str], master_ix: int, idx, out: Path, *, label: str = "",
+                   lonlat: np.ndarray | None = None) -> dict:
     """The wrapped phase the point engine unwraps: its unwrapping grid (``processing.ps.unwrap.grid.UwGrid``, the
-    filtered phase of the cells holding selected points, ``grid.ph[:, j]`` for epoch ``idx[j]``), north up, written
-    to ``out/uw_<date>.png`` with ``out/uw_qc.json``. Per interferogram, the share of neighbouring cell pairs whose
-    phase differs by more than π/2: low on a smooth phase, near 0.5 on noise."""
+    filtered phase of the cells holding selected points, ``grid.ph[:, j]`` for epoch ``idx[j]``), north up and east
+    right (``grid_map_flips`` with ``lonlat`` of the grid's points), written to ``out/uw_<date>.png`` with
+    ``out/uw_qc.json``. Per interferogram, the share of neighbouring cell pairs whose phase differs by more than π/2:
+    low on a smooth phase, near 0.5 on noise."""
     out.mkdir(parents=True, exist_ok=True)
     rows = []
+    gij = getattr(grid, "grid_ij", None)
+    flip_rows, flip_cols = grid_map_flips(np.asarray(gij), lonlat) if gij is not None else (True, False)
     i, j = grid.ij[:, 0].astype(int), grid.ij[:, 1].astype(int)
     cell = np.full((grid.n_i, grid.n_j), -1, np.int64)
     cell[i, j] = np.arange(i.size)
@@ -145,13 +168,14 @@ def unwrap_grid_qc(grid, epoch_dates: list[str], master_ix: int, idx, out: Path,
         img = np.full((grid.n_i, grid.n_j), np.nan, np.float32)
         img[i, j] = np.angle(z)
         d = epoch_dates[int(e)]
-        _png(out / f"uw_{d}.png", np.flipud(img), "twilight", -np.pi, np.pi)
+        _png(out / f"uw_{d}.png", img[::-1 if flip_rows else 1, ::-1 if flip_cols else 1], "twilight", -np.pi, np.pi)
         jumps = np.concatenate([np.abs(np.angle(z[a] * np.conj(z[b]))) for a, b in pairs]) if i.size else np.array([])
         rows.append({"date": d, "jump_frac": round(float(np.mean(jumps > np.pi / 2)), 3) if jumps.size else None})
     summary = {"schema": "geoeyes.unwrap_qc/1", "created": datetime.now(UTC).isoformat(timespec="seconds"),
                "label": label, "reference_date": epoch_dates[master_ix], "cells": int(i.size),
                "grid_shape": [int(grid.n_i), int(grid.n_j)], "dates": rows,
-               "orientation": "unwrapping grid, north up"}
+               "image_flips": {"rows": flip_rows, "columns": flip_cols},
+               "orientation": "unwrapping grid, north up and east right (tilted by the orbit heading)"}
     (out / "uw_qc.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     return summary
 

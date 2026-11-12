@@ -5,6 +5,7 @@ import { api, type LogLine, type PlanStep, type ProjectDetail, type ReportDate, 
 import { Monitor } from "../components/Monitor";
 import { SettingsForm } from "../components/SettingsForm";
 import { Atmosphere } from "../components/Atmosphere";
+import { CorridorEditor } from "../components/CorridorEditor";
 import { Gnss } from "../components/Gnss";
 import { StackQc } from "../components/StackQc";
 import { Validation } from "../components/Validation";
@@ -31,6 +32,7 @@ const TABS = [
   ["monitoring", "Monitoring"],
   ["validation", "Validation"],
   ["atmosphere", "Atmosphere"],
+  ["area", "Processing area"],
   ["settings", "Settings"],
 ] as const;
 
@@ -713,6 +715,7 @@ export function Project({ name, tab = "pipeline" }: { name: string; tab?: string
         )}
 
         {tab === "atmosphere" && <Atmosphere name={name} />}
+        {tab === "area" && <CorridorEditor name={name} running={!!p.running} />}
         {tab === "settings" && <SettingsForm name={name} running={!!p.running} />}
       </div>
     </div>

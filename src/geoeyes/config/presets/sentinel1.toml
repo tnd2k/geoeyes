@@ -16,3 +16,7 @@ max_per_month = 2                  # 6-12 day revisit: 2 dates a month keep the 
 [ps]
 max_topo_err = "auto"              # median height of ambiguity / 4 (owner, 2026-11-07; was the StaMPS 20 m)
 unwrap_patch_cycles = "y"          # move back whole-cycle (k × 27.7 mm) patches of single dates (owner, 2026-11-08)
+# PS at the pixel's DEM position: the DEM error of S1 (B⊥ ±150 m) is not good enough to move points. ql6_km124_141
+# (2026-11-11): deforming patches had +13..+32 m (a cut slope, lower than the DEM) and moved 17-43 m off the bare
+# ground; without the shift the points sit within 1 m of an independent StaMPS product
+geolocate_dem_error = "off"

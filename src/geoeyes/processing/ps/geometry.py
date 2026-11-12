@@ -16,6 +16,42 @@ def geolocate(lat, lon, incidence_deg, heading_deg: float, look_side: str, dh):
             lon + shift * np.sin(away) / (111_320.0 * np.cos(np.radians(lat))))
 
 
+GEOLOCATE_MODES = ("local", "full", "off")
+
+
+def geolocation_dh(dh, lat, lon, mode: str = "local") -> np.ndarray:
+    """Height (m) above the DEM at which the points are geolocated and their height reported.
+
+    "full": the estimated DEM error as it is; "off": 0 (the pixel's position at the DEM height); "local": the DEM
+    error minus its plane over the scene (robust fit in metres east / north). The plane of the estimate is not a
+    height: a phase ramp that follows B⊥ (orbit, troposphere, an undetrended stack) goes into it, and it moved
+    whole areas by tens of metres (ql6_km124_141, Sentinel-1: ±40 m of "DEM error" over 16 km, 84 % of its variance;
+    without it the points sit within 1 m of an independent StaMPS product)."""
+    dh = np.nan_to_num(np.asarray(dh, np.float64))
+    mode = str(mode).strip().lower()
+    if mode not in GEOLOCATE_MODES:
+        raise ValueError(f"geolocate_dem_error = {mode!r}: expected one of {GEOLOCATE_MODES}")
+    if mode == "full":
+        return dh
+    if mode == "off" or dh.size < 10:
+        return np.zeros_like(dh)
+    lat = np.asarray(lat, np.float64)
+    lon = np.asarray(lon, np.float64)
+    x = (lon - np.nanmean(lon)) * 111_320.0 * np.cos(np.radians(np.nanmean(lat)))
+    y = (lat - np.nanmean(lat)) * 110_574.0
+    A = np.c_[np.ones_like(x), x, y]
+    ok = np.isfinite(x) & np.isfinite(y)
+    for _ in range(3):                                   # trimmed refits: buildings / mis-estimates out
+        coef, *_ = np.linalg.lstsq(A[ok], dh[ok], rcond=None)
+        r = dh - A @ coef
+        s = 1.4826 * np.median(np.abs(r[ok] - np.median(r[ok])))
+        keep = np.isfinite(x) & np.isfinite(y) & (np.abs(r) <= 3 * max(s, 1e-6))
+        if keep.sum() < 10 or np.array_equal(keep, ok):
+            break
+        ok = keep
+    return np.where(np.isfinite(x) & np.isfinite(y), dh - A @ coef, 0.0)
+
+
 def triangulation_edges(xy: np.ndarray) -> np.ndarray:
     """Unique edges (m, 2) of the Delaunay triangulation of (n, 2) points, each as (low, high) index,
     sorted (replaces the external Triangle program of the legacy engine)."""

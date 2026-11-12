@@ -303,4 +303,46 @@ export const EXPLORER: Record<string, string> = {
   "rivers and watersheds": "sông ngòi và lưu vực",
   "Rivers: OpenStreetMap (ODbL) · Watersheds: HydroBASINS (Lehner & Grill 2013) · Relief: Mapzen Terrain Tiles":
     "Sông ngòi: OpenStreetMap (ODbL) · Lưu vực: HydroBASINS (Lehner & Grill 2013) · Địa hình: Mapzen Terrain Tiles",
+  // slopes: relief and steepness under the products, the velocity along the slope
+  Slopes: "Sườn dốc",
+  Slope: "Độ dốc",
+  "Relief (hillshade) and slope steepness under the products, from the elevation tiles; for the motion along the slopes choose 'Along the slope' in the layer's Velocity":
+    "Địa hình bóng đổ và độ dốc dưới các sản phẩm, tính từ ô độ cao; để xem chuyển động theo sườn, chọn 'Theo sườn dốc' ở mục Vận tốc của lớp",
+  "From zoom 9; ~30 m elevation tiles: a cut or a fill narrower than that does not show.":
+    "Từ mức zoom 9; ô độ cao ~30 m: taluy đào hay đắp hẹp hơn thế sẽ không hiện ra.",
+  "Along the slope": "Theo sườn dốc",
+  "rate along the slope (− down), where the satellite sees it": "tốc độ theo sườn (− là trượt xuống), ở chỗ vệ tinh nhìn thấy được",
+  "the product velocity divided by the share of a motion down the steepest slope (Copernicus GLO-30) that the satellite sees; points on flat ground, on slopes the satellite sees badly and in layover or shadow are hidden":
+    "vận tốc của sản phẩm chia cho tỷ lệ chuyển động theo hướng dốc nhất (Copernicus GLO-30) mà vệ tinh thấy được; ẩn các điểm trên đất bằng, trên sườn vệ tinh nhìn kém và trong vùng chồng ảnh hoặc bóng radar",
+  "Rate along the slope": "Tốc độ theo sườn dốc",
+  "− down the slope, + up; the LOS velocity divided by the share of a motion down the steepest slope that the satellite sees":
+    "− là trượt xuống dốc, + là lên; bằng vận tốc LOS chia cho tỷ lệ chuyển động theo hướng dốc nhất mà vệ tinh thấy được",
+  "Shown: {p}% of the points (slope ≥ {s}°, the satellite sees ≥ {k}% of a motion down it, no layover or shadow). Where no point is shown, the ground is not known to be stable: the satellite cannot see such a motion there.":
+    "Đang hiện {p}% số điểm (dốc ≥ {s}°, vệ tinh thấy ≥ {k}% chuyển động xuống dốc, không chồng ảnh hay bóng radar). Chỗ không có điểm chưa chắc là ổn định: ở đó vệ tinh không thấy được chuyển động kiểu này.",
+  "Slopes: {dem}, {c} m": "Độ dốc: {dem}, {c} m",
+  // point panel of a layer coloured along the slope
+  "Satellite sees": "Vệ tinh thấy",
+  "not shown": "không hiện",
+  "LOS: + toward the satellite. Along the slope: − down the slope, the LOS rate divided by the share the satellite sees. The series is the LOS displacement.":
+    "LOS: + là lại gần vệ tinh. Theo sườn dốc: − là trượt xuống dốc, bằng vận tốc LOS chia cho tỷ lệ chuyển động mà vệ tinh thấy được. Chuỗi thời gian là chuyển dịch LOS.",
+  // landslide inventory
+  "Landslide inventory": "Điểm trượt",
+  "Surveyed landslide sites (geoeyes landslide survey) and reported events over the products; hover a site for its survey and the velocity of the product around it":
+    "Các điểm trượt đã khảo sát (geoeyes landslide survey) và các sự kiện đã được báo, trên các sản phẩm; rê chuột lên một điểm để xem số liệu khảo sát và vận tốc của sản phẩm quanh điểm đó",
+  "No field survey yet: geoeyes landslide survey --file <gpkg|kmz>": "Chưa có khảo sát hiện trường: geoeyes landslide survey --file <gpkg|kmz>",
+  "Survey {name}: {n} sites": "Khảo sát {name}: {n} điểm",
+  "Reported events ({n})": "Sự kiện đã báo ({n})",
+  "located to {m} m": "vị trí chính xác đến {m} m",
+  "Risk level": "Mức nguy cơ",
+  "Type": "Loại",
+  "Site status": "Hiện trạng",
+  "Material": "Vật liệu",
+  "Slope height (m)": "Chiều cao taluy (m)",
+  "Length (m)": "Chiều dài (m)",
+  "Width (m)": "Chiều rộng (m)",
+  "Cracks": "Vết nứt",
+  "Toe erosion": "Xói chân",
+  "Water observed": "Có nước",
+  "Vegetation": "Thực phủ",
+  "Survey": "Khảo sát",
 };

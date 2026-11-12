@@ -499,6 +499,33 @@ def cmd_floods(args) -> int:
     return 0
 
 
+def cmd_corridor(args) -> int:
+    """Processing corridor (docs/en/research/corridor-processing.md): ``--line FILE --width M`` writes
+    ``corridor.geojson`` and sets ``[aoi] corridor`` and ``[aoi] bbox``; ``--clear`` removes the corridor; with
+    neither, shows the current one."""
+    from geoeyes.api.settings import apply
+    from geoeyes.geometry import corridor as C
+    cfg, project, _ = _open(args)
+    if args.clear:
+        apply(project, {"aoi.corridor": None})
+        print(f"{project.name}: corridor removed ([aoi] bbox kept: {list(cfg.aoi.bbox or [])})")
+        return 0
+    if not args.line:
+        g = C.of_project(cfg, project.root)
+        if g is None:
+            print(f"{project.name}: no corridor ([aoi] bbox {list(cfg.aoi.bbox or [])})")
+        else:
+            print(json.dumps({"corridor": cfg.aoi.corridor, "area_km2": round(C.ground_km2(g), 3),
+                              "bounds": [round(v, 5) for v in g.bounds], "bbox": list(cfg.aoi.bbox),
+                              "problem": C.problem(cfg, project.root)}, indent=1))
+        return 0
+    geom, info = C.from_file(args.line, args.width, args.layer)
+    C.write(project.root / C.FILE, geom, info, {"kind": "file", "path": str(args.line), "layer": args.layer or ""})
+    apply(project, {"aoi.corridor": C.FILE, "aoi.bbox": C.bbox_of(geom)})
+    print(json.dumps({"corridor": C.FILE, **info, "bbox": C.bbox_of(geom)}, indent=1))
+    return 0
+
+
 def cmd_landslide(args) -> int:
     """Landslide study (docs/en/research/landslide-susceptibility.md): ``inventory`` rebuilds the workspace
     inventories, ``audit`` their footprints and area–frequency (L0), ``labels`` the labels of a study (L1)."""
@@ -509,6 +536,12 @@ def cmd_landslide(args) -> int:
     if args.action == "inventory":
         print(json.dumps({"vietnam": inv.build_vietnam(ws.root), "das2024": inv.build_das2024(ws.root)},
                          indent=1, ensure_ascii=False))
+        return 0
+    if args.action == "survey":
+        from geoeyes.landslide.surveys import import_survey
+        if not args.file:
+            raise SystemExit("landslide survey: --file <gpkg|kmz|geojson|shp> is required")
+        print(json.dumps(import_survey(ws, args.file, args.name, args.layer), indent=1, ensure_ascii=False))
         return 0
     from geoeyes.landslide.study import load_study
     st = load_study(ws.root, args.study)
@@ -935,6 +968,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="ps engine: stop after step STEP (1-7); the next run resumes from STEP + 1")
     r.add_argument("--log-level", default="INFO")
     add("status", cmd_status, selection=False, help_="phase status and last runs")
+    co = add("corridor", cmd_corridor, selection=False,
+             help_="processing corridor: buffer a route file (--line, --width) into [aoi] corridor; --clear removes it")
+    co.add_argument("--line", help="route file: GeoPackage, KML/KMZ, GeoJSON or shapefile (lines, points, polygons)")
+    co.add_argument("--width", type=float, default=1000.0, help="full corridor width in metres (default 1000)")
+    co.add_argument("--layer", help="layer of the route file (default: the first)")
+    co.add_argument("--clear", action="store_true", help="remove the corridor (the bbox stays)")
     rp = add("report", cmd_report, selection=False, help_="build the PDF report of a product")
     rp.add_argument("--product", help="product id (default: the latest product of each track)")
     rp.add_argument("--track", action="append", help="track id (repeatable)")
@@ -1044,7 +1083,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "scars (L3b)")
     ls.add_argument("action", choices=["inventory", "audit", "labels", "layers", "aspect", "verify", "scars",
                                        "dating", "persistence", "reliability", "rain", "thresholds", "improve",
-                                       "fit", "test", "rainarchive", "raincheck", "rainproducts", "catalogue", "l5"])
+                                       "fit", "test", "rainarchive", "raincheck", "rainproducts", "catalogue", "l5",
+                                       "survey"])
+    ls.add_argument("--file", help="survey: the field survey to add to the map (GeoPackage, KML/KMZ, GeoJSON, shapefile)")
+    ls.add_argument("--name", help="survey: its name on the map (default: from the file name)")
+    ls.add_argument("--layer", help="survey: the layer to read (default: the first)")
     ls.add_argument("--insar", default="quangnam_l5_d120", metavar="PROJECT",
                     help="l5: the pre-event InSAR project with a hazard analysis (default quangnam_l5_d120)")
     ls.add_argument("--step", default="c1", choices=["c1", "c3", "c5"], help="improve: the L3c step (default c1)")

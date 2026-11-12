@@ -386,7 +386,12 @@ def create(ws: WorkspaceLayout, spec: dict) -> str:
     doc["schema"] = "geoeyes.project/1"
     doc["project"] = {"name": name, "method": spec.get("method") or "psi",
                       **({"description": spec["description"]} if spec.get("description") else {})}
-    if spec.get("bbox"):
+    from geoeyes.api.corridor import for_new_project
+    from geoeyes.geometry import corridor as C
+    corr = for_new_project(spec)                                 # brush corridor: its bbox, the file below
+    if corr is not None:
+        doc["aoi"] = {"bbox": C.bbox_of(corr[0]), "corridor": C.FILE}
+    elif spec.get("bbox"):
         doc["aoi"] = {"bbox": [round(float(v), 5) for v in spec["bbox"]]}
     track = {"sensor": tr.get("sensor", "sentinel1"), "direction": tr.get("direction", "descending")}
     if tr.get("relative_orbit") not in (None, ""):
@@ -411,6 +416,8 @@ def create(ws: WorkspaceLayout, spec: dict) -> str:
     text = tomlkit.dumps(doc)
     load_dict(tomllib.loads(text))                               # invalid: nothing is created
     project.ensure()
+    if corr is not None:
+        C.write(project.root / C.FILE, *corr)
     project.config.write_text(text, encoding="utf-8", newline="\n")
     folder = spec.get("folder")
     tree = service.folders(ws)
@@ -435,17 +442,21 @@ def create(ws: WorkspaceLayout, spec: dict) -> str:
 
 
 # ---------------------------------------------------------------- ASF previews
-def asf_tracks(bbox: list[float]) -> list[dict]:
-    """Sentinel-1 tracks over an AOI (bursts of the last 24 days): relative orbit, direction, subswaths, coverage."""
+def asf_tracks(bbox: list[float], corridor: dict | None = None) -> list[dict]:
+    """Sentinel-1 tracks over an AOI (bursts of the last 24 days): relative orbit, direction, subswaths, coverage.
+    ``corridor`` (GeoJSON polygon): the coverage is that of the corridor, and only bursts touching it count."""
     from shapely import wkt
-    from shapely.geometry import box
+    from shapely.geometry import box, shape
     from shapely.ops import unary_union
 
     from geoeyes.core.types import BBox
+    from geoeyes.geometry.corridor import footprint_hits
     from geoeyes.sensors.sentinel1.asf import search
     end = date.today()
     refs = search(start=end - timedelta(days=24), end=end, aoi=BBox.from_sequence(bbox))
-    aoi = box(*bbox)
+    aoi = shape(corridor) if corridor else box(*bbox)
+    if corridor:
+        refs = [r for r in refs if footprint_hits(r.footprint_wkt, aoi)]
     out: dict[str, dict] = {}
     for r in refs:
         t = out.setdefault(r.track_id, {"track_id": r.track_id, "relative_orbit": r.relative_orbit,
@@ -476,6 +487,9 @@ def asf_preview(spec: dict) -> dict:
            "acquire": {"date_range": spec["date_range"], "max_per_month": int(spec.get("max_per_month") or 0)}}
     cfg = load_dict(raw)
     ctx = SimpleNamespace(cfg=cfg, track=cfg.tracks[0], track_id=cfg.tracks[0].track_id, cache={})
+    if spec.get("corridor"):                     # drawn corridor (GeoJSON polygon): only the bursts touching it
+        from shapely.geometry import shape
+        ctx.cache["corridor"] = shape(spec["corridor"])
     refs = catalogue(ctx)
     dates = sorted({r.date for r in refs})
     months: dict[str, int] = {}

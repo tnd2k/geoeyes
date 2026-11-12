@@ -33,7 +33,7 @@ from geoeyes.processing.phase_linking.runner import provenance as pl_provenance
 from geoeyes.processing.ps import candidates as cd
 from geoeyes.processing.ps.aps import centre_weather, choose_aps, inside_polygon, linear_aps
 from geoeyes.processing.ps.checkpoints import Checkpoints, pack_gamma, unpack_gamma
-from geoeyes.processing.ps.geometry import geolocate
+from geoeyes.processing.ps.geometry import geolocate, geolocation_dh
 from geoeyes.processing.ps.params import DEFAULTS, auto_time_win, engine_params, hoa_max_topo_err
 from geoeyes.processing.ps.steps.correct_phase import correct_phase
 from geoeyes.processing.ps.steps.est_gamma import est_gamma
@@ -48,9 +48,10 @@ from geoeyes.processing.ps.steps.velocity import velocity
 from geoeyes.processing.ps.steps.weed import weed
 
 log = logging.getLogger(__name__)
-ENGINE = "geoeyes-ps/4"              # /2: height-error geolocation moves away from the sensor (sign fixed)
+ENGINE = "geoeyes-ps/5"            # /2: height-error geolocation moves away from the sensor (sign fixed)
 # /3: the weather-model APS is centred per interferogram (scene-wide offsets removed)
 # /4: without a reference area, every interferogram is referenced to the scene mean (pass-2 unwrapping offsets)
+# /5: geolocated with the local DEM error, its plane over the scene removed ([ps] geolocate_dem_error)
 # Runs with the linear APS were already zero-mean per date (its intercept; checked on hanoi_csk: 0.0 mm on every
 # date), so their outputs do not change: they keep the /2 fingerprint and are not re-run.
 UNCHANGED_WITHOUT_WEATHER = "geoeyes-ps/2"
@@ -202,7 +203,7 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
         from geoeyes.processing.stack.qc import unwrap_grid_qc
         drop = {d - 1 for d in prm.unwrap.drop_ifg_index}
         uw_idx = [k for k in range(len(dates)) if k not in drop]
-        q = unwrap_grid_qc(u.grid, [d.isoformat() for d in dates], L.master_ix, uw_idx, out / "qc",
+        q = unwrap_grid_qc(u.grid, [d.isoformat() for d in dates], L.master_ix, uw_idx, out / "qc", lonlat=L.lonlat[ix],
                            label=f"pass {'2' if prm.two_pass else '1'}, grid {prm.unwrap.grid_size:g} m, "
                                  f"prefilter {prm.unwrap.prefilter}")
         log.info("unwrapping input: %d cells; phase jumps > pi/2 between neighbours %s", q["cells"],
@@ -215,10 +216,13 @@ def run(store, out_dir: str | Path, table: dict[str, Any] | None = None, *, da_m
     orig = L.cand_ix[ix]
     inc_ps, rng_ps = inc[orig], rng[orig]
     dem_err = -sm.K_uw * wl * rng_ps * np.sin(inc_ps) / (4 * np.pi)
-    lat_ps, lon_ps = geolocate(L.lonlat[ix, 1].astype(np.float64), L.lonlat[ix, 0].astype(np.float64),
-                               np.degrees(inc_ps), float(attrs["heading_deg"]), str(attrs.get("look_side", "right")),
-                               dem_err)
-    height = (hgt_ix + dem_err).astype(np.float32)
+    lat_pix, lon_pix = L.lonlat[ix, 1].astype(np.float64), L.lonlat[ix, 0].astype(np.float64)
+    dh_geo = geolocation_dh(dem_err, lat_pix, lon_pix, prm.geolocate)
+    lat_ps, lon_ps = geolocate(lat_pix, lon_pix, np.degrees(inc_ps), float(attrs["heading_deg"]),
+                               str(attrs.get("look_side", "right")), dh_geo)
+    height = (hgt_ix + dh_geo).astype(np.float32)
+    log.info("geolocation: DEM error %s (p16..p84 %.1f..%.1f m; used %.1f..%.1f m)", prm.geolocate,
+             *np.percentile(dem_err, [16, 84]), *np.percentile(dh_geo, [16, 84]))
     epoch_dates = np.array([d.isoformat() for d in dates], "S10")
     st = StateStore(out / "state.h5", STATE_SCHEMA)
     st.write_many({

@@ -5,6 +5,7 @@
 import { AI } from "./ai";
 import { APP } from "./app";
 import { ATMOSPHERE } from "./atmosphere";
+import { CORRIDOR } from "./corridor";
 import { EXPLORER } from "./explorer";
 import { HAZARD } from "./hazard";
 import { LEARN } from "./learn";
@@ -16,5 +17,5 @@ import { SERVER, SERVER_PATTERNS } from "./server";
 import { SETTINGS } from "./settings";
 import { WORKSPACE } from "./workspace";
 
-export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...LEARN_SCIENCE, ...LEARN_IONOSPHERE, ...OPENDATA, ...ATMOSPHERE, ...SERVER, ...SETTINGS };
+export const VI: Record<string, string> = { ...APP, ...WORKSPACE, ...EXPLORER, ...PROJECT, ...HAZARD, ...AI, ...LEARN, ...LEARN_SCIENCE, ...LEARN_IONOSPHERE, ...OPENDATA, ...ATMOSPHERE, ...CORRIDOR, ...SERVER, ...SETTINGS };
 export const VI_PATTERNS: [RegExp, string][] = SERVER_PATTERNS;

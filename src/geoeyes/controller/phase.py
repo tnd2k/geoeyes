@@ -77,3 +77,19 @@ class ProjectState:
         data["phases"][f"{track}/{phase}"] = {**record,
                                               "updated": datetime.now(UTC).isoformat(timespec="seconds")}
         atomic_write_json(self.path, data)
+
+    def clear_interrupted(self, tracks: list[str] | None) -> list[str]:
+        """Phases left "running" by a run that was killed (its lock was stale and is now held by this run) become
+        "failed" with an "interrupted" error, so that the web page does not show them running beside the phase
+        this run is in. ``tracks``: the tracks under this run's lock (None: all)."""
+        data = self.load()
+        done = []
+        for key, rec in data["phases"].items():
+            track = key.rsplit("/", 1)[0]
+            if rec.get("status") == "running" and (tracks is None or track in tracks):
+                rec.update(status="failed", error=f"interrupted: run {rec.get('run_id', '?')} stopped before the "
+                                                  "phase finished", updated=datetime.now(UTC).isoformat(timespec="seconds"))
+                done.append(key)
+        if done:
+            atomic_write_json(self.path, data)
+        return done

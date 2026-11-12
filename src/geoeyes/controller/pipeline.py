@@ -443,6 +443,9 @@ def run(cfg: ProjectConfig, project: ProjectLayout, workspace: WorkspaceLayout, 
     man.extra["compute"] = backend.describe()
     with ProjectLock(project.locks, scope=scope, info={"run_id": run_id}), log_context(run_id=run_id), \
             compute.use(backend):
+        # this run holds the lock of its tracks: a phase still "running" there belongs to a run that was killed
+        for key in state.clear_interrupted(scope):
+            log.warning("%s: left running by a stopped run, marked interrupted", key)
         log.info("run %s: %d phase(s) to run, compute on %s\n%s", run_id, len(p.to_run()), backend.describe(), p)
         failed_tracks: set[str] = set()
         for s in p.to_run():

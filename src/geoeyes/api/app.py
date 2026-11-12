@@ -220,11 +220,40 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
         bbox = body.get("bbox")
         if not bbox or len(bbox) != 4:
             raise HTTPException(400, "bbox: [west, south, east, north]")
-        return {"tracks": settings.asf_tracks([float(v) for v in bbox])}
+        return {"tracks": settings.asf_tracks([float(v) for v in bbox], body.get("corridor"))}
 
     @app.post("/api/asf/preview")
     def asf_preview(body: dict = Body(...)):
         return settings.asf_preview(body)
+
+    # ------------------------------------------------------------ processing corridor (map brush)
+    @app.post("/api/corridor/preview")
+    def corridor_preview(body: dict = Body(...)):
+        """The corridor of brush strokes: ``{strokes, erase, polygons, width_m}`` -> polygon, figures, bbox."""
+        from geoeyes.api import corridor
+        return corridor.preview(body)
+
+    @app.post("/api/corridor/import")
+    def corridor_import(body: dict = Body(...)):
+        """A route file (``{name, data_b64}``) as strokes and polygons for the brush."""
+        from geoeyes.api import corridor
+        return corridor.import_route(body)
+
+    @app.get("/api/projects/{name}/corridor")
+    def project_corridor(name: str):
+        from geoeyes.api import corridor
+        p = project(name)
+        return {"corridor": corridor.read(p, load(p.config))}
+
+    @app.put("/api/projects/{name}/corridor")
+    def put_corridor(name: str, body: dict = Body(...)):
+        from geoeyes.api import corridor
+        return corridor.save(project(name), body)
+
+    @app.delete("/api/projects/{name}/corridor")
+    def delete_corridor(name: str):
+        from geoeyes.api import corridor
+        return corridor.clear(project(name))
 
     # ------------------------------------------------------------ products
     @app.get("/api/projects/{name}/products/{pid}")
@@ -492,6 +521,26 @@ def create_app(ws: WorkspaceLayout, token: str | None = None) -> FastAPI:
     def product_floods(name: str, pid: str, radius: float = 100.0):
         """Per reported flood location: the product's velocity within ``radius`` m against the ring around it."""
         return _json(_product_floods(name, pid, radius), 300)
+
+    @app.get("/api/landslides")
+    def landslides():
+        """Field landslide surveys (``geoeyes landslide survey``) and the reported events, as one collection."""
+        from geoeyes.landslide.surveys import collection
+        return _json(collection(ws), 60)
+
+    @app.get("/api/projects/{name}/products/{pid}/landslides")
+    def product_landslides(name: str, pid: str, radius: float = 100.0):
+        """Per surveyed or reported landslide: the product's velocity within ``radius`` m against the ring around it."""
+        from geoeyes.ancillary.flood_reports import near_product
+        from geoeyes.landslide.surveys import collection, signature
+        r = min(max(radius, 20.0), 1000.0)
+        folder_ = points.ensure(product(name, pid), web_cache)
+        sig = f"{signature(ws)}|{(folder_ / 'meta.json').stat().st_mtime_ns}"
+
+        def compute():
+            attrs = points._arrays(str(folder_))[0]
+            return near_product(collection(ws), attrs["lon"], attrs["lat"], attrs["vel"], radius_m=r)
+        return _json(_cached_json(folder_ / f"landslides_r{int(r)}.json", sig, compute), 300)
 
     @app.get("/api/projects/{name}/products/{pid}/rainfall")
     def product_rainfall(name: str, pid: str):

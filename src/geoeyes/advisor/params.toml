@@ -1181,6 +1181,21 @@ typical = "n."
 typical_vi = "n."
 related = ["ps.scla_deramp"]
 
+[ps.geolocate_dem_error]
+help = "Height above the DEM used to place each PS: local = DEM error without its scene plane, full, off"
+help_vi = "Độ cao so với DEM dùng để đặt vị trí PS: local = sai số DEM đã bỏ mặt phẳng toàn cảnh, full, off"
+use = """A PS is moved dh / tan(θ) along the look direction to the position of a scatterer dh above the DEM. The \
+plane of the estimated DEM error is not a height (a phase ramp that follows B⊥ goes into it), so local removes it."""
+use_vi = """PS được dịch dh / tan(θ) theo hướng nhìn đến vị trí của vật phản xạ cao hơn DEM một đoạn dh. Mặt phẳng \
+của sai số DEM ước lượng không phải là độ cao (ramp pha theo B⊥ lọt vào đó), nên local bỏ nó đi."""
+risk = """full moved whole areas by tens of metres on Sentinel-1 (ql6_km124_141, 2026-11-11); off leaves building \
+tops at the foot of the building."""
+risk_vi = """full làm cả vùng lệch hàng chục mét với Sentinel-1 (ql6_km124_141, 2026-11-11); off để đỉnh nhà ở chân \
+nhà."""
+typical = "local (default); full with legacy_quirks."
+typical_vi = "local (mặc định); full khi legacy_quirks."
+related = ["ps.scla_deramp"]
+
 # ================================================================ 4 · PS step 8 · SCN
 [ps.scn_time_win]
 help = "Time window (days) of the SCN temporal filter (step 8)"

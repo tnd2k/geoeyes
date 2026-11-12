@@ -22,11 +22,12 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
+from geoeyes.core.blas import blas_threads
 from geoeyes.core.errors import StoreError
 from geoeyes.core.logging import event
 from geoeyes.processing.phase_linking import estimators
@@ -130,7 +131,7 @@ def pair_coherence(store, pairs: list[tuple[int, int]], params: PhaseLinkingPara
         return t, res
 
     tiles = [(y, x) for y in range(0, ny, ts) for x in range(0, nx, ts)]
-    with ThreadPoolExecutor(workers or min(8, os.cpu_count() or 1)) as pool:
+    with blas_threads(1), ThreadPoolExecutor(workers or min(8, os.cpu_count() or 1)) as pool:
         for i, ((y, x), res) in enumerate(pool.map(work, tiles)):
             out[:, y:y + res.shape[1], x:x + res.shape[2]] = res
             event(log, "progress", "SHP pair coherence", stage="pair_coherence", done=i + 1, total=len(tiles))
@@ -179,6 +180,32 @@ def is_done(store, params: PhaseLinkingParams, out_var: str = "slc_linked") -> b
     return store.has(out_var) and store.attrs.get(DONE_ATTR) == fingerprint(params)
 
 
+PIXEL_BYTES_PER_DATE2 = 64     # peak bytes per linked pixel / n_dates² (coherence, EMI inverse, eigh, copies):
+                               # 2.72 GB for 4096 pixels x 103 dates (adaptive, measured 2026-11-11)
+MIN_BATCH = 128
+
+
+def fit_memory(params: PhaseLinkingParams, n_dates: int, workers: int,
+               available: float | None = None) -> tuple[PhaseLinkingParams, int]:
+    """Batch and workers that fit in 60 % of the free memory: each worker holds its padded tile (SLC, linked
+    copy, amplitudes: ~3 x the block) and one batch of coherence matrices. ``available`` in bytes (None: psutil).
+    8 workers x 4096 pixels x 103 dates took ~22 GB and failed with 8.5 GB free (ql6_km124_141)."""
+    if available is None:
+        try:
+            import psutil
+            available = float(psutil.virtual_memory().available)
+        except ImportError:
+            return params, workers
+    budget = 0.6 * available
+    hy, hx = params.half_window
+    tile = 3.0 * n_dates * (params.tile_size + 2 * hy) * (params.tile_size + 2 * hx) * 8
+    per_px = PIXEL_BYTES_PER_DATE2 * n_dates * n_dates
+    while workers > 1 and budget / workers - tile < MIN_BATCH * per_px:
+        workers -= 1
+    batch = int(max(MIN_BATCH, min(params.batch, (budget / workers - tile) // per_px)))
+    return replace(params, batch=batch), workers
+
+
 def run(store, params: PhaseLinkingParams | None = None, *, out_var: str = "slc_linked",
         workers: int | None = None) -> dict:
     t0 = time.time()
@@ -188,6 +215,9 @@ def run(store, params: PhaseLinkingParams | None = None, *, out_var: str = "slc_
     dates = [str(np.datetime64(d, "D")) for d in ds["date"].values]
     ref = dates.index(str(ds.attrs["reference_date"]))
     _, ny, nx = ds["slc"].shape
+    asked = workers or min(8, os.cpu_count() or 1)
+    params, workers = fit_memory(params, len(dates), asked)
+    log.info("phase linking: %d workers (asked %d), batch %d pixels", workers, asked, params.batch)
     hy, hx = params.half_window
     ts = params.tile_size
     tiles = [(y, x) for y in range(0, ny, ts) for x in range(0, nx, ts)]
@@ -209,7 +239,8 @@ def run(store, params: PhaseLinkingParams | None = None, *, out_var: str = "slc_
         return t, link_tile(block, (slice(hy, hy + h), slice(hx, hx + w)), ref, params, pair_idx)
 
     n_linked = 0
-    with ThreadPoolExecutor(workers or min(8, os.cpu_count() or 1)) as pool:
+    # one BLAS thread per worker: OpenBLAS crashes when the workers call eigh at once (geoeyes.core.blas)
+    with blas_threads(1), ThreadPoolExecutor(workers) as pool:
         for i, ((y, x), (out, count, tcoh, pc)) in enumerate(pool.map(work, tiles)):
             h, w = count.shape
             region = {"y": slice(y, y + h), "x": slice(x, x + w)}

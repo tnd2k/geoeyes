@@ -380,6 +380,8 @@ def build_s1_stack(scenes: dict[date, Path], burst_ids: list[str], reference: da
                     w["res"] = tops.resample_secondary(w["sm"], w["s_slc"], w["off"])
                 shifts.append(shift)
                 log.info("%s %s: ESD %+.5f lines (%d px)", d, sw, shift, info.get("n", 0))
+            if d != reference:
+                _fill_from_neighbours(work, fids, sec, geos, d)
             if split and d != reference:
                 # sub-band interferograms over the whole bursts, by blocks of lines, summed on the coarse cells
                 for fid in fids:
@@ -482,6 +484,43 @@ def build_s1_stack(scenes: dict[date, Path], burst_ids: list[str], reference: da
                         ionosphere_looks=list(looks), ionosphere_model=ionosphere_model,
                         ionosphere_smooth_m=ionosphere_smooth_m)
     return st
+
+
+def _covered(off: tops.Offsets, meta) -> np.ndarray:
+    """Reference pixels that fall inside the valid lines / samples of a secondary burst (2 lines of margin for
+    the interpolation kernel)."""
+    l0, l1, s0, s1 = meta.valid_window
+    line = off.line + off.az_shift
+    return (line >= l0 + 2) & (line <= l1 - 3) & (off.sample >= s0) & (off.sample <= s1 - 1)
+
+
+def _fill_from_neighbours(work: dict[str, dict], fids: list[str], sec: dict, geos: dict, d) -> None:
+    """Rows of a reference burst that its same-ID secondary burst does not reach, taken from the secondary's
+    adjacent bursts of the subswath. Burst IDs usually cover the same ground within a few lines, but not always:
+    on 2025-05-01 (S1A, track 128) the bursts sat 187 lines (0.4 s) after those of the reference, which left 107
+    rows of every pixel empty on that date and split the PS of ql6_km124_141 in two. Each secondary burst is
+    deramped with its own Doppler (``resample_secondary``); the geometric phase is that of the pass, the same
+    whichever burst the pixel comes from."""
+    for k, fid in enumerate(fids):
+        w = work[fid]
+        have = _covered(w["off"], w["sm"])
+        if have.all():
+            continue
+        for j in (k - 1, k + 1):
+            if not 0 <= j < len(fids) or have.all():
+                continue
+            nb = work[fids[j]]
+            off = tops.secondary_offsets(w["rm"], nb["sm"], geos[fid], w["win"])
+            off.az_shift = w["off"].az_shift
+            take = ~have & _covered(off, nb["sm"])
+            if not take.any():
+                continue
+            w["res"][take] = tops.resample_secondary(nb["sm"], nb["s_slc"], off)[take]
+            have |= take
+            log.info("%s %s: %d rows filled from the secondary burst %s", d, fid, int(take.any(axis=1).sum()),
+                     fids[j])
+        if not have.all():            # only matters inside the crop: the merged rows of the segment are logged
+            log.info("%s %s: %d rows without a secondary burst", d, fid, int((~have).all(axis=1).sum()))
 
 
 def _overlap(a: dict, b: dict) -> tops.OverlapIfg:

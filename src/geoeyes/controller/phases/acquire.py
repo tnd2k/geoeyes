@@ -110,6 +110,9 @@ def problem(ctx) -> str | None:
         return _od_problem(ctx)
     if ctx.cfg.aoi.bbox is None:
         return "[aoi] bbox is required to search Sentinel-1 bursts"
+    from geoeyes.geometry.corridor import problem as corridor_problem
+    if p := corridor_problem(ctx.cfg, ctx.project.root):
+        return p
     if ctx.track.relative_orbit is None:
         return f"{ctx.track_id}: relative_orbit is required to search Sentinel-1 bursts"
     return None
@@ -134,8 +137,12 @@ def catalogue(ctx) -> list:
         c = ctx.cfg
         aoi = BBox.from_sequence(list(c.aoi.bbox))
         start, end = c.acquire.date_range
+        from geoeyes.geometry.corridor import of_project
+        # the wizard's preview has no project folder: it puts the drawn corridor in the cache
+        area = ctx.cache["corridor"] if "corridor" in ctx.cache else (
+            of_project(c, ctx.project.root) if getattr(ctx, "project", None) is not None else None)
         ids = burst_ids_for_aoi(aoi, relative_orbit=ctx.track.relative_orbit, start=start, end=end,
-                                subswaths=ctx.track.subswaths or None)
+                                subswaths=ctx.track.subswaths or None, area=area)
         refs = search(start=start, end=end, full_burst_ids=ids, relative_orbit=ctx.track.relative_orbit)
         if ctx.track.frame is not None:              # only the bursts of the SLC products of that frame
             from geoeyes.core.errors import DataError

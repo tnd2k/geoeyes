@@ -66,6 +66,9 @@ class ProjectSection(_Section):
 class AoiSection(_Section):
     bbox: tuple[float, float, float, float] | None = None   # west, south, east, north (EPSG:4326)
     file: str = ""                                          # GeoJSON/GPKG polygon, relative to project dir
+    # processing corridor (geometry.corridor): GeoJSON polygon relative to the project dir, written by
+    # ``geoeyes corridor`` or the map brush; bursts are kept where they touch it (the bbox stays the crop until K3)
+    corridor: str = ""
 
     @field_validator("bbox")
     @classmethod
@@ -168,6 +171,11 @@ class StackSection(_Section):
     # Tenerife ICEYE (1.7 km relief, up to 0.47 lines/km): mean coherence +0.002 only, lower slopes -0.008, so off
     # by default; the azimuth misregistration of a few tenths of a pixel costs little coherence at ICEYE resolution
     coreg_model: Literal["constant", "terrain"] = "constant"
+    # interpolation of the secondaries after the carrier is removed (stripmap builder: CSK, Capella, ICEYE; TOPS
+    # still the spline): cubic B-spline or Lanczos (windowed sinc, 2 x radius taps per axis). Simulated on CSK
+    # (docs/en/research/resampling-kernel.md): coherence loss 2e-3 (spline), 7e-4 (Lanczos 4), 6e-6 (Lanczos 8)
+    resample_kernel: Literal["spline", "lanczos"] = "spline"
+    resample_radius: int = Field(8, ge=2, le=32)
     byteswap: int = 1
     options: dict[str, Any] = {}                          # engine/sensor-specific extras
 
@@ -281,6 +289,8 @@ class PsLiteSection(_Section):
     # "ps": unwrap the (cell-averaged) PS phase; "patch": unwrap the CLAP-filtered patch phase of the
     # topo-first "gamma" estimator and add each PS's wrapped residual back (StaMPS unwrap_patch_phase)
     unwrap_input: Literal["ps", "patch"] = "ps"
+    # height error used to geolocate the PS: "local" (its plane over the scene removed), "full", "off"
+    geolocate_dem_error: Literal["local", "full", "off"] = "local"
 
 
 class PsUpdateSection(_Section):

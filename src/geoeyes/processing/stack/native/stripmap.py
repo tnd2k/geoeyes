@@ -15,7 +15,6 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
-from scipy.ndimage import map_coordinates
 
 from geoeyes.core.errors import DataError
 from geoeyes.core.logging import event
@@ -43,8 +42,11 @@ def _doppler_phase(g: RadarGrid, line, sample) -> np.ndarray:
     return 2.0 * np.pi * g.doppler(g.sample_range_time(sample)) * g.line_time(line)
 
 
-def resample(sec: Scene, off: tops.Offsets, *, pad: int = 8, order: int = 3) -> np.ndarray:
+def resample(sec: Scene, off: tops.Offsets, *, pad: int = 8, kernel: str = "spline", radius: int = 8) -> np.ndarray:
+    """Secondary on the reference grid: baseband by the Doppler centroid f_dc(τ), interpolate (``kernel``,
+    ``common.interpolate``), remodulate."""
     g = sec.grid
+    pad = max(pad, radius + 1) if kernel == "lanczos" else pad
     line = off.line + off.az_shift
     smp = off.sample + off.rg_shift
     l0 = int(max(np.floor(np.nanmin(line)) - pad, 0))
@@ -57,14 +59,14 @@ def resample(sec: Scene, off: tops.Offsets, *, pad: int = 8, order: int = 3) -> 
     L, S = np.mgrid[l0:l1, s0:s1]
     base = data * np.exp(-1j * _doppler_phase(g, L, S)).astype(np.complex64)
     del L, S
-    coords = [(line - l0).ravel(), (smp - s0).ravel()]
-    re = map_coordinates(base.real, coords, order=order, mode="constant", cval=0.0)
-    im = map_coordinates(base.imag, coords, order=order, mode="constant", cval=0.0)
-    out = (re + 1j * im).reshape(off.line.shape).astype(np.complex64)
+    out = common.interpolate(base, line - l0, smp - s0, kernel=kernel, radius=radius)
     out *= np.exp(1j * _doppler_phase(g, line, smp)).astype(np.complex64)
     inside = (line >= 0) & (line <= g.lines - 1) & (smp >= 0) & (smp <= g.samples - 1)
     out[~inside] = 0
     return out
+
+
+_resample = resample
 
 
 def residual_offset(ref: np.ndarray, sec: np.ndarray, *, tile: int = 256,
@@ -211,7 +213,8 @@ def build_stripmap_stack(scenes: dict[date, Scene], reference: date, dem: Dem, o
                          margin: int = 64, stack_id: str = "", track_id: str = "", overwrite: bool = False,
                          geo_step: tuple[int, int] | None = None, geo_spacing_m: float = 15.0,
                          max_residual_iter: int = 2, previous: StackStore | None = None,
-                         reuse_dates: set[date] | None = None, coreg_model: str = "constant") -> StackStore:
+                         reuse_dates: set[date] | None = None, coreg_model: str = "constant",
+                         kernel: str = "spline", radius: int = 8) -> StackStore:
     """``geo_step`` (lines, samples) of the geometry grid; by default ~``geo_spacing_m`` on the ground
     (half an SRTM/Copernicus 30 m cell): the geometric phase must follow the DEM detail, which matters
     for small height ambiguities (X-band, long baselines).
@@ -220,9 +223,17 @@ def build_stripmap_stack(scenes: dict[date, Scene], reference: date, dem: Dem, o
     copied when it has the same reference and window (``reuse.Reuse``), the other dates are coregistered.
 
     ``coreg_model``: the residual offset left by the orbits, ``constant`` (one shift per secondary) or
-    ``terrain`` (``residual_model``: a plane in height, line and sample per secondary)."""
+    ``terrain`` (``residual_model``: a plane in height, line and sample per secondary).
+
+    ``kernel`` / ``radius``: interpolation of the secondaries (``common.interpolate``: ``spline`` | ``lanczos``)."""
     if coreg_model not in COREG_MODELS:
         raise DataError(f"coreg_model {coreg_model!r}: {' | '.join(COREG_MODELS)}")
+    if kernel not in common.KERNELS:
+        raise DataError(f"resample kernel {kernel!r}: {' | '.join(common.KERNELS)}")
+
+    def resample(sec, off):                                  # the module function with this stack's kernel
+        return _resample(sec, off, kernel=kernel, radius=radius)
+
     if reference not in scenes:
         raise DataError(f"reference date {reference} not in the scenes")
     scenes, rejected = check_geometry(scenes, reference)
