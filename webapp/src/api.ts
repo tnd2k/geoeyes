@@ -750,6 +750,18 @@ export interface FloodFeature {
     located: FloodLocated;
   };
 }
+/** A surveyed landslide (`geoeyes landslide survey`, attributes as surveyed) or a reported event (`layer` "reported"). */
+export interface LandslideFeature {
+  type: "Feature";
+  id: string;
+  geometry: { type: "Point"; coordinates: number[] } | { type: "Polygon"; coordinates: number[][][] } | { type: "MultiPolygon"; coordinates: number[][][][] } | { type: "LineString"; coordinates: number[][] };
+  properties: Record<string, string | number | boolean | null> & { layer: string };
+}
+export interface LandslideCollection {
+  type: "FeatureCollection";
+  layers: { layer: string; kind: "survey" | "reported"; n: number; source: string; imported: string }[];
+  features: LandslideFeature[];
+}
 /** River network (OSM waterways) or watersheds (HydroBASINS) over a view (`/api/hydro/*`). */
 export interface HydroFeature {
   type: "Feature";
@@ -891,8 +903,22 @@ export interface VelClass {
   count: number;
 }
 
-/** A StaMPS velocity kind (ps engine): v-do, v-dao or v-dso. */
-export type VelKind = "do" | "dao" | "dso";
+/** A StaMPS velocity kind (ps engine): v-do, v-dao or v-dso; or "slope": the product velocity as a rate down the
+ * slope (DEM and LOS; hidden where the satellite does not see a motion down the slope). */
+export type VelKind = "do" | "dao" | "dso" | "slope";
+
+/** How the downslope rate was made (layer meta of vel=slope). */
+export interface DownslopeInfo {
+  dem: string;
+  cell_m: number;
+  min_slope_deg: number;
+  min_sensitivity: number;
+  local_inc_deg: [number, number];
+  shown: number;
+  hidden_flat: number;
+  hidden_layover_shadow: number;
+  share_shown: number;
+}
 /** Which view of a product layer: calibrated or not (`true`: calibrated), and a velocity kind. */
 export type LayerView = boolean | { cal?: boolean; vel?: VelKind | null };
 function vq(v: LayerView, sep = "?"): string {
@@ -920,6 +946,8 @@ export interface LayerMeta {
   velocity_kinds?: VelKind[];                       // the kinds the product carries
   product_kind?: VelKind | null;                    // which kind the product velocity is (when known)
   legacy_dso?: boolean;                             // v-dso from an older run (APS also removed when it was)
+  downslope_available?: boolean;                    // the product has the LOS vector: vel=slope can be asked
+  downslope?: DownslopeInfo | null;                 // set on the vel=slope layer
   calibration?: CalibrationBrief | null;            // set on the calibrated layer (cal=1)
   calibration_available?: CalibrationBrief | null;  // the product has one (GNSS, else a tie)
 }
@@ -992,6 +1020,9 @@ export interface PointInfo {
   lat: number;
   vel: number;
   vel_std_mm_yr: number | null;
+  /** layer with the rate along the slope: the LOS rate (the series') and the LOS share of a motion down the slope */
+  vel_los?: number | null;
+  slope_sens?: number | null;
   temporal_coherence: number | null;
   height_m: number | null;
   acc_los_mm_yr2: number | null;
@@ -1151,6 +1182,38 @@ export interface NewProject {
   archive?: string;
   opendata?: string;
   atmosphere?: string;
+  /** drawn with the brush: the server writes corridor.geojson and the bbox around it */
+  corridor?: CorridorDraft | null;
+}
+
+/** Processing corridor drawn with the brush (research note corridor-processing.md): strokes [lon, lat][], width. */
+export interface CorridorDraft {
+  strokes: number[][][];
+  erase: number[][][];
+  polygons: unknown[];
+  width_m: number;
+}
+export type CorridorGeometry = { type: "Polygon"; coordinates: number[][][] } | { type: "MultiPolygon"; coordinates: number[][][][] };
+export interface CorridorInfo {
+  width_m: number;
+  area_km2: number;
+  length_km: number;
+  parts: number;
+  bounds: number[];
+  created?: string;
+  source?: Partial<CorridorDraft> & { kind?: string };
+}
+export interface CorridorPreview {
+  geometry: CorridorGeometry | null;
+  info: CorridorInfo | null;
+  bbox: number[] | null;
+}
+export interface ProjectCorridor {
+  file: string;
+  geometry: CorridorGeometry | null;
+  info: CorridorInfo;
+  bbox: number[] | null;
+  problem: string | null;
 }
 
 export interface OpenDataSource {
@@ -1444,9 +1507,17 @@ export const api = {
   },
   advise: (name: string, refresh = false) => request<Advice>(`${P(name)}/advise${refresh ? "?refresh=true" : ""}`),
   adviseBbox: (bbox: number[]) => request<Advice>("/api/advise", json({ bbox })),
-  asfTracks: (bbox: number[]) => request<{ tracks: AsfTrack[] }>("/api/asf/tracks", json({ bbox })),
-  asfPreview: (spec: { bbox: number[]; direction: string; relative_orbit: number; date_range: [string, string]; max_per_month: number; subswaths?: string[] }) =>
+  asfTracks: (bbox: number[], corridor?: CorridorGeometry | null) =>
+    request<{ tracks: AsfTrack[] }>("/api/asf/tracks", json({ bbox, ...(corridor ? { corridor } : {}) })),
+  asfPreview: (spec: { bbox: number[]; direction: string; relative_orbit: number; date_range: [string, string]; max_per_month: number; subswaths?: string[]; corridor?: CorridorGeometry | null }) =>
     request<AsfPreview>("/api/asf/preview", json(spec)),
+  corridorPreview: (d: CorridorDraft) => request<CorridorPreview>("/api/corridor/preview", json(d)),
+  corridorImport: (name: string, data_b64: string) =>
+    request<{ name: string; strokes: number[][][]; polygons: unknown[]; points: number }>("/api/corridor/import", json({ name, data_b64 })),
+  projectCorridor: (name: string) => request<{ corridor: ProjectCorridor | null }>(`${P(name)}/corridor`),
+  saveCorridor: (name: string, d: CorridorDraft) =>
+    request<{ file: string; info: CorridorInfo; bbox: number[] }>(`${P(name)}/corridor`, { ...json(d), method: "PUT" }),
+  clearCorridor: (name: string) => request<{ file: null }>(`${P(name)}/corridor`, { method: "DELETE" }),
 
   compare: (a: string, b: string, cell: number, align: boolean) =>
     request<CompareMeta>(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}&cell=${cell}&align=${align}`),
@@ -1474,6 +1545,8 @@ export const api = {
   floodOutlook: (project?: string, product?: string, radius = 100) =>
     request<FloodOutlook>(`/api/floods/outlook${project && product ? `?project=${encodeURIComponent(project)}&product=${encodeURIComponent(product)}&radius=${radius}` : ""}`),
   productFloods: (name: string, pid: string, radius = 100) => request<FloodStats>(`${P(name)}/products/${pid}/floods?radius=${radius}`),
+  landslides: () => request<LandslideCollection>("/api/landslides"),
+  productLandslides: (name: string, pid: string, radius = 100) => request<FloodStats>(`${P(name)}/products/${pid}/landslides?radius=${radius}`),
   gnss: (name: string, pid: string) => request<GnssStatus>(`${P(name)}/products/${pid}/gnss`),
   gnssRun: (name: string, pid: string, params: Record<string, unknown>) =>
     request<{ pid: number; already?: boolean }>(`${P(name)}/products/${pid}/gnss`, json({ params })),

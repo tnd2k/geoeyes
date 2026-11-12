@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AsfPreview, type AsfTrack, type Folder, type Workspace } from "../api";
 import { AdvisorPanel } from "../components/AdvisorPanel";
 import { BasemapPicker } from "../components/BasemapPicker";
+import { BrushHint, CorridorTools, bboxKm2, useCorridorBrush, type BrushMode } from "../components/CorridorBrush";
 import { t, ts } from "../i18n";
 import { baseSource, DEFAULT_BASE, switchBase, type Base } from "../map";
 import { useApp } from "../state";
@@ -77,6 +78,14 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
   const map = useRef<maplibregl.Map | null>(null);
   const corner = useRef<maplibregl.LngLat | null>(null);
   const [base, setBase] = useState<Base>(DEFAULT_BASE);
+  // the area: a rectangle (two corners) or a corridor painted along a route with the brush
+  const [areaMode, setAreaMode] = useState<"rect" | "corridor">("rect");
+  const [brushOn, setBrushOn] = useState(false);
+  const [brushMode, setBrushMode] = useState<BrushMode>("brush");
+  const [width, setWidth] = useState(1000);
+  const corridorMode = areaMode === "corridor";
+  const brush = useCorridorBrush(map, { active: corridorMode && brushOn, mode: brushMode, width, visible: corridorMode });
+  const corridorGeom = corridorMode && !brush.empty ? brush.preview?.geometry ?? null : null;
   const s1 = sensor === "sentinel1";
   const folders = useMemo(() => folderPaths(ws?.tree.folders ?? []), [ws]);
   const exists = !!ws?.projects[name];
@@ -125,7 +134,17 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
     const src = map.current?.getSource(RECT) as maplibregl.GeoJSONSource | undefined;
     src?.setData({ type: "FeatureCollection", features: b ? [rectFeature(b)] : [] });
   };
-  useEffect(() => drawRect(bbox), [bbox]);
+  useEffect(() => drawRect(corridorMode ? null : bbox), [bbox, corridorMode]);
+  // corridor: the bbox is the rectangle around it (what the advisor, the track search and project.toml use)
+  const corridorBbox = corridorMode ? brush.preview?.bbox ?? null : null;
+  const corridorKey = corridorBbox?.join(",") ?? "";
+  useEffect(() => {
+    if (!corridorMode) return;
+    setBbox(corridorBbox);
+    setTracks(null);
+    setPreview(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [corridorKey, corridorMode]);
 
   useEffect(() => {
     const m = map.current;
@@ -154,10 +173,10 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
   }, [drawing]);
 
   // ------------------------------------------------------------ ASF
-  const findTracks = useMutation({ mutationFn: () => api.asfTracks(bbox!), onSuccess: (r) => setTracks(r.tracks) });
+  const findTracks = useMutation({ mutationFn: () => api.asfTracks(bbox!, corridorGeom), onSuccess: (r) => setTracks(r.tracks) });
   const doPreview = useMutation({
     mutationFn: () =>
-      api.asfPreview({ bbox: bbox!, direction, relative_orbit: Number(orbit), date_range: [start, end], max_per_month: perMonth }),
+      api.asfPreview({ bbox: bbox!, direction, relative_orbit: Number(orbit), date_range: [start, end], max_per_month: perMonth, corridor: corridorGeom }),
     onSuccess: setPreview,
   });
   // site advisor: the values the wizard has a field for go into those fields; the rest is written after creation
@@ -187,6 +206,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
         max_per_month: s1 && !archive ? perMonth : 0,
         archive: archive || undefined,
         atmosphere,
+        corridor: corridorMode && !brush.empty ? brush.draft : null,
       }),
     onSuccess: async ({ name }) => {
       const rest = useAdvice && ask.data ? ask.data.recipe.filter((s) => !WIZARD_OWN.includes(s.path)) : [];
@@ -256,6 +276,29 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
           </Step>
 
           <Step n={2} title={t("Area of interest")}>
+            <div className="mb-3 flex gap-1" role="group" aria-label={t("Area of interest")}>
+              {(["rect", "corridor"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={areaMode === k}
+                  onClick={() => (setAreaMode(k), setDrawing(false), setBrushOn(k === "corridor"), setTracks(null), setPreview(null))}
+                  className={`h-8 rounded-md border px-3 text-[12.5px] ${areaMode === k ? "border-accent bg-accent-bg text-accent-ink" : "border-line-2 text-ink-2 hover:bg-raised"}`}
+                >
+                  {k === "rect" ? t("Rectangle") : t("Corridor along a route")}
+                </button>
+              ))}
+            </div>
+            {corridorMode ? (
+              <>
+                <CorridorTools brush={brush} active={brushOn} onActive={setBrushOn} mode={brushMode} onMode={setBrushMode} width={width} onWidth={setWidth} bboxArea={bboxKm2(bbox)} />
+                <div className="mt-2 text-[11.5px] leading-snug text-faint">
+                  {t("Only the Sentinel-1 bursts the corridor touches are downloaded. The stack is still cut to the rectangle around it until the sparse stack (plan step K3).")}
+                </div>
+                {bbox && <div className="mt-1 font-mono text-[11.5px] text-muted">bbox {bbox.map((v) => v.toFixed(4)).join(", ")}</div>}
+              </>
+            ) : (
+            <>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant={drawing ? "primary" : "ghost"} onClick={() => setDrawing((d) => !d)}>
                 {drawing ? t("Click two opposite corners on the map…") : bbox ? t("Redraw on the map") : t("Draw on the map")}
@@ -282,6 +325,8 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
                 />
               ))}
             </div>
+            </>
+            )}
             <div className="mt-3">
               <Button disabled={!bbox || ask.isPending} onClick={() => ask.mutate()}>
                 {ask.isPending ? t("Measuring the site…") : t("Ask the site advisor")}
@@ -428,6 +473,7 @@ export function NewProject({ ws }: { ws: Workspace | undefined }) {
         {drawing && (
           <div className="absolute top-3 left-3 z-10 rounded-md bg-bg/85 px-3 py-1.5 text-[12.5px] text-ink-2">{t("Click a first corner, then the opposite corner")}</div>
         )}
+        {corridorMode && brushOn && <BrushHint mode={brushMode} />}
       </div>
     </div>
   );

@@ -157,9 +157,12 @@ def slc_names_in_frame(*, frame: int, relative_orbit: int, start: date | str, en
 
 def burst_ids_for_aoi(aoi: BBox, *, relative_orbit: int, start: date | str, end: date | str,
                       subswaths: Iterable[str] | None = None, polarization: str = "VV",
-                      all_subswaths: bool = False, session: requests.Session | None = None) -> list[str]:
+                      all_subswaths: bool = False, session: requests.Session | None = None,
+                      area=None) -> list[str]:
     """Full burst IDs covering ``aoi`` on one track (taken from the acquisition with most coverage).
 
+    ``area`` (a shapely polygon, the project corridor): only the bursts whose footprint touches it, of those over
+    the bbox ``aoi``.
     ``all_subswaths=True`` adds the same relative burst IDs in every IW subswath — needed only to
     build multi-swath SAFEs for the SNAP reference pipeline (ADR-023).
     """
@@ -168,6 +171,11 @@ def burst_ids_for_aoi(aoi: BBox, *, relative_orbit: int, start: date | str, end:
     if subswaths:
         keep = {s.upper() for s in subswaths}
         refs = [r for r in refs if r.subswath in keep]
+    if area is not None:
+        from geoeyes.geometry.corridor import footprint_hits
+        n0 = len({r.full_burst_id for r in refs})
+        refs = [r for r in refs if footprint_hits(r.footprint_wkt, area)]
+        log.info("corridor: %d of %d burst IDs over the bbox touch it", len({r.full_burst_id for r in refs}), n0)
     if not refs:
         raise DataError(f"no bursts over {aoi} on relative orbit {relative_orbit}")
     by_acq: dict[str, set[str]] = defaultdict(set)
