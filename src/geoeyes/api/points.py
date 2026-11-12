@@ -23,7 +23,9 @@ from geoeyes.export.styles import class_bounds, jet_r, marker_size_m
 from geoeyes.io.points import timeseries_arrays
 from geoeyes.products.builder import zero_reference
 
-CACHE_VERSION = 7                 # /5: series zero at the first date (products before geoeyes-product/3 too)
+CACHE_VERSION = 9                 # /8: meta tells whether the rate along the slope can be asked (vel=slope);
+                                  # /9: a slope layer keeps the LOS rate and the sensitivity per point (point panel)
+                                  # /5: series zero at the first date (products before geoeyes-product/3 too)
                                   # /7: class breaks over P0.1-P99.9 (end classes to min / max)
                                   # /6: meta lists the velocity kinds (v-do, v-dao, v-dso)
 ATTRS = ("vel_std_mm_yr", "temporal_coherence", "height_m", "acc_los_mm_yr2", "seasonal_amp_mm", "dem_err_m")
@@ -60,8 +62,16 @@ KINDS = {"do": ("extra_vel_do_mm_yr",), "dao": ("extra_vel_dao_mm_yr",),
          "dso": ("extra_vel_dso_mm_yr", "extra_vel_scn_mm_yr")}
 
 
+# "slope": the product velocity turned into a rate along the steepest descent (hazard.terrain, Copernicus GLO-30),
+# − down the slope; hidden where the LOS does not see a motion down the slope (flat ground, slopes along the track,
+# layover, shadow)
+SLOPE_KIND = "slope"
+SLOPE_CELL_M = 30.0
+LOS_COLS = ("los_e", "los_n", "los_u")
+
+
 def _kind_columns(names) -> dict[str, str]:
-    """{kind: column} of the kinds present in a points.parquet with these column names."""
+    """{kind: column} of the StaMPS kinds present in a points.parquet with these column names."""
     out = {}
     for k, cols in KINDS.items():
         c = next((c for c in cols if c in names), None)
@@ -70,25 +80,58 @@ def _kind_columns(names) -> dict[str, str]:
     return out
 
 
+def _has_los(names) -> bool:
+    return all(c in names for c in LOS_COLS)
+
+
+def _downslope(pts, lon: np.ndarray, lat: np.ndarray, vel: np.ndarray) -> tuple[np.ndarray, dict, np.ndarray]:
+    """The downslope rate of ``vel`` at the points, a summary for the legend and the LOS sensitivity to a motion down
+    the slope (NaN where the rate is hidden)."""
+    from geoeyes.hazard import terrain as T
+    from geoeyes.hazard.terrain import load_terrain_dem, los_terrain, slope_aspect
+    bounds = [float(np.nanmin(lon)), float(np.nanmin(lat)), float(np.nanmax(lon)), float(np.nanmax(lat))]
+    dem = load_terrain_dem("copernicus-30", bounds, None, SLOPE_CELL_M)
+    t = slope_aspect(dem, lon, lat, SLOPE_CELL_M)
+    los = [pts[c].to_numpy().astype(np.float64) for c in LOS_COLS]
+    g = los_terrain(t, *los)
+    # on the map "− down the slope", so that a slope moving down takes the red of subsidence (jet_r)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rate = np.where(g["visible"], -vel / g["sensitivity"], np.nan).astype(np.float32)
+    n = max(1, len(vel))
+    info = {"dem": "Copernicus GLO-30", "cell_m": SLOPE_CELL_M, "min_slope_deg": T.DOWNSLOPE_MIN_SLOPE_DEG,
+            "min_sensitivity": T.DOWNSLOPE_MIN_SENSITIVITY, "local_inc_deg": list(T.DOWNSLOPE_LOCAL_INC_DEG),
+            "shown": int(g["visible"].sum()),
+            "hidden_flat": int((t["slope_deg"] < T.DOWNSLOPE_MIN_SLOPE_DEG).sum()),
+            "hidden_layover_shadow": int(((g["local_inc_deg"] < T.DOWNSLOPE_LOCAL_INC_DEG[0])
+                                          | (g["local_inc_deg"] > T.DOWNSLOPE_LOCAL_INC_DEG[1])).sum()),
+            "share_shown": round(float(g["visible"].sum()) / n, 3)}
+    sens = np.where(g["visible"], g["sensitivity"], np.nan).astype(np.float32)
+    return rate, info, sens
+
+
 def kinds_available(product: Path) -> list[str]:
-    return list(_kind_columns(set(pq.read_schema(product / "points.parquet").names)))
+    """The kinds the map may ask for: the StaMPS ones the product carries, and "slope" when it has the LOS vector."""
+    names = set(pq.read_schema(product / "points.parquet").names)
+    return [*_kind_columns(names), *([SLOPE_KIND] if _has_los(names) else [])]
 
 
 def _build(product: Path, out: Path, calib: dict | None = None, kind: str | None = None) -> None:
     names = set(pq.read_schema(product / "points.parquet").names)
-    geo = [c for c in ("heading_deg", "los_e", "los_n") if c in names]
+    geo = [c for c in ("heading_deg", *LOS_COLS) if c in names]
     kcols = _kind_columns(names)
     pts = pq.read_table(product / "points.parquet",
-                        columns=["point_uid", "lon", "lat", "vel_los_mm_yr", *ATTRS, *geo, *set(kcols.values())])
+                        columns=list(dict.fromkeys(["point_uid", "lon", "lat", "vel_los_mm_yr", *ATTRS, *geo,
+                                                    *kcols.values()])))
     lon = pts["lon"].to_numpy().astype(np.float64)
     lat = pts["lat"].to_numpy().astype(np.float64)
     vel = pts["vel_los_mm_yr"].to_numpy().astype(np.float32)
     # which kind the product velocity is (v-dao with the APS removed, else v-do)
     product_kind = next((k for k in ("dao", "do") if k in kcols and np.allclose(
         pts[kcols[k]].to_numpy().astype(np.float32), vel, atol=1e-4, equal_nan=True)), None)
-    if kind:
+    if kind and kind != SLOPE_KIND:
         vel = pts[kcols[kind]].to_numpy().astype(np.float32)
     n = len(lon)
+    slope_info = None
 
     # timeseries.parquet: long format sorted by (point_uid, date), every point at every date
     has_scn = "disp_scn_mm" in pq.read_schema(product / "timeseries.parquet").names
@@ -104,11 +147,16 @@ def _build(product: Path, out: Path, calib: dict | None = None, kind: str | None
         vel = (vel + (corr.astype(np.float64) @ tc) / float(tc @ tc)).astype(np.float32) if t.size > 1 else vel
         for k in series:
             series[k] = series[k] + corr
+    extra = {}
+    if kind == SLOPE_KIND:
+        # the point panel shows both: the LOS rate its series has, and the rate along the slope the map colours
+        extra["vel_los"] = vel.astype(np.float32)
+        vel, slope_info, extra["slope_sens"] = _downslope(pts, lon, lat, vel.astype(np.float64))
     lon0, lat0 = float(np.round(np.median(lon), 4)), float(np.round(np.median(lat), 4))
     out.mkdir(parents=True, exist_ok=True)
     np.column_stack([lon - lon0, lat - lat0, vel]).astype(np.float32).tofile(out / "points.bin")
     np.savez(out / "attrs.npz", lon=lon, lat=lat, vel=vel,
-             **{a: pts[a].to_numpy().astype(np.float32) for a in ATTRS})
+             **{a: pts[a].to_numpy().astype(np.float32) for a in ATTRS}, **extra)
     np.save(out / "ts.npy", zero_reference(series["disp_mm"]))
     if has_scn:
         np.save(out / "ts_scn.npy", zero_reference(series["disp_scn_mm"]))
@@ -129,10 +177,13 @@ def _build(product: Path, out: Path, calib: dict | None = None, kind: str | None
             "look_azimuth_deg": None if look is None else round(look, 2),
             "marker_m": marker_size_m(lon, lat),
             "bounds": [float(np.nanmin(lon)), float(np.nanmin(lat)), float(np.nanmax(lon)), float(np.nanmax(lat))],
-            "dates": [str(d) for d in dates], "vel_min": float(np.nanmin(vel)), "vel_max": float(np.nanmax(vel)),
+            "dates": [str(d) for d in dates],
+            "vel_min": float(np.nanmin(vel)) if np.isfinite(vel).any() else None,
+            "vel_max": float(np.nanmax(vel)) if np.isfinite(vel).any() else None, "downslope": slope_info,
             "classes": cls, "attrs": list(ATTRS), "has_scn": has_scn,
             "calibration_sig": calibration_sig(calib), "calibration": calibration_brief(calib),
             "velocity_kind": kind, "velocity_kinds": list(kcols), "product_kind": product_kind,
+            "downslope_available": _has_los(names),
             "legacy_dso": kcols.get("dso") == "extra_vel_scn_mm_yr"}
     (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
@@ -149,8 +200,8 @@ def ensure(product: Path, cache_root: Path, calib: dict | None = None, kind: str
     """The cache folder of a product, built on first use; with ``calib`` (``validation.tie.active_calibration``),
     the calibrated one (``<product_id>@cal``), rebuilt when the calibration changes; with ``kind`` (``KINDS``), that
     velocity in place of the product's (``<product_id>@v-<kind>``)."""
-    if kind is not None and kind not in KINDS:
-        raise ValueError(f"velocity kind {kind!r} (one of {', '.join(KINDS)})")
+    if kind is not None and kind not in (*KINDS, SLOPE_KIND):
+        raise ValueError(f"velocity kind {kind!r} (one of {', '.join((*KINDS, SLOPE_KIND))})")
     out = cache_root / (product.name + ("@cal" if calib else "") + (f"@v-{kind}" if kind else ""))
     src = product / "points.parquet"
     if not src.exists():
@@ -192,7 +243,12 @@ def coherence_bin(folder: Path) -> bytes:
     c = attrs.get("temporal_coherence")
     if c is None:
         c = np.full(attrs["vel"].shape, np.nan, np.float32)
-    return np.asarray(c, np.float32).tobytes()
+    c = np.asarray(c, np.float32).copy()
+    c[~np.isfinite(attrs["vel"])] = HIDDEN      # no velocity (downslope rate not measured): below every threshold
+    return c.tobytes()
+
+
+HIDDEN = -5.0                    # coherence of a point the map never draws (the filter keeps -2..2 at threshold 0)
 
 
 def hexbins(folder: Path, size_m: int, coh_min: float = 0.0) -> bytes:

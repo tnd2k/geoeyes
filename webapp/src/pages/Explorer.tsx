@@ -5,12 +5,14 @@ import { PathLayer, ScatterplotLayer, SolidPolygonLayer, type ScatterplotLayerPr
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type CompareMeta, type FloodFeature, type LayerMeta, type VelKind, type Workspace } from "../api";
+import { api, type AreaInfo, type CalibrationBrief, type CatalogProduct, type CompareMeta, type FloodFeature, type LandslideFeature, type LayerMeta, type VelKind, type Workspace } from "../api";
 import { MapCanvas, useBaseMap, useFitTo } from "../components/MapBase";
 import { calibrationSource } from "../components/Calibration";
 import { FloodHub, LEVEL_COLOR } from "../components/FloodHub";
 import { hydroLayers, hydroTooltip, useHydro } from "../components/Hydro";
+import { SlopeLegend, slopeLayer, useSlopeRelief } from "../components/Slopes";
 import { floodBounds, floodFeatures, floodLayers, floodTooltip } from "../components/FloodReports";
+import { LandslideLegend, landslideLayers, landslideTooltip } from "../components/Landslides";
 import { ProfileChart } from "../components/Profile";
 import { TimeBar } from "../components/TimeBar";
 import { TimeSeries } from "../components/TimeSeries";
@@ -66,8 +68,9 @@ function useRain(layer: MapLayer | undefined) {
   return { series, control };
 }
 
-export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max"> & { range?: [number, number] }; title: string; label?: string }) {
-  label ??= t("LOS velocity");
+export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes" | "vel_min" | "vel_max"> & { range?: [number, number]; downslope?: LayerMeta["downslope"] }; title: string; label?: string }) {
+  const ds = meta.downslope;
+  label ??= ds ? t("Rate along the slope") : t("LOS velocity");
   // count -1: not known (a chosen range over tiles, whose values stay on the server)
   const counted = meta.classes.every((c) => c.count >= 0);
   const total = meta.classes.reduce((a, c) => a + Math.max(0, c.count), 0) || 1;
@@ -115,7 +118,21 @@ export function Legend({ meta, title, label }: { meta: Pick<LayerMeta, "classes"
           {t("max")} <span className="font-mono text-ink-2">{fmt.vel(meta.vel_max)}</span>
         </span>
       </div>
-      <div className="mt-1.5 text-[11px] leading-snug text-faint">{t("+ toward the satellite, − away (e.g. subsidence)")}</div>
+      {ds ? (
+        <div className="mt-1.5 space-y-1 text-[11px] leading-snug text-faint">
+          <div>{t("− down the slope, + up; the LOS velocity divided by the share of a motion down the steepest slope that the satellite sees")}</div>
+          <div>
+            {t("Shown: {p}% of the points (slope ≥ {s}°, the satellite sees ≥ {k}% of a motion down it, no layover or shadow). Where no point is shown, the ground is not known to be stable: the satellite cannot see such a motion there.", {
+              p: Math.round(100 * ds.share_shown),
+              s: ds.min_slope_deg,
+              k: Math.round(100 * ds.min_sensitivity),
+            })}
+          </div>
+          <div>{t("Slopes: {dem}, {c} m", { dem: ds.dem, c: ds.cell_m })}</div>
+        </div>
+      ) : (
+        <div className="mt-1.5 text-[11px] leading-snug text-faint">{t("+ toward the satellite, − away (e.g. subsidence)")}</div>
+      )}
     </div>
   );
 }
@@ -292,22 +309,26 @@ function layerReq(l: MapLayer): { cal: boolean; vel: VelKind | null | "default" 
 }
 
 // the StaMPS velocity kinds: what is removed from the phase before the fit
-const VEL_KINDS: Record<VelKind, string> = {
+const VEL_KINDS: Record<Exclude<VelKind, "slope">, string> = {
   do: "DEM error and orbit ramps removed",
   dao: "DEM error, atmosphere (APS) and orbit ramps removed",
   dso: "DEM error, spatially correlated noise (SCN) and orbit ramps removed",
 };
+const SLOPE_LABEL = "rate along the slope (− down), where the satellite sees it";
 
-/** The velocity a layer shows: the product's, or another StaMPS kind the product carries (ps engine). */
+/** The velocity a layer shows: the product's, another StaMPS kind the product carries (ps engine), or the product
+ * velocity as a rate along the slope. */
 function VelocityKind({ meta, value, onChange }: { meta: LayerMeta; value: VelKind | null; onChange: (v: VelKind | null) => void }) {
-  const kinds = meta.velocity_kinds ?? [];
-  if (!kinds.length) return null;
+  const kinds = (meta.velocity_kinds ?? []).filter((k): k is Exclude<VelKind, "slope"> => k !== "slope");
+  const slope = !!meta.downslope_available;
+  if (!kinds.length && !slope) return null;
   const pk = meta.product_kind ?? null;
-  // always the three kinds; the product's own one is the product velocity (value null), a kind the product does not
-  // carry is shown greyed
-  const ORDER: VelKind[] = ["dao", "dso", "do"];
+  // the three kinds when the product carries any; the product's own one is the product velocity (value null), a kind
+  // the product does not carry is shown greyed
+  const ORDER: Exclude<VelKind, "slope">[] = kinds.length ? ["dao", "dso", "do"] : [];
   const hint = [
     ...kinds.map((k) => `v-${k}: ${t(VEL_KINDS[k])}`),
+    slope ? `${t("Along the slope")}: ${t("the product velocity divided by the share of a motion down the steepest slope (Copernicus GLO-30) that the satellite sees; points on flat ground, on slopes the satellite sees badly and in layover or shadow are hidden")}` : "",
     meta.legacy_dso ? t("v-dso of this run also has the APS removed when the run removed it (written before the kinds).") : "",
     t("Another kind is read as points, not tiles."),
   ]
@@ -332,6 +353,7 @@ function VelocityKind({ meta, value, onChange }: { meta: LayerMeta; value: VelKi
             {k !== pk && !kinds.includes(k) ? ` (${t("not in this product")})` : ""}
           </option>
         ))}
+        {slope && <option value="slope">{t("Along the slope")} · {t(SLOPE_LABEL)}</option>}
       </select>
     </label>
   );
@@ -509,6 +531,19 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
   // river network and watersheds under the products (current view)
   const [hydroOn, setHydroOn] = usePersisted("explorer.hydro", false);
   const hydro = useHydro(map, mapReady, hydroOn);
+  const [slopesOn, setSlopesOn] = usePersisted("explorer.slopes", false);
+  useSlopeRelief(map, mapReady, slopesOn && !hydroOn);   // the rivers tool draws its own relief
+  // landslide inventory: field surveys and reported events, with the velocity of the shown product around each
+  const [slidesOn, setSlidesOn] = usePersisted("explorer.landslides", false);
+  const [slidesRep, setSlidesRep] = usePersisted("explorer.landslides.reported", false);
+  const [slideSel, setSlideSel] = useState<string | null>(null);
+  const slidesQ = useQuery({ queryKey: ["landslides"], queryFn: api.landslides, enabled: slidesOn, staleTime: 60_000 });
+  const slideStats = useQuery({
+    queryKey: ["slideStats", top?.key],
+    queryFn: () => api.productLandslides(top!.project, top!.product, 100),
+    enabled: slidesOn && !!top && !!slidesQ.data?.features.length,
+    staleTime: Infinity,
+  });
   const pickFlood = (id: string, fly = false) => {
     setFloodSel(id);
     setDockOpen(false);
@@ -760,6 +795,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
     const ov = overlay.current;
     if (!ov) return;
     const deckLayers: unknown[] = three ? [terrainLayer(base, exag)] : [];
+    if (slopesOn) deckLayers.push(slopeLayer({ three, extensions: terrainOn }));
     if (hydroOn && (hydro.rivers || hydro.basins))
       deckLayers.push(...hydroLayers(hydro.rivers?.features ?? [], hydro.basins?.features ?? [], { three, extensions: terrainOn }));
     const m = map.current;
@@ -830,6 +866,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           colorOf: floodRiskColors && outlookQ.data ? (f) => (outlookQ.data!.rows[f.id] ? LEVEL_COLOR[outlookQ.data!.rows[f.id].level] : undefined) : undefined,
         }),
       );
+    if (slidesOn && slidesQ.data)
+      deckLayers.push(...landslideLayers(slidesQ.data, { selected: slideSel, onPick: setSlideSel, three, extensions: terrainOn, reported: slidesRep }));
     if (line.length) {
       if (!profiling && line.length >= 2)
         deckLayers.push(
@@ -919,6 +957,8 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
           const f = (object as { f?: FloodFeature }).f ?? (object as FloodFeature);
           return { text: floodTooltip(f, floodStats.data), style: { ...style, fontFamily: "var(--font-sans)", maxWidth: "360px", whiteSpace: "pre-wrap" } };
         }
+        if (layer.id.startsWith("landslide-") && object)
+          return { text: landslideTooltip(object as LandslideFeature, slideStats.data), style: { ...style, fontFamily: "var(--font-sans)", maxWidth: "380px", whiteSpace: "pre-wrap" } };
         if (layer.id.startsWith("hydro-") && object) {
           const text = hydroTooltip(layer.id, object);
           return text ? { text, style: { ...style, fontFamily: "var(--font-sans)", whiteSpace: "pre-wrap" } } : null;
@@ -944,7 +984,7 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick, three, exag, base, anim?.key, frameColors, frameQ.data, disp.data, frame, line, profiling, halfWidth, hoverDist, floodShown, floodSel, floodStats.data, floodRiskColors, outlookQ.data, hydroOn, hydro.rivers, hydro.basins, hexQueries.map((q) => q.dataUpdatedAt).join(), zoom, hexOn, th.themes, themeQueries.map((q) => q.dataUpdatedAt).join(), themeSel]);
+  }, [layers, byKey, selection, point.data, ring, drawing, select, comparing, cmp, diff.data, split, viewTick, three, exag, base, anim?.key, frameColors, frameQ.data, disp.data, frame, line, profiling, halfWidth, hoverDist, floodShown, floodSel, floodStats.data, floodRiskColors, outlookQ.data, hydroOn, slopesOn, slidesOn, slidesRep, slidesQ.data, slideSel, slideStats.data, hydro.rivers, hydro.basins, hexQueries.map((q) => q.dataUpdatedAt).join(), zoom, hexOn, th.themes, themeQueries.map((q) => q.dataUpdatedAt).join(), themeSel]);
 
   // the time-series panel shows the series with the residual atmosphere (SCN) removed (StaMPS v-dso, as SARPROZ's
   // APS-corrected series); products without it fall back to the raw series. The map keeps its velocity-kind choice.
@@ -1075,6 +1115,20 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
             onClick={() => setHydroOn((v) => !v)}
             icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="M2 3.5c2.5 0 2.5 3 5 3s2.5 3 5 3M7 6.5c0 2.5-2 3-2 6M12 9.5c0 1.5 1 2 2 3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
           />
+          <Tool
+            label={t("Slopes")}
+            hint={t("Relief (hillshade) and slope steepness under the products, from the elevation tiles; for the motion along the slopes choose 'Along the slope' in the layer's Velocity")}
+            active={slopesOn}
+            onClick={() => setSlopesOn((v) => !v)}
+            icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="M1.5 13.5 6 5l2.5 4 1.5-2 4.5 6.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="M6 5 4.5 8" stroke="currentColor" strokeWidth="1.2" /></svg>}
+          />
+          <Tool
+            label={t("Landslide inventory")}
+            hint={slidesQ.error ? ts((slidesQ.error as Error).message) : t("Surveyed landslide sites (geoeyes landslide survey) and reported events over the products; hover a site for its survey and the velocity of the product around it")}
+            active={slidesOn}
+            onClick={() => (setSlidesOn((v) => !v), setSlideSel(null))}
+            icon={<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><path d="M2 13.5h12M3 13.5 6.5 4l2 3.5 1.5-1.5L13 13.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><circle cx="11.5" cy="3.5" r="1.6" fill="currentColor" /></svg>}
+          />
         </div>
         {drawing && (
           <Button className="h-8 bg-accent-bg/95 text-accent-ink shadow-lg shadow-black/30 backdrop-blur" onClick={() => setDrawing(false)}>
@@ -1125,6 +1179,14 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
         {loading && <span className="rounded-md bg-bg/85 px-2.5 py-1.5 text-[12px] text-accent-ink">{t("Loading points…")}</span>}
       </div>
 
+      {(slopesOn || slidesOn) && (
+        // right of the map's bottom-left column (zoom, scale, base map: 64 px wide) and above the row the base-map
+        // choices open in (~84 px), so neither covers the other; over the deck layers (slopes, points)
+        <div className="pointer-events-none absolute left-[88px] z-10 flex flex-col items-start gap-2" style={{ bottom: docked ? dockH + 24 : 96 }}>
+          {slidesOn && <LandslideLegend fc={slidesQ.data} reported={slidesRep} onReported={setSlidesRep} />}
+          {slopesOn && <SlopeLegend />}
+        </div>
+      )}
       {anim && disp.data && (
         <div className="absolute top-16 left-3 z-10">
           <TimeBar
@@ -1536,7 +1598,19 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                   {point.data ? (
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
                       {[
-                        ["Velocity", `${fmt.vel(point.data.vel)} ± ${fmt.num(point.data.vel_std_mm_yr)}`],
+                        // a layer coloured by the rate along the slope: the LOS rate (that of the series) first, then the
+                        // slope rate with its uncertainty scaled by the share of the motion the satellite sees
+                        ...(point.data.vel_los != null
+                          ? [
+                              ["LOS velocity", `${fmt.vel(point.data.vel_los)} ± ${fmt.num(point.data.vel_std_mm_yr)}`],
+                              point.data.slope_sens != null && Number.isFinite(point.data.slope_sens)
+                                ? ["Along the slope", `${fmt.vel(point.data.vel)} ± ${fmt.num((point.data.vel_std_mm_yr ?? NaN) / Math.abs(point.data.slope_sens))}`]
+                                : ["Along the slope", t("not shown")],
+                              ...(point.data.slope_sens != null && Number.isFinite(point.data.slope_sens)
+                                ? [["Satellite sees", `${Math.round(Math.abs(point.data.slope_sens) * 100)} %`]]
+                                : []),
+                            ]
+                          : [["Velocity", `${fmt.vel(point.data.vel)} ± ${fmt.num(point.data.vel_std_mm_yr)}`]]),
                         ["Coherence", fmt.num(point.data.temporal_coherence, 2)],
                         ["Height", `${fmt.num(point.data.height_m)} m`],
                         ["Seasonal amp.", `${fmt.num(point.data.seasonal_amp_mm)} mm`],
@@ -1553,6 +1627,11 @@ export function Explorer({ ws }: { ws: Workspace | undefined }) {
                     <div className="py-6 text-center text-[12px] text-muted">{point.error ? ts((point.error as Error).message) : t("Loading…")}</div>
                   )}
                   <div className="mt-2 text-[11px] leading-snug text-faint">{t("Velocity in mm/yr; displacement along the line of sight, relative to the reference area, 0 at the first date")}</div>
+                  {point.data?.vel_los != null && (
+                    <div className="mt-1 text-[11px] leading-snug text-faint">
+                      {t("LOS: + toward the satellite. Along the slope: − down the slope, the LOS rate divided by the share the satellite sees. The series is the LOS displacement.")}
+                    </div>
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex justify-end">{pointRain.control}</div>
