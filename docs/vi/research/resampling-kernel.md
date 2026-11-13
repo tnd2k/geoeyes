@@ -84,6 +84,15 @@ Phát hiện phụ: ngay cả lần chạy spline cũng không còn khớp golde
 tỉ lệ khớp 0,98; độ cao và độ kết hợp vẫn trong giới hạn). Nguyên nhân là thay đổi trong engine PS từ sau ngày đó,
 không phải do kernel.
 
+**Đã tìm ra nguyên nhân (2026-11-13).** Hai lần chạy cùng code HEAD trùng khít nhau (RMSE 0), nên chuỗi xử lý là
+tất định. Commit `c4d3597` (ngay trước `a9c49dc`) tái tạo đúng golden (RMSE 0). HEAD với `blas_threads(1)` của phase
+linking bị tắt cũng tái tạo đúng golden (RMSE 0, khớp 99,96 % điểm). Vậy nguyên nhân là việc phase linking chuyển sang
+một luồng BLAS cho mỗi worker (`a9c49dc`, để tránh OpenBLAS crash khi các worker gọi `eigh` cùng lúc): cách làm tròn
+của EMI / `eigh` thay đổi ở mức float (độ kết hợp lệch 1,5e-7), rồi chuỗi xử lý khuếch đại lên 0,297 mm/năm (độ
+chệch 0,0003 mm/năm). Golden được tạo lại với code hiện tại; bản 2026-11-07 giữ lại là
+`expected_2026-11-07_blas_multithread`. Đây cũng là một số đo của độ nhạy chuỗi: một nhiễu cỡ làm tròn float ở
+đầu vào cho ra khoảng 0,3 mm/năm RMS ở vận tốc.
+
 **Quyết định (chủ dự án, 2026-11-11): mặc định `spline`.** Vẫn giữ tuỳ chọn Lanczos (`[stack] resample_kernel =
-"lanczos"`, chỉ cho bộ dựng stripmap). Không làm K2 và K3. Hai việc còn mở: nguyên nhân golden bị lệch và độ nhạy của
-chuỗi xử lý.
+"lanczos"`, chỉ cho bộ dựng stripmap). Không làm K2 và K3. Việc còn mở: độ nhạy của chuỗi xử lý
+(nguyên nhân golden bị lệch đã rõ, 2026-11-13, xem trên).

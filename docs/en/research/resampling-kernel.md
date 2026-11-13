@@ -77,5 +77,14 @@ amplifies small input changes — a sensitivity worth a separate look.
 Side finding: the spline run itself no longer matches the golden reference of 2026-11-07 (velocity RMSE 0.297 >
 0.2 mm/yr; match 0.98, height and coherence within limits): a change of the PS engine since then, not the kernel.
 
+**Cause found (2026-11-13).** Two runs of the same HEAD code are identical (RMSE 0): the chain is deterministic. Commit
+`c4d3597` (just before `a9c49dc`) reproduces the golden exactly (RMSE 0), and so does HEAD with the phase-linking
+`blas_threads(1)` turned off (RMSE 0, 99.96 % of the points matched). The cause is phase linking's move to one BLAS
+thread per worker (`a9c49dc`, against the OpenBLAS crash with concurrent `eigh`): the rounding of EMI / `eigh`
+changes at float level (temporal coherence 1.5e-7 apart), and the chain amplifies it to 0.297 mm/yr (bias 0.0003
+mm/yr). The golden is regenerated with the current code; the 2026-11-07 reference is kept as
+`expected_2026-11-07_blas_multithread`. This is also a measure of the chain sensitivity: a float-rounding
+perturbation of the input gives about 0.3 mm/yr RMS in the velocities.
+
 **Decision (owner, 2026-11-11): default `spline`.** The Lanczos option stays (`[stack] resample_kernel =
-"lanczos"`, stripmap builder only); K2 and K3 are not done. Open instead: the golden drift and the chain sensitivity.
+"lanczos"`, stripmap builder only); K2 and K3 are not done. Open instead: the chain sensitivity (the golden drift is explained, 2026-11-13, above).
